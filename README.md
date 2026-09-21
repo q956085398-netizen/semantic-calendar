@@ -281,6 +281,15 @@ semantic-calendar/
 ### Phase 6 — 同步
 再评估 CalDAV、Google Calendar、Microsoft Outlook / Microsoft 365 等同步方式。
 
+## 设计文档
+
+- [项目愿景](docs/vision.md)：说明我们想解决什么问题、产品边界和长期方向。
+- [架构草案](docs/architecture.md)：描述数据源、标准化、Matcher、元数据和 UI 的分层关系。
+- [开发原则与建议做法](docs/development-principles.md)：约束早期开发方式，避免过度设计和资源浪费。
+- [开发路线草案](docs/roadmap.md)：按阶段描述验证技术栈、日历基础、语义层、中国日历和英超等方向。
+
+这些文档当前都属于“可调整的设计草案”，实现过程中如果发现更合理的方案，应及时更新，而不是为了保持文档不变而限制代码演进。
+
 ## 项目状态
 
 🚧 **早期设计与开发阶段**
