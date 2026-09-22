@@ -281,14 +281,18 @@ semantic-calendar/
 ### Phase 6 — 同步
 再评估 CalDAV、Google Calendar、Microsoft Outlook / Microsoft 365 等同步方式。
 
-## 设计文档
+## 设计与开发文档
 
+- [App Spec](docs/app-spec.md)：v0.1 产品、功能、数据、可靠性、性能、测试与发布的统一规格入口。
+- [UI Spec](docs/ui-design.md)：月视图、明暗主题、节假日 / 节气 / 比赛日与 Inspector 的视觉与交互规范。
+- [Tickets](docs/tickets.md)：v0.1 工作单、依赖关系、批次和关键路径。
 - [项目愿景](docs/vision.md)：说明我们想解决什么问题、产品边界和长期方向。
 - [架构草案](docs/architecture.md)：描述数据源、标准化、Matcher、元数据和 UI 的分层关系。
 - [开发原则与建议做法](docs/development-principles.md)：约束早期开发方式，避免过度设计和资源浪费。
 - [开发路线草案](docs/roadmap.md)：按阶段描述验证技术栈、日历基础、语义层、中国日历和英超等方向。
+- [v0.1 Epic](https://github.com/q956085398-netizen/semantic-calendar/issues/1)：GitHub 上的总进度入口。
 
-这些文档当前都属于“可调整的设计草案”，实现过程中如果发现更合理的方案，应及时更新，而不是为了保持文档不变而限制代码演进。
+文档以真实实现为准。实现过程中如果发现更合理的方案，应同步更新 Spec 与 Ticket，而不是为了保持旧文档不变而限制代码演进。
 
 ## 项目状态
 
