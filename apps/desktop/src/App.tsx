@@ -1,7 +1,19 @@
-import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { buildMonthGrid, todayKeyFromDate } from "./calendar/month-grid";
+import { MonthView } from "./calendar/MonthView";
 import { openDesktopCalendarStore } from "./data/desktop-store";
+import type { CalendarStore } from "./data/store/calendar-store";
 import type { StoreRecoveryReason } from "./data/store/calendar-store";
+import { AppShell } from "./layout/AppShell";
+import { InspectorPanel } from "./layout/InspectorPanel";
+import { Sidebar } from "./layout/Sidebar";
+import {
+  THEME_SETTING_KEY,
+  applyTheme,
+  normalizeTheme,
+  toggleTheme,
+  type Theme,
+} from "./theme/theme";
 
 const LAST_OPENED_SETTING = "app.lastOpenedAt";
 
@@ -23,8 +35,10 @@ function formatLaunchTime(iso: string): string {
 }
 
 export default function App() {
-  const [status, setStatus] = useState("桌面工作区已就绪");
+  const [theme, setTheme] = useState<Theme>("light");
   const [storeStatus, setStoreStatus] = useState("正在初始化本地数据层…");
+  const storeRef = useRef<CalendarStore | null>(null);
+  const [today] = useState(() => new Date());
 
   useEffect(() => {
     let cancelled = false;
@@ -39,6 +53,12 @@ export default function App() {
       }
 
       const { store, recovery } = opened;
+      storeRef.current = store;
+
+      const savedTheme = normalizeTheme(store.getSetting(THEME_SETTING_KEY));
+      applyTheme(savedTheme);
+      setTheme(savedTheme);
+
       const previous = store.getSetting<string | undefined>(
         LAST_OPENED_SETTING,
       );
@@ -71,31 +91,40 @@ export default function App() {
     };
   }, []);
 
-  async function verifyIpc() {
-    try {
-      const message = await invoke<string>("greet", {
-        name: "Semantic Calendar",
-      });
-      setStatus(message);
-    } catch {
-      setStatus("浏览器预览模式：Tauri IPC 仅在桌面壳中可用");
+  const grid = useMemo(
+    () =>
+      buildMonthGrid({
+        year: today.getFullYear(),
+        month: today.getMonth() + 1,
+        today: todayKeyFromDate(today),
+      }),
+    [today],
+  );
+
+  async function handleToggleTheme() {
+    const next = toggleTheme(theme);
+    setTheme(next);
+    applyTheme(next);
+
+    const store = storeRef.current;
+    if (store) {
+      store.setSetting(THEME_SETTING_KEY, next);
+      await store.save();
     }
   }
 
   return (
-    <main className="shell">
-      <section className="hero" aria-labelledby="app-title">
-        <p className="eyebrow">Semantic Calendar · v0.1 bootstrap</p>
-        <h1 id="app-title">语义日历</h1>
-        <p className="subtitle">
-          本地优先的桌面日历。当前工单建立事件模型、本地持久化与最小 IPC 链路。
-        </p>
-        <button type="button" onClick={verifyIpc}>
-          验证桌面 IPC
-        </button>
-        <output aria-live="polite">{status}</output>
-        <p className="store-status">{storeStatus}</p>
-      </section>
-    </main>
+    <AppShell
+      sidebar={
+        <Sidebar
+          theme={theme}
+          onToggleTheme={handleToggleTheme}
+          storeStatus={storeStatus}
+        />
+      }
+      inspector={<InspectorPanel date={today} />}
+    >
+      <MonthView grid={grid} />
+    </AppShell>
   );
 }

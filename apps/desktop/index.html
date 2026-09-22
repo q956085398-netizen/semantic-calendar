@@ -5,6 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f7f5ef" />
     <title>语义日历</title>
+    <script>
+      // 预绘制主题（THEME-003）：深色用户启动时不闪浅色首帧。
+      // 缓存由 theme.ts 的 applyTheme 写入；权威来源仍是本地快照 store。
+      try {
+        if (localStorage.getItem("semantic-calendar.theme") === "dark") {
+          document.documentElement.dataset.theme = "dark";
+        }
+      } catch (error) {
+        /* localStorage 不可用时按浅色启动 */
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

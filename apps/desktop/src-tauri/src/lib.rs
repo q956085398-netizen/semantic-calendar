@@ -3,11 +3,6 @@ use std::path::{Path, PathBuf};
 
 use tauri::Manager;
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("你好，{name}。Tauri IPC 工作正常。")
-}
-
 /// 本地数据快照所在的子目录（位于系统 app data dir 之下）。
 const STORE_DIR_NAME: &str = "store";
 const STORE_FILE_NAME_MAX_LEN: usize = 128;
@@ -94,7 +89,6 @@ fn data_store_rename(
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            greet,
             data_store_read,
             data_store_write,
             data_store_rename
@@ -116,14 +110,6 @@ mod tests {
             std::env::temp_dir().join(format!("semantic-calendar-rs-{}-{seq}", std::process::id()));
         fs::create_dir_all(&dir).expect("创建临时目录失败");
         dir
-    }
-
-    #[test]
-    fn greet_returns_expected_message() {
-        assert_eq!(
-            greet("Semantic Calendar"),
-            "你好，Semantic Calendar。Tauri IPC 工作正常。"
-        );
     }
 
     #[test]

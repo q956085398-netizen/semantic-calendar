@@ -335,7 +335,7 @@ npm run format    # Prettier 格式检查
 npm run tauri -- build
 ```
 
-最小前后端 IPC 链路由 React 调用 Tauri `greet` command 验证。
+前后端 IPC 由 `data_store_read` / `data_store_write` / `data_store_rename` 三个 Tauri 命令承载（读取快照、原子写入、损坏隔离改名）。
 
 本地数据层（SC-003）位于 `apps/desktop/src/data/`：
 
@@ -343,3 +343,10 @@ npm run tauri -- build
 - 持久化：版本化 JSON 快照（schema v1，带迁移链与损坏隔离恢复），存于系统应用数据目录的 `store/calendar-store.json`，原子写；
 - 桌面壳通过 Tauri 命令 `data_store_read` / `data_store_write` / `data_store_rename` 访问该目录，文件名白名单校验；
 - 存储接口按未来可替换 SQLite 适配器的形状设计（`FileIO` 端口 + 仓储方法）。
+
+桌面 UI（SC-004）位于 `apps/desktop/src/`：
+
+- 三栏骨架 `layout/AppShell.tsx`：Sidebar | Calendar | Inspector，左右栏可独立折叠（CAL-004），折叠后月历占满主区域；
+- 月视图 `calendar/month-grid.ts`（纯函数：6×7 网格、周一起始、跨月日期、今天标记）与 `calendar/MonthView.tsx`（年月标题 + 视图切换占位 + 网格渲染）；
+- 主题 `theme/theme.ts` + `index.css`：浅色暖白 / 深色炭灰同一套 CSS 变量，偏好经 `app.theme` 设置持久化（THEME-003）；
+- 侧栏数据源列表为静态骨架：真实来源由 SC-006 / SC-007 创建，显示开关由 SC-018 接线；月份导航、日期选择与 Inspector 详情属 SC-005。
