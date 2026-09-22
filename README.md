@@ -24,6 +24,7 @@ Arsenal vs Manchester City
 ## 核心能力
 
 ### 日历与导入
+
 - 月 / 周 / 日视图
 - 多日历
 - 导入本地 `.ics` 文件
@@ -34,7 +35,9 @@ Arsenal vs Manchester City
 - 时区支持
 
 ### 中国日历信息
+
 首批计划支持：
+
 - 中国法定节假日
 - 调休 / 补班
 - 传统节日
@@ -44,6 +47,7 @@ Arsenal vs Manchester City
 后续架构允许独立增加日本、英国、美国等国家或地区的数据提供器。
 
 ### 体育赛事
+
 第一阶段以足球为主，首先支持英超。
 
 例如：
@@ -65,6 +69,7 @@ Arsenal vs Chelsea
 ```
 
 随后 UI 可以显示：
+
 - 主队 / 客队徽标
 - 英超赛事标识
 - 用户主队徽标优先展示
@@ -135,8 +140,8 @@ Matcher 负责判断“这个事件是什么”。
 
 ```ts
 interface EventMatcher {
-  id: string
-  match(event: CalendarEvent): MatchResult | null
+  id: string;
+  match(event: CalendarEvent): MatchResult | null;
 }
 ```
 
@@ -151,6 +156,7 @@ matchers/
 ```
 
 Provider 负责提供结构化数据，例如：
+
 - HolidayProvider
 - FestivalProvider
 - SolarTermProvider
@@ -161,12 +167,14 @@ Provider 负责提供结构化数据，例如：
 ## 技术方向
 
 当前优先考虑：
+
 - **桌面壳**：Tauri
 - **核心能力**：Rust
 - **前端 UI**：TypeScript + React
 - **本地数据**：轻量本地存储，具体方案在原型阶段确定
 
 之所以优先考虑 Tauri，而不是 Electron，是因为本项目明确要求：
+
 - 适合长期常驻
 - 尽量降低空闲内存占用
 - 减少不必要的后台进程
@@ -209,7 +217,7 @@ semantic-calendar/
 - [ ] 桌面应用基础框架
 - [ ] 现代化月视图
 - [ ] 基本日期导航
-- [ ] 解析本地 ICS 文件
+- [x] 解析本地 ICS 文件
 - [ ] 订阅 ICS / WebCal 地址
 - [ ] 日历数据本地保存
 - [ ] 中国法定节假日
@@ -226,6 +234,7 @@ semantic-calendar/
 ## v0.1 暂不考虑
 
 为了避免第一版失控，以下内容暂不作为 v0.1 目标：
+
 - 完整替代 Google Calendar
 - 团队协作
 - Calendly 类预约排程
@@ -241,6 +250,7 @@ semantic-calendar/
 性能不是后期优化项，而是项目的基础要求。
 
 重点关注：
+
 - 空闲 CPU 占用
 - 空闲内存占用
 - 后台唤醒频率
@@ -255,6 +265,7 @@ semantic-calendar/
 ## 隐私原则
 
 日历可能包含高度私密的信息，因此默认遵循：
+
 - 尽量本地解析事件
 - 不无必要上传事件内容
 - 网络数据源必须明确可见
@@ -264,21 +275,27 @@ semantic-calendar/
 ## Roadmap
 
 ### Phase 1 — 日历基础
+
 建立轻量桌面应用和基础日历 UI。
 
 ### Phase 2 — 事件语义层
+
 完成统一事件模型、Normalizer、Matcher 和 Metadata Resolver。
 
 ### Phase 3 — 中国日历
+
 加入法定节假日、传统节日、二十四节气和农历信息。
 
 ### Phase 4 — 英超
+
 加入球队识别、比赛事件识别、徽标展示和赛前提醒。
 
 ### Phase 5 — Provider / Matcher 扩展机制
+
 让新数据源和新识别规则能够独立增加。
 
 ### Phase 6 — 同步
+
 再评估 CalDAV、Google Calendar、Microsoft Outlook / Microsoft 365 等同步方式。
 
 ## 设计与开发文档
@@ -303,7 +320,6 @@ semantic-calendar/
 ## License
 
 暂未决定。在首次公开发布前确定。
-
 
 ## 开发环境
 
@@ -352,4 +368,15 @@ npm run tauri -- build
 - 小月历 `calendar/MiniMonth.tsx`：与主视图共用同一份网格计算（CAL-002 联动），点击日期 / 步进月份双向同步；
 - Inspector `layout/InspectorPanel.tsx`：由选中日期驱动的极简日期详情（CAL-003），普通日期留白；
 - 主题 `theme/theme.ts` + `index.css`：浅色暖白 / 深色炭灰同一套 CSS 变量，偏好经 `app.theme` 设置持久化（THEME-003）；selected / hover / focus 三态视觉区分（ui-design §17 / §24）；
-- 侧栏数据源列表为静态骨架：真实来源由 SC-006 / SC-007 创建，显示开关由 SC-018 接线。
+- 侧栏数据源：SC-006 起显示已导入的本地 ICS 来源；节假日 / 节气 / 英超为内置占位（SC-011 / SC-012 / SC-016 接入），显示开关由 SC-018 接线。
+
+本地 ICS 导入（SC-006）位于 `apps/desktop/src/ics/` 与 `apps/desktop/src/data/import/`：
+
+- 解析器 `ics/parse-ics.ts`（纯函数、零依赖）：行折叠、VEVENT 提取、TEXT 转义、VALARM 嵌套跳过；映射 UID / SUMMARY / DESCRIPTION / LOCATION / DTSTART / DTEND / DURATION / RECURRENCE-ID / RRULE / EXDATE，完整原始片段保留在 `rawPayload`；
+- 错误按事件隔离（ICS-005）：坏事件进入导入报告，不阻塞其余事件；文件级失败不创建数据源；
+- 全天事件原样保留日期、不做时区换算（ICS-002 不漂移）；UTC 时间转 ISO UTC；浮动 / TZID 本地时间暂存为本地 ISO，精确换算由 SC-008 Normalizer 依据 `rawPayload` 重算；
+- 导入服务 `data/import/import-local-ics.ts`：sourceId 由文件名稳定派生，同一文件重复导入按（sourceId, UID, RECURRENCE-ID）upsert 去重（ICS-001），并更新来源同步状态（SRC-003）；
+- 事件按日期分桶（`calendar/event-buckets.ts`）：全天含跨天（DTEND 独占语义）、时间事件跨天铺满开始日至结束日（结束恰为 00:00 视为独占边界）、UTC 事件按本地日期落格；
+- UI：侧栏「导入 ICS 文件…」入口、月格事件摘要（最多 3 条 + 计数折叠，ui-design §6）、Inspector 当日事件列表（仅在实际存在时展示，§12.2）。
+
+v0.1 已知限制：RRULE 只保留原文、不展开重复实例，TZID 精确换算与 recurrence 展开由 SC-008 Normalizer 依据 `rawPayload` 统一处理；同一文件改名后再次导入会视为新来源（新增副本），来源删除入口由 SC-018 提供。

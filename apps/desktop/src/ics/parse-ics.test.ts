@@ -1,0 +1,458 @@
+import { describe, expect, it } from "vitest";
+import { parseIcsCalendar } from "./parse-ics";
+
+/**
+ * SC-006 / ICS-001–005：VEVENT 解析、基础字段映射与错误隔离。
+ *
+ * 时间约定：
+ * - VALUE=DATE 全天事件原样保留 YYYY-MM-DD，不做任何时区换算（ICS-002）；
+ * - Z 结尾的 UTC 时间转 ISO UTC；
+ * - 浮动 / TZID 本地时间转无偏移本地 ISO，精确时区换算留给 SC-008。
+ * 因此这些断言不依赖运行机器的时区。
+ */
+
+function wrap(...vevents: string[]): string {
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Semantic Calendar//Test//CN",
+    ...vevents,
+    "END:VCALENDAR",
+    "",
+  ].join("\r\n");
+}
+
+const BASIC_EVENT = [
+  "BEGIN:VEVENT",
+  "UID:match-1@example.com",
+  "SUMMARY:Arsenal vs Manchester City",
+  "DESCRIPTION:Premier League fixture",
+  "LOCATION:Emirates Stadium",
+  "DTSTART:20261018T163000Z",
+  "DTEND:20261018T183000Z",
+  "END:VEVENT",
+].join("\r\n");
+
+describe("parseIcsCalendar — 基础映射", () => {
+  it("解析完整 VEVENT 并保留全部基础字段", () => {
+    const result = parseIcsCalendar(wrap(BASIC_EVENT));
+
+    expect(result.issues).toEqual([]);
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      uid: "match-1@example.com",
+      title: "Arsenal vs Manchester City",
+      description: "Premier League fixture",
+      location: "Emirates Stadium",
+      start: "2026-10-18T16:30:00.000Z",
+      end: "2026-10-18T18:30:00.000Z",
+      allDay: false,
+    });
+  });
+
+  it("保留原始 ICS 片段供追溯与后续重新标准化（SEM-004）", () => {
+    const result = parseIcsCalendar(wrap(BASIC_EVENT));
+
+    expect(result.events[0].rawPayload).toContain("UID:match-1@example.com");
+    expect(result.events[0].rawPayload).toContain("DTSTART:20261018T163000Z");
+  });
+
+  it("缺少 SUMMARY 时以空标题入库，不视为坏事件", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:no-summary@example.com",
+          "DTSTART:20261018T163000Z",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.issues).toEqual([]);
+    expect(result.events[0].title).toBe("");
+  });
+
+  it("仅保留第一个同名字段（ICS 惯例），可携带 X- 扩展属性", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:dup@example.com",
+          "SUMMARY:第一次",
+          "SUMMARY:第二次",
+          "DTSTART:20261018T163000Z",
+          "X-CUSTOM-FLAG:whatever",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events[0].title).toBe("第一次");
+  });
+});
+
+describe("parseIcsCalendar — 全天与时间格式", () => {
+  it("VALUE=DATE 全天事件原样保留日期，不发生时区漂移（ICS-002）", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:holiday@example.com",
+          "SUMMARY:国庆假期",
+          "DTSTART;VALUE=DATE:20261001",
+          "DTEND;VALUE=DATE:20261008",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events[0]).toMatchObject({
+      allDay: true,
+      start: "2026-10-01",
+      end: "2026-10-08",
+    });
+  });
+
+  it("浮动本地时间转为无偏移本地 ISO", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:floating@example.com",
+          "SUMMARY:晚间例会",
+          "DTSTART:20260923T190000",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events[0]).toMatchObject({
+      allDay: false,
+      start: "2026-09-23T19:00:00",
+    });
+  });
+
+  it("TZID 时间按本地时间处理并保留在原始片段中，待 SC-008 精确换算", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:tzid@example.com",
+          "SUMMARY:London kickoff",
+          "DTSTART;TZID=Europe/London:20261018T150000",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events[0].start).toBe("2026-10-18T15:00:00");
+    expect(result.events[0].rawPayload).toContain(
+      "DTSTART;TZID=Europe/London:20261018T150000",
+    );
+  });
+
+  it("DURATION 代替 DTEND 时计算结束时间", () => {
+    const timed = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:duration-timed@example.com",
+          "SUMMARY:会议",
+          "DTSTART:20260923T190000",
+          "DURATION:PT1H30M",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+    expect(timed.events[0].end).toBe("2026-09-23T20:30:00");
+
+    const allDay = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:duration-day@example.com",
+          "SUMMARY:出差",
+          "DTSTART;VALUE=DATE:20260923",
+          "DURATION:P2D",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+    expect(allDay.events[0].end).toBe("2026-09-25");
+  });
+
+  it("裸日期值（无 VALUE=DATE 参数）也按全天处理", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:bare-date@example.com",
+          "SUMMARY:纪念日",
+          "DTSTART:20261008",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events[0]).toMatchObject({
+      allDay: true,
+      start: "2026-10-08",
+    });
+  });
+});
+
+describe("parseIcsCalendar — 文本处理", () => {
+  it("展开折叠行：长 SUMMARY 续行拼接还原", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:folded@example.com",
+          "SUMMARY:Premier League Matchweek 8 Arsenal",
+          "  vs Manchester City at Emirates Stadium",
+          "DTSTART:20261018T163000Z",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events[0].title).toBe(
+      "Premier League Matchweek 8 Arsenal vs Manchester City at Emirates Stadium",
+    );
+  });
+
+  it("还原 TEXT 转义：\\n \\, \\; \\\\", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:escaped@example.com",
+          "SUMMARY:Team A\\, Team B \\; preview",
+          "DESCRIPTION:Line 1\\nLine 2\\\\end",
+          "DTSTART:20261018T163000Z",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events[0].title).toBe("Team A, Team B ; preview");
+    expect(result.events[0].description).toBe("Line 1\nLine 2\\end");
+  });
+
+  it("容忍 BOM 与 LF-only 行尾", () => {
+    const text =
+      "\uFEFFBEGIN:VCALENDAR\n" +
+      "BEGIN:VEVENT\n" +
+      "UID:lf@example.com\n" +
+      "SUMMARY:LF event\n" +
+      "DTSTART:20261018T163000Z\n" +
+      "END:VEVENT\n" +
+      "END:VCALENDAR\n";
+
+    const result = parseIcsCalendar(text);
+
+    expect(result.issues).toEqual([]);
+    expect(result.events[0].title).toBe("LF event");
+  });
+});
+
+describe("parseIcsCalendar — 组件边界", () => {
+  it("跳过 VEVENT 内嵌的 VALARM，不污染外层字段", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:alarm@example.com",
+          "SUMMARY:带提醒的比赛",
+          "DESCRIPTION:外层描述",
+          "DTSTART:20261018T163000Z",
+          "BEGIN:VALARM",
+          "TRIGGER:-PT30M",
+          "DESCRIPTION:30 分钟前开赛",
+          "END:VALARM",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0].description).toBe("外层描述");
+    expect(result.events[0].title).toBe("带提醒的比赛");
+  });
+
+  it("忽略 VCALENDAR 之外的顶层属性", () => {
+    const result = parseIcsCalendar(wrap(BASIC_EVENT));
+
+    expect(result.events).toHaveLength(1);
+  });
+});
+
+describe("parseIcsCalendar — 重复事件字段（SC-008 前置保留）", () => {
+  it("保留 RRULE 与 EXDATE 原始值", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:rrule@example.com",
+          "SUMMARY:每周站会",
+          "DTSTART:20260923T090000",
+          "RRULE:FREQ=WEEKLY;BYDAY=WE;COUNT=10",
+          "EXDATE:20260930T090000",
+          "EXDATE:20261007T090000",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events[0].recurrence).toEqual({
+      rrule: "FREQ=WEEKLY;BYDAY=WE;COUNT=10",
+      exdates: ["20260930T090000", "20261007T090000"],
+    });
+  });
+
+  it("RECURRENCE-ID 规范化为 occurrenceId（ICS-001 身份）", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:rrule@example.com",
+          "RECURRENCE-ID:20260923T090000",
+          "SUMMARY:每周站会（改期）",
+          "DTSTART:20260924T100000",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events[0].occurrenceId).toBe("2026-09-23T09:00:00");
+  });
+});
+
+describe("parseIcsCalendar — 错误隔离（ICS-005）", () => {
+  it("未闭合的 VEVENT 按坏事件报告，不静默消失", () => {
+    const result = parseIcsCalendar(
+      [
+        "BEGIN:VCALENDAR",
+        BASIC_EVENT,
+        "BEGIN:VEVENT",
+        "UID:truncated@example.com",
+        "SUMMARY:被截断的事件",
+        "DTSTART:20261018T163000Z",
+        "END:VCALENDAR",
+        "",
+      ].join("\r\n"),
+    );
+
+    expect(result.events).toHaveLength(1);
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0]).toMatchObject({
+      eventIndex: 2,
+      message: "VEVENT 未闭合",
+    });
+  });
+
+  it("缺 UID 的事件被跳过，其余事件继续导入", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "SUMMARY:没有 UID 的事件",
+          "DTSTART:20261018T163000Z",
+          "END:VEVENT",
+          BASIC_EVENT,
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0].uid).toBe("match-1@example.com");
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].eventIndex).toBe(1);
+    expect(result.issues[0].message).toContain("UID");
+  });
+
+  it("缺 DTSTART 的事件被跳过并报告", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:no-start@example.com",
+          "SUMMARY:没有开始时间",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events).toHaveLength(0);
+    expect(result.issues[0].eventIndex).toBe(1);
+    expect(result.issues[0].message).toContain("DTSTART");
+  });
+
+  it("DTSTART 格式非法的事件被跳过并报告", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:bad-date@example.com",
+          "SUMMARY:坏日期",
+          "DTSTART:not-a-date",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events).toHaveLength(0);
+    expect(result.issues[0].message).toContain("DTSTART");
+  });
+
+  it("一个坏事件不会使整个文件失败：好坏混合导入", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        BASIC_EVENT,
+        [
+          "BEGIN:VEVENT",
+          "UID:broken@example.com",
+          "SUMMARY:坏事件",
+          "DTSTART:20261345T990000Z",
+          "END:VEVENT",
+        ].join("\r\n"),
+        [
+          "BEGIN:VEVENT",
+          "UID:match-2@example.com",
+          "SUMMARY:Liverpool vs Chelsea",
+          "DTSTART:20261025T150000Z",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events).toHaveLength(2);
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].eventIndex).toBe(2);
+  });
+});
+
+describe("parseIcsCalendar — 文件级失败", () => {
+  it("空文本：报告文件级问题，不抛异常", () => {
+    const result = parseIcsCalendar("");
+
+    expect(result.events).toEqual([]);
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].eventIndex).toBeUndefined();
+  });
+
+  it("非 ICS 文本：报告文件级问题", () => {
+    const result = parseIcsCalendar("这是一个普通文本文件，不是日历。");
+
+    expect(result.events).toEqual([]);
+    expect(result.issues[0].eventIndex).toBeUndefined();
+  });
+
+  it("没有 VCALENDAR 包裹但含合法 VEVENT 时宽松解析", () => {
+    const result = parseIcsCalendar(BASIC_EVENT + "\r\n");
+
+    expect(result.issues).toEqual([]);
+    expect(result.events).toHaveLength(1);
+  });
+});

@@ -442,6 +442,193 @@ describe("明暗主题（THEME-001 / THEME-002 / THEME-003）", () => {
   });
 });
 
+/** SC-006 集成：文件选择 → ICS 解析 → 落库 → 月视图可见。 */
+const IMPORT_ICS = [
+  "BEGIN:VCALENDAR",
+  "VERSION:2.0",
+  "BEGIN:VEVENT",
+  "UID:evening@example.com",
+  "SUMMARY:晚间例会",
+  "DTSTART:20260923T190000",
+  "END:VEVENT",
+  "BEGIN:VEVENT",
+  "UID:allday@example.com",
+  "SUMMARY:全天出行",
+  "DTSTART;VALUE=DATE:20260924",
+  "END:VEVENT",
+  "END:VCALENDAR",
+  "",
+].join("\r\n");
+
+function icsFile(contents: string, name = "team.ics"): File {
+  return new File([contents], name, { type: "text/calendar" });
+}
+
+function chooseImportFile(file: File) {
+  const input = screen.getByLabelText(/导入 ICS 文件/) as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [file] } });
+}
+
+/** 冻结时钟、渲染 App 并等待本地数据层就绪。 */
+async function renderReadyApp() {
+  freezeClock();
+  render(<App />);
+  await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
+}
+
+describe("本地 ICS 导入（SC-006 / SRC-001）", () => {
+  it("导入后事件落在月格并在侧栏出现数据源", async () => {
+    await renderReadyApp();
+
+    chooseImportFile(icsFile(IMPORT_ICS));
+
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    await waitFor(() =>
+      expect(
+        within(grid.querySelector('[data-date="2026-09-23"]')!).getByText(
+          "19:00 晚间例会",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(
+      within(grid.querySelector('[data-date="2026-09-24"]')!).getByText(
+        "全天出行",
+      ),
+    ).toBeTruthy();
+
+    // 侧栏列出新建数据源。
+    const sidebar = screen.getByRole("complementary", { name: "侧栏" });
+    expect(within(sidebar).getByText("team.ics")).toBeTruthy();
+  });
+
+  it("导入结果写入本地快照（解析 → 落库链路）", async () => {
+    await renderReadyApp();
+
+    chooseImportFile(icsFile(IMPORT_ICS));
+    await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
+
+    const lastSnapshot = writtenSnapshots().at(-1)!;
+    expect(lastSnapshot.sources).toEqual([
+      expect.objectContaining({
+        id: "local-ics:team",
+        type: "local-ics",
+        name: "team.ics",
+        enabled: true,
+        lastSyncStatus: "ok",
+      }),
+    ]);
+    expect(lastSnapshot.events).toHaveLength(2);
+    expect(lastSnapshot.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          uid: "evening@example.com",
+          title: "晚间例会",
+          start: "2026-09-23T19:00:00",
+          allDay: false,
+        }),
+        expect.objectContaining({
+          uid: "allday@example.com",
+          start: "2026-09-24",
+          allDay: true,
+        }),
+      ]),
+    );
+  });
+
+  it("重复导入同一文件不产生重复副本（ICS-001）", async () => {
+    await renderReadyApp();
+
+    chooseImportFile(icsFile(IMPORT_ICS));
+    await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
+    chooseImportFile(icsFile(IMPORT_ICS));
+    await waitFor(() => expect(screen.getByText(/更新 2/)).toBeTruthy());
+
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const todayCell = grid.querySelector(
+      '[data-date="2026-09-23"]',
+    ) as HTMLElement;
+    expect(within(todayCell).getAllByText("19:00 晚间例会")).toHaveLength(1);
+    expect(writtenSnapshots().at(-1)!.events).toHaveLength(2);
+  });
+
+  it("坏事件被隔离并计入导入报告（ICS-005）", async () => {
+    await renderReadyApp();
+
+    const mixed = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "BEGIN:VEVENT",
+      "SUMMARY:没有 UID",
+      "DTSTART:20260923T190000",
+      "END:VEVENT",
+      "BEGIN:VEVENT",
+      "UID:good@example.com",
+      "SUMMARY:好事件",
+      "DTSTART:20260923T200000",
+      "END:VEVENT",
+      "END:VCALENDAR",
+      "",
+    ].join("\r\n");
+    chooseImportFile(icsFile(mixed));
+
+    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+    expect(screen.getByText(/跳过 1/)).toBeTruthy();
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    expect(
+      within(grid.querySelector('[data-date="2026-09-23"]')!).getByText(
+        "20:00 好事件",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("非 ICS 文件提示失败且不创建数据源", async () => {
+    await renderReadyApp();
+
+    chooseImportFile(icsFile("这不是日历文件", "broken.ics"));
+
+    await waitFor(() =>
+      expect(screen.getByText(/导入失败：不是有效的 ICS/)).toBeTruthy(),
+    );
+    const sidebar = screen.getByRole("complementary", { name: "侧栏" });
+    expect(within(sidebar).queryByText("broken.ics")).toBeNull();
+    expect(writtenSnapshots().at(-1)!.sources).toEqual([]);
+  });
+
+  it("点击日期后 Inspector 列出当日事件（CAL-003）", async () => {
+    await renderReadyApp();
+    chooseImportFile(icsFile(IMPORT_ICS));
+    await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
+
+    fireEvent.click(
+      screen
+        .getByRole("grid", { name: "2026年9月" })
+        .querySelector('[data-date="2026-09-24"]') as HTMLElement,
+    );
+
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(within(inspector).getByText("全天出行")).toBeTruthy();
+    expect(within(inspector).getByText("全天")).toBeTruthy();
+  });
+
+  it("预览模式下导入给出降级提示", async () => {
+    freezeClock();
+    mockBackend({
+      dataStoreRead: new Error(
+        "window.__TAURI_INTERNALS__ is undefined（浏览器预览）",
+      ),
+    });
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/仅桌面壳可用/)).toBeTruthy());
+
+    chooseImportFile(icsFile(IMPORT_ICS));
+
+    await waitFor(() =>
+      expect(screen.getByText(/预览模式.*导入/)).toBeTruthy(),
+    );
+  });
+});
+
 describe("本地数据层接线", () => {
   it("首次启动时创建快照并记录启动时间", async () => {
     freezeClock();

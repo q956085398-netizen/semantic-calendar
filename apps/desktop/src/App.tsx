@@ -7,9 +7,15 @@ import {
   todayKeyFromDate,
   type YearMonth,
 } from "./calendar/month-grid";
+import { bucketEventsByDateKey } from "./calendar/event-buckets";
 import { MiniMonth } from "./calendar/MiniMonth";
 import { MonthView } from "./calendar/MonthView";
 import { openDesktopCalendarStore } from "./data/desktop-store";
+import type { CalendarSource, EnrichedEvent } from "./data/model";
+import {
+  importLocalIcs,
+  type LocalIcsImportOutcome,
+} from "./data/import/import-local-ics";
 import type { CalendarStore } from "./data/store/calendar-store";
 import type { StoreRecoveryReason } from "./data/store/calendar-store";
 import { AppShell } from "./layout/AppShell";
@@ -31,6 +37,31 @@ const REASON_LABELS: Record<StoreRecoveryReason, string> = {
   "future-version": "来自更新版本的应用",
 };
 
+/** 导入结果 → 用户可读状态；只报告数量、位置与结构原因，不外泄事件正文（app-spec §14）。 */
+function formatImportStatus(outcome: LocalIcsImportOutcome): string {
+  const fileIssue = outcome.issues.find(
+    (issue) => issue.eventIndex === undefined,
+  );
+  if (!outcome.source && fileIssue) {
+    return `导入失败：${fileIssue.message}`;
+  }
+  const name = outcome.source?.name ?? "";
+  const parts = [`新增 ${outcome.inserted}`];
+  if (outcome.updated > 0) {
+    parts.push(`更新 ${outcome.updated}`);
+  }
+  if (outcome.skipped > 0) {
+    const first = outcome.issues.find(
+      (issue) => issue.eventIndex !== undefined,
+    );
+    parts.push(
+      `跳过 ${outcome.skipped} 个无法解析的事件` +
+        (first ? `（第 ${first.eventIndex} 项：${first.message}）` : ""),
+    );
+  }
+  return `已导入「${name}」：${parts.join("、")}`;
+}
+
 function formatLaunchTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) {
@@ -48,6 +79,12 @@ export default function App() {
   const storeRef = useRef<CalendarStore | null>(null);
   const [today] = useState(() => new Date());
 
+  // 数据源与事件（SC-006）：从本地数据层读出，导入后刷新。
+  const [sources, setSources] = useState<CalendarSource[]>([]);
+  const [events, setEvents] = useState<EnrichedEvent[]>([]);
+  const [importStatus, setImportStatus] = useState<string | undefined>();
+  const [importBusy, setImportBusy] = useState(false);
+
   // 视图月份与选中日期（SC-005 / CAL-002）：today 只作为初始锚点注入，
   // 网格计算保持纯函数（month-grid），不在此读取真实时钟。
   const todayKey = useMemo(() => todayKeyFromDate(today), [today]);
@@ -61,6 +98,20 @@ export default function App() {
     () => buildMonthGrid({ ...view, today: todayKey }),
     [view, todayKey],
   );
+  const eventsByDate = useMemo(() => bucketEventsByDateKey(events), [events]);
+  const selectedEvents = eventsByDate.get(selectedDateKey) ?? [];
+
+  /** 从本地数据层重建 UI 状态；只显示启用来源的事件（SRC-003）。 */
+  function refreshFromStore(store: CalendarStore) {
+    const nextSources = store.listSources();
+    const enabled = new Set(
+      nextSources.filter((source) => source.enabled).map((source) => source.id),
+    );
+    setSources(nextSources);
+    setEvents(
+      store.listEnrichedEvents().filter((event) => enabled.has(event.sourceId)),
+    );
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +127,7 @@ export default function App() {
 
       const { store, recovery } = opened;
       storeRef.current = store;
+      refreshFromStore(store);
 
       const savedTheme = normalizeTheme(store.getSetting(THEME_SETTING_KEY));
       applyTheme(savedTheme);
@@ -155,6 +207,35 @@ export default function App() {
     }
   }
 
+  /**
+   * 导入本地 ICS（SC-006 / SRC-001）：文件选择 → 解析 → 落库 → 刷新。
+   * 解析错误按事件隔离后聚合反馈（ICS-005），异常也不中断月视图。
+   */
+  async function handleImportIcs(file: File) {
+    const store = storeRef.current;
+    if (!store) {
+      setImportStatus("浏览器预览模式：导入需要桌面环境");
+      return;
+    }
+    setImportBusy(true);
+    try {
+      const contents = await file.text();
+      const outcome = await importLocalIcs(store, {
+        fileName: file.name,
+        contents,
+      });
+      await store.save();
+      refreshFromStore(store);
+      setImportStatus(formatImportStatus(outcome));
+    } catch (error) {
+      setImportStatus(
+        `导入失败：${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
   return (
     <AppShell
       sidebar={
@@ -170,9 +251,15 @@ export default function App() {
               onStepMonth={stepMonth}
             />
           }
+          sources={sources}
+          onImportIcs={handleImportIcs}
+          importBusy={importBusy}
+          importStatus={importStatus}
         />
       }
-      inspector={<InspectorPanel dateKey={selectedDateKey} />}
+      inspector={
+        <InspectorPanel dateKey={selectedDateKey} events={selectedEvents} />
+      }
     >
       <MonthView
         grid={grid}
@@ -181,6 +268,7 @@ export default function App() {
         onStepMonth={stepMonth}
         onGoToToday={goToToday}
         onStepSelection={stepSelection}
+        eventsByDate={eventsByDate}
       />
     </AppShell>
   );

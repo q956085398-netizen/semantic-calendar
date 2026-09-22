@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, type KeyboardEvent } from "react";
+import { eventKey, identityOfEvent, type EnrichedEvent } from "../data/model";
 import { WEEKDAY_LABELS, type MonthGrid } from "./month-grid";
+import { eventTimeLabel } from "./event-display";
 
 /**
  * 月视图（CAL-001 / CAL-002）：6×7 网格、月份导航、日期选择。
@@ -8,6 +10,7 @@ import { WEEKDAY_LABELS, type MonthGrid } from "./month-grid";
  * - 选择遵循 WAI-ARIA grid 模式：roving tabindex，选中格 aria-selected；
  * - 方向键 ±1 / ±7 天移动选择，跨出当前月时由 App 联动切换视图；
  * - 键盘 / 点击选择后焦点落在新的选中格，跨月导航后焦点不丢失；
+ * - 事件摘要按日期键注入（SC-006），只做排版不做业务判断；
  * - 农历简写与语义视觉分别由 SC-010 / SC-013 填充；
  * - v0.1 只提供月视图，周 / 日入口保留占位但不激活。
  */
@@ -20,6 +23,9 @@ const ARROW_STEPS: Record<string, number> = {
   ArrowDown: 7,
 };
 
+/** 单格最多直接展示的事件数，其余折叠为计数（ui-design §6 必要摘要）。 */
+const MAX_CELL_EVENTS = 3;
+
 interface MonthViewProps {
   grid: MonthGrid;
   selectedDateKey: string;
@@ -29,6 +35,8 @@ interface MonthViewProps {
   onGoToToday: () => void;
   /** 按天移动当前选择（键盘导航）。 */
   onStepSelection: (days: number) => void;
+  /** 按日期键分桶的事件（SC-006 导入结果）。 */
+  eventsByDate: Map<string, EnrichedEvent[]>;
 }
 
 export function MonthView({
@@ -38,6 +46,7 @@ export function MonthView({
   onStepMonth,
   onGoToToday,
   onStepSelection,
+  eventsByDate,
 }: MonthViewProps) {
   const title = `${grid.year}年${grid.month}月`;
   // roving tabindex 的落点：优先选中格。纯月份导航不移动选择，选中格可能
@@ -166,6 +175,7 @@ export function MonthView({
                   onKeyDown={handleKeyDown}
                 >
                   <span className="cell-day">{cell.day}</span>
+                  <CellEvents events={eventsByDate.get(cell.dateKey)} />
                 </div>
               );
             })}
@@ -173,5 +183,32 @@ export function MonthView({
         ))}
       </div>
     </section>
+  );
+}
+
+/** 单格事件摘要：时间前缀 + 标题，超出上限折叠为计数。 */
+function CellEvents({ events }: { events: EnrichedEvent[] | undefined }) {
+  if (!events || events.length === 0) {
+    return null;
+  }
+  const visible = events.slice(0, MAX_CELL_EVENTS);
+  const hidden = events.length - visible.length;
+  return (
+    <div className="cell-events">
+      {visible.map((event) => {
+        const time = eventTimeLabel(event);
+        return (
+          <span
+            key={eventKey(identityOfEvent(event))}
+            className="cell-event"
+            title={event.title}
+          >
+            {time ? `${time} ` : ""}
+            {event.title || "（无标题）"}
+          </span>
+        );
+      })}
+      {hidden > 0 && <span className="cell-event-more">还有 {hidden} 项</span>}
+    </div>
   );
 }
