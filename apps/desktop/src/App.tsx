@@ -6,7 +6,9 @@ export default function App() {
 
   async function verifyIpc() {
     try {
-      const message = await invoke<string>("greet", { name: "Semantic Calendar" });
+      const message = await invoke<string>("greet", {
+        name: "Semantic Calendar",
+      });
       setStatus(message);
     } catch {
       setStatus("浏览器预览模式：Tauri IPC 仅在桌面壳中可用");
@@ -19,7 +21,8 @@ export default function App() {
         <p className="eyebrow">Semantic Calendar · v0.1 bootstrap</p>
         <h1 id="app-title">语义日历</h1>
         <p className="subtitle">
-          本地优先的桌面日历。当前工单建立 React、TypeScript、Tauri 与最小 IPC 链路。
+          本地优先的桌面日历。当前工单建立 React、TypeScript、Tauri 与最小 IPC
+          链路。
         </p>
         <button type="button" onClick={verifyIpc}>
           验证桌面 IPC
