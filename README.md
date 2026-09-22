@@ -336,3 +336,10 @@ npm run tauri -- build
 ```
 
 最小前后端 IPC 链路由 React 调用 Tauri `greet` command 验证。
+
+本地数据层（SC-003）位于 `apps/desktop/src/data/`：
+
+- 事件模型：`CalendarSource` / `RawCalendarEvent` / `NormalizedEvent` / `SemanticEvent` / `EnrichedEvent`（见 [app-spec.md](docs/app-spec.md) §8）；
+- 持久化：版本化 JSON 快照（schema v1，带迁移链与损坏隔离恢复），存于系统应用数据目录的 `store/calendar-store.json`，原子写；
+- 桌面壳通过 Tauri 命令 `data_store_read` / `data_store_write` / `data_store_rename` 访问该目录，文件名白名单校验；
+- 存储接口按未来可替换 SQLite 适配器的形状设计（`FileIO` 端口 + 仓储方法）。

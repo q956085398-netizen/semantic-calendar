@@ -70,3 +70,8 @@ output {
   color: #66727d;
   font-size: 14px;
 }
+.store-status {
+  margin: 6px 0 0;
+  color: #8a949d;
+  font-size: 13px;
+}
