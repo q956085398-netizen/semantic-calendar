@@ -303,3 +303,36 @@ semantic-calendar/
 ## License
 
 暂未决定。在首次公开发布前确定。
+
+
+## 开发环境
+
+桌面端位于 `apps/desktop`，使用 Tauri + React + TypeScript。
+
+前置环境：
+
+- Node.js 20+
+- npm 10+
+- Rust stable
+- Windows 开发时需安装 Tauri 官方要求的 WebView2 / C++ 构建工具
+
+在仓库根目录执行：
+
+```bash
+npm install
+npm run dev
+```
+
+常用命令：
+
+```bash
+npm run dev       # 启动 Vite 前端开发服务器
+npm run tauri -- dev
+npm run build     # TypeScript 检查 + Vite 生产构建
+npm run test      # Vitest
+npm run lint      # ESLint
+npm run format    # Prettier 格式检查
+npm run tauri -- build
+```
+
+最小前后端 IPC 链路由 React 调用 Tauri `greet` command 验证。
