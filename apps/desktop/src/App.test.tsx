@@ -186,6 +186,205 @@ describe("三栏布局与月视图（SC-004 / CAL-001 / CAL-004）", () => {
   });
 });
 
+describe("月份导航与日期选择（SC-005 / CAL-002 / CAL-003）", () => {
+  it("上一月 / 下一月切换年月与网格日期", () => {
+    freezeClock();
+    render(<App />);
+    const main = screen.getByRole("main");
+
+    fireEvent.click(within(main).getByRole("button", { name: "下一月" }));
+    expect(
+      within(main).getByRole("heading", { name: "2026年10月" }),
+    ).toBeTruthy();
+    const octoberGrid = within(main).getByRole("grid", { name: "2026年10月" });
+    // 2026-10-01 是周四：周一起始的首格是 9月28日。
+    expect(octoberGrid.querySelector('[data-date="2026-09-28"]')).toBeTruthy();
+    const firstInMonth = octoberGrid.querySelector('[data-date="2026-10-01"]');
+    expect(firstInMonth?.hasAttribute("data-outside")).toBe(false);
+    // 今天（9月23日）不在 10 月网格内：无 today 标记。
+    expect(octoberGrid.querySelectorAll('[data-today="true"]')).toHaveLength(0);
+
+    fireEvent.click(within(main).getByRole("button", { name: "上一月" }));
+    expect(
+      within(main).getByRole("heading", { name: "2026年9月" }),
+    ).toBeTruthy();
+  });
+
+  it("纯月份导航后网格仍保留键盘落点（§16 / §24）", () => {
+    freezeClock();
+    render(<App />);
+    const main = screen.getByRole("main");
+
+    // 连续导航到 12 月：选中日期（9月23日）与今天都不在该网格内。
+    for (let i = 0; i < 3; i += 1) {
+      fireEvent.click(within(main).getByRole("button", { name: "下一月" }));
+    }
+    const decemberGrid = within(main).getByRole("grid", { name: "2026年12月" });
+    expect(
+      decemberGrid.querySelectorAll('[aria-selected="true"]'),
+    ).toHaveLength(0);
+    // 当月首格兜底进入 tab 序，键盘用户不会丢失网格入口。
+    const firstCell = decemberGrid.querySelector(
+      '[data-date="2026-12-01"]',
+    ) as HTMLElement;
+    expect(firstCell.tabIndex).toBe(0);
+  });
+
+  it("「今天」回到当前月并选中今天", () => {
+    freezeClock();
+    render(<App />);
+    const main = screen.getByRole("main");
+
+    fireEvent.click(within(main).getByRole("button", { name: "下一月" }));
+    fireEvent.click(within(main).getByRole("button", { name: "今天" }));
+
+    expect(
+      within(main).getByRole("heading", { name: "2026年9月" }),
+    ).toBeTruthy();
+    const todayCell = within(main)
+      .getByRole("grid", { name: "2026年9月" })
+      .querySelector('[data-date="2026-09-23"]');
+    expect(todayCell?.getAttribute("aria-selected")).toBe("true");
+
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(within(inspector).getByText("9月23日")).toBeTruthy();
+  });
+
+  it("点击日期更新选中与 Inspector，今天标记不受影响", () => {
+    freezeClock();
+    render(<App />);
+    const main = screen.getByRole("main");
+    const grid = within(main).getByRole("grid", { name: "2026年9月" });
+
+    fireEvent.click(grid.querySelector('[data-date="2026-09-12"]')!);
+
+    const selected = grid.querySelector('[data-date="2026-09-12"]');
+    expect(selected?.getAttribute("aria-selected")).toBe("true");
+    expect(selected?.className).toContain("is-selected");
+    expect(grid.querySelectorAll('[aria-selected="true"]')).toHaveLength(1);
+    expect(
+      grid.querySelector('[data-today="true"]')?.getAttribute("data-date"),
+    ).toBe("2026-09-23");
+
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(within(inspector).getByText("SATURDAY")).toBeTruthy();
+    expect(within(inspector).getByText("9月12日")).toBeTruthy();
+  });
+
+  it("点击跨月日期切换到对应月份并保持选中", () => {
+    freezeClock();
+    render(<App />);
+    const main = screen.getByRole("main");
+
+    fireEvent.click(
+      within(main)
+        .getByRole("grid", { name: "2026年9月" })
+        .querySelector('[data-date="2026-10-08"]')!,
+    );
+
+    expect(
+      within(main).getByRole("heading", { name: "2026年10月" }),
+    ).toBeTruthy();
+    const octoberGrid = within(main).getByRole("grid", { name: "2026年10月" });
+    const selected = octoberGrid.querySelector('[data-date="2026-10-08"]');
+    expect(selected?.getAttribute("aria-selected")).toBe("true");
+    expect(selected?.hasAttribute("data-outside")).toBe(false);
+
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(within(inspector).getByText("THURSDAY")).toBeTruthy();
+    expect(within(inspector).getByText("10月8日")).toBeTruthy();
+  });
+
+  it("方向键移动选择，焦点跟随，跨月自动导航（roving tabindex）", async () => {
+    freezeClock();
+    render(<App />);
+    const main = screen.getByRole("main");
+    const grid = within(main).getByRole("grid", { name: "2026年9月" });
+
+    // 初始：今天为选中格，进入 tab 序；其余格移出。
+    const todayCell = grid.querySelector(
+      '[data-date="2026-09-23"]',
+    ) as HTMLElement;
+    expect(todayCell.tabIndex).toBe(0);
+    expect(
+      (grid.querySelector('[data-date="2026-09-24"]') as HTMLElement).tabIndex,
+    ).toBe(-1);
+
+    fireEvent.keyDown(todayCell, { key: "ArrowRight" });
+    expect(
+      grid
+        .querySelector('[data-date="2026-09-24"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute("data-date")).toBe(
+        "2026-09-24",
+      ),
+    );
+
+    // +7 天跨入 10 月：视图联动切换，焦点与选中落在 10月1日。
+    fireEvent.keyDown(document.activeElement as HTMLElement, {
+      key: "ArrowDown",
+    });
+    expect(
+      within(main).getByRole("heading", { name: "2026年10月" }),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute("data-date")).toBe(
+        "2026-10-01",
+      ),
+    );
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(within(inspector).getByText("10月1日")).toBeTruthy();
+
+    // -7 天回到 9 月。
+    fireEvent.keyDown(document.activeElement as HTMLElement, {
+      key: "ArrowUp",
+    });
+    expect(
+      within(main).getByRole("heading", { name: "2026年9月" }),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute("data-date")).toBe(
+        "2026-09-24",
+      ),
+    );
+  });
+
+  it("小月历与主视图联动（CAL-002）", () => {
+    freezeClock();
+    render(<App />);
+    const main = screen.getByRole("main");
+    const sidebar = screen.getByRole("complementary", { name: "侧栏" });
+
+    expect(within(sidebar).getByText("2026年9月")).toBeTruthy();
+
+    // 主视图导航 → 小月历跟随。
+    fireEvent.click(within(main).getByRole("button", { name: "下一月" }));
+    expect(within(sidebar).getByText("2026年10月")).toBeTruthy();
+
+    // 小月历点击日期 → 主视图选中并更新 Inspector。
+    fireEvent.click(
+      within(sidebar).getByRole("button", { name: "2026年10月18日" }),
+    );
+    expect(
+      within(main)
+        .getByRole("grid", { name: "2026年10月" })
+        .querySelector('[data-date="2026-10-18"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(within(inspector).getByText("10月18日")).toBeTruthy();
+
+    // 小月历后退 → 主视图跟随。
+    fireEvent.click(within(sidebar).getByRole("button", { name: "上一月" }));
+    expect(
+      within(main).getByRole("heading", { name: "2026年9月" }),
+    ).toBeTruthy();
+    expect(within(sidebar).getByText("2026年9月")).toBeTruthy();
+  });
+});
+
 describe("明暗主题（THEME-001 / THEME-002 / THEME-003）", () => {
   it("从持久化快照恢复深色主题", async () => {
     mockBackend({

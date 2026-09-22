@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { buildMonthGrid, todayKeyFromDate } from "./calendar/month-grid";
+import {
+  addMonths,
+  buildMonthGrid,
+  parseDateKey,
+  shiftDateKey,
+  todayKeyFromDate,
+  type YearMonth,
+} from "./calendar/month-grid";
+import { MiniMonth } from "./calendar/MiniMonth";
 import { MonthView } from "./calendar/MonthView";
 import { openDesktopCalendarStore } from "./data/desktop-store";
 import type { CalendarStore } from "./data/store/calendar-store";
@@ -39,6 +47,20 @@ export default function App() {
   const [storeStatus, setStoreStatus] = useState("正在初始化本地数据层…");
   const storeRef = useRef<CalendarStore | null>(null);
   const [today] = useState(() => new Date());
+
+  // 视图月份与选中日期（SC-005 / CAL-002）：today 只作为初始锚点注入，
+  // 网格计算保持纯函数（month-grid），不在此读取真实时钟。
+  const todayKey = useMemo(() => todayKeyFromDate(today), [today]);
+  const [view, setView] = useState<YearMonth>(() => ({
+    year: today.getFullYear(),
+    month: today.getMonth() + 1,
+  }));
+  const [selectedDateKey, setSelectedDateKey] = useState(todayKey);
+
+  const grid = useMemo(
+    () => buildMonthGrid({ ...view, today: todayKey }),
+    [view, todayKey],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -91,15 +113,35 @@ export default function App() {
     };
   }, []);
 
-  const grid = useMemo(
-    () =>
-      buildMonthGrid({
-        year: today.getFullYear(),
-        month: today.getMonth() + 1,
-        today: todayKeyFromDate(today),
-      }),
-    [today],
-  );
+  /** 月份步进（主视图与小月历共用），纯计算跨年进位。 */
+  function stepMonth(delta: number) {
+    setView((current) => addMonths(current, delta));
+  }
+
+  /** 回到今天：视图月份与选中日期同时归位（CAL-002）。 */
+  function goToToday() {
+    setView({ year: today.getFullYear(), month: today.getMonth() + 1 });
+    setSelectedDateKey(todayKey);
+  }
+
+  /**
+   * 选择日期：选中跨出当前视图月时自动切换视图，
+   * 使选中格永远可见（跨月日期点击 / 方向键导航共用）。
+   */
+  function selectDate(dateKey: string) {
+    setSelectedDateKey(dateKey);
+    const { year, month } = parseDateKey(dateKey);
+    setView((current) =>
+      current.year === year && current.month === month
+        ? current
+        : { year, month },
+    );
+  }
+
+  /** 键盘导航：从当前选中日期按天移动。 */
+  function stepSelection(days: number) {
+    selectDate(shiftDateKey(selectedDateKey, days));
+  }
 
   async function handleToggleTheme() {
     const next = toggleTheme(theme);
@@ -120,11 +162,26 @@ export default function App() {
           theme={theme}
           onToggleTheme={handleToggleTheme}
           storeStatus={storeStatus}
+          miniCalendar={
+            <MiniMonth
+              grid={grid}
+              selectedDateKey={selectedDateKey}
+              onSelectDate={selectDate}
+              onStepMonth={stepMonth}
+            />
+          }
         />
       }
-      inspector={<InspectorPanel date={today} />}
+      inspector={<InspectorPanel dateKey={selectedDateKey} />}
     >
-      <MonthView grid={grid} />
+      <MonthView
+        grid={grid}
+        selectedDateKey={selectedDateKey}
+        onSelectDate={selectDate}
+        onStepMonth={stepMonth}
+        onGoToToday={goToToday}
+        onStepSelection={stepSelection}
+      />
     </AppShell>
   );
 }

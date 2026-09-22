@@ -285,6 +285,100 @@ button:focus-visible {
   line-height: 1.6;
 }
 
+/* ---------------- 小月历（CAL-002 联动 / ui-design §4） ---------------- */
+
+.mini-month {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mini-month-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mini-month-title {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.mini-month-nav {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.mini-nav-button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mini-nav-button:hover {
+  color: var(--text-primary);
+  background: var(--bg-cell-hover);
+}
+
+.mini-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.mini-weekday {
+  padding: 2px 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.mini-day {
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.mini-day:hover {
+  background: var(--bg-cell-hover);
+  color: var(--text-primary);
+}
+
+.mini-day.is-outside {
+  color: var(--text-outside);
+}
+
+/* 今天：珊瑚数字；选中：珊瑚描边 + 轻微着色（与主网格同一语义色） */
+.mini-day.is-today {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.mini-day.is-selected {
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-cell));
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.mini-day.is-selected.is-outside {
+  color: var(--text-secondary);
+}
+
 /* ---------------- 月视图（CAL-001） ---------------- */
 
 .month-view {
@@ -308,6 +402,55 @@ button:focus-visible {
   font-size: 26px;
   font-weight: 700;
   letter-spacing: 0.01em;
+}
+
+/* ---------------- 月份导航与「今天」（CAL-002 / ui-design §5.1） ---------------- */
+
+.month-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.month-nav-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.month-nav-button:hover {
+  color: var(--text-primary);
+  background: var(--bg-cell-hover);
+}
+
+.today-button {
+  margin-left: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  padding: 6px 13px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.today-button:hover {
+  color: var(--text-primary);
+  background: var(--bg-cell-hover);
 }
 
 .segmented {
@@ -390,10 +533,17 @@ button:focus-visible {
   border-radius: var(--radius-cell);
   background: var(--bg-cell);
   transition: background 120ms ease;
+  cursor: pointer;
 }
 
 .month-cell:hover {
   background: var(--bg-cell-hover);
+}
+
+/* 键盘焦点：内缩蓝灰描边，与选中的珊瑚描边、hover 背景区分（§24） */
+.month-cell:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -3px;
 }
 
 .cell-day {
@@ -412,13 +562,28 @@ button:focus-visible {
   background: color-mix(in srgb, var(--bg-cell) 55%, transparent);
 }
 
-/* 今天：珊瑚描边 + 日期数字着色；选中状态由 SC-005 增补 */
+/* 今天：珊瑚细描边 + 日期数字着色 */
 .month-cell.is-today {
   box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 
 .month-cell.is-today .cell-day {
   color: var(--accent);
+}
+
+/* 选中（§17）：细描边 + 轻微着色，不覆盖原语义背景 */
+.month-cell.is-selected {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-cell));
+}
+
+.month-cell.is-selected:hover {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-cell));
+}
+
+/* 今天 + 选中：单层描边即可，数字颜色继续承担“今天” */
+.month-cell.is-today.is-selected {
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 /* ---------------- 详情栏（§12 普通日期留白） ---------------- */

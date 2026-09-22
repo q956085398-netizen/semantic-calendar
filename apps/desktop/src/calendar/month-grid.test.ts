@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildMonthGrid, formatDateKey, todayKeyFromDate } from "./month-grid";
+import {
+  addMonths,
+  buildMonthGrid,
+  dateFromKey,
+  formatDateKey,
+  parseDateKey,
+  shiftDateKey,
+  todayKeyFromDate,
+} from "./month-grid";
 
 describe("buildMonthGrid", () => {
   it("2026年9月：周一起始，前导8月、后延10月，共 42 格", () => {
@@ -133,5 +141,107 @@ describe("todayKeyFromDate", () => {
   it("按本地日历字段提取日期键", () => {
     expect(todayKeyFromDate(new Date(2026, 8, 3, 23, 59))).toBe("2026-09-03");
     expect(todayKeyFromDate(new Date(2026, 0, 1, 0, 0))).toBe("2026-01-01");
+  });
+});
+
+describe("addMonths（CAL-002 月份切换）", () => {
+  it("同年内前进 / 后退", () => {
+    expect(addMonths({ year: 2026, month: 9 }, 1)).toEqual({
+      year: 2026,
+      month: 10,
+    });
+    expect(addMonths({ year: 2026, month: 9 }, -1)).toEqual({
+      year: 2026,
+      month: 8,
+    });
+    expect(addMonths({ year: 2026, month: 9 }, 0)).toEqual({
+      year: 2026,
+      month: 9,
+    });
+  });
+
+  it("跨年进位与退位", () => {
+    expect(addMonths({ year: 2026, month: 12 }, 1)).toEqual({
+      year: 2027,
+      month: 1,
+    });
+    expect(addMonths({ year: 2026, month: 1 }, -1)).toEqual({
+      year: 2025,
+      month: 12,
+    });
+  });
+
+  it("多年步进", () => {
+    expect(addMonths({ year: 2026, month: 10 }, 15)).toEqual({
+      year: 2028,
+      month: 1,
+    });
+    expect(addMonths({ year: 2026, month: 2 }, -14)).toEqual({
+      year: 2024,
+      month: 12,
+    });
+  });
+
+  it("非法步长抛出 RangeError", () => {
+    expect(() => addMonths({ year: 2026, month: 9 }, 1.5)).toThrow(RangeError);
+  });
+});
+
+describe("parseDateKey", () => {
+  it("解析年月日", () => {
+    expect(parseDateKey("2026-09-23")).toEqual({
+      year: 2026,
+      month: 9,
+      day: 23,
+    });
+    expect(parseDateKey("2027-01-01")).toEqual({
+      year: 2027,
+      month: 1,
+      day: 1,
+    });
+  });
+
+  it("拒绝非 YYYY-MM-DD 格式", () => {
+    expect(() => parseDateKey("2026/09/23")).toThrow(RangeError);
+    expect(() => parseDateKey("2026-9-3")).toThrow(RangeError);
+    expect(() => parseDateKey("")).toThrow(RangeError);
+  });
+
+  it("拒绝不存在的日期", () => {
+    expect(() => parseDateKey("2026-02-30")).toThrow(RangeError);
+    expect(() => parseDateKey("2026-13-01")).toThrow(RangeError);
+  });
+});
+
+describe("shiftDateKey（键盘基础导航）", () => {
+  it("同月内 ±1 / ±7 天", () => {
+    expect(shiftDateKey("2026-09-23", 1)).toBe("2026-09-24");
+    expect(shiftDateKey("2026-09-23", -1)).toBe("2026-09-22");
+    expect(shiftDateKey("2026-09-23", 7)).toBe("2026-09-30");
+    expect(shiftDateKey("2026-09-23", -7)).toBe("2026-09-16");
+  });
+
+  it("跨月与跨年", () => {
+    expect(shiftDateKey("2026-09-30", 1)).toBe("2026-10-01");
+    expect(shiftDateKey("2026-10-01", -7)).toBe("2026-09-24");
+    expect(shiftDateKey("2026-01-01", -1)).toBe("2025-12-31");
+    expect(shiftDateKey("2025-12-31", 1)).toBe("2026-01-01");
+  });
+
+  it("闰年二月", () => {
+    expect(shiftDateKey("2028-02-28", 1)).toBe("2028-02-29");
+    expect(shiftDateKey("2027-02-28", 1)).toBe("2027-03-01");
+  });
+});
+
+describe("dateFromKey", () => {
+  it("还原为本地 Date，字段与键一致", () => {
+    const date = dateFromKey("2026-09-23");
+    expect(date).toEqual(new Date(2026, 8, 23));
+    expect(todayKeyFromDate(date)).toBe("2026-09-23");
+  });
+
+  it("拒绝非法日期键", () => {
+    expect(() => dateFromKey("2026-02-30")).toThrow(RangeError);
   });
 });

@@ -35,6 +35,18 @@ export interface MonthGridOptions {
   today?: string;
 }
 
+/** 年月对，视图月份与小月历共用的最小标识（CAL-002）。 */
+export interface YearMonth {
+  year: number;
+  /** 1–12。 */
+  month: number;
+}
+
+/** 解析后的日期键字段。 */
+export interface YearMonthDay extends YearMonth {
+  day: number;
+}
+
 const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /** 本地日期键，四位年两位月日，供格子身份与 today 匹配使用。 */
@@ -92,3 +104,48 @@ export function buildMonthGrid(options: MonthGridOptions): MonthGrid {
 
 /** 周表头（周一起始）。 */
 export const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
+
+/** 月份步进（CAL-002）：以绝对月计数换算，跨年自动进位，结果恒为合法 1–12 月。 */
+export function addMonths(view: YearMonth, delta: number): YearMonth {
+  if (!Number.isInteger(delta)) {
+    throw new RangeError(`步长必须是整数，收到 ${delta}`);
+  }
+  const totalMonths = view.year * 12 + (view.month - 1) + delta;
+  const year = Math.floor(totalMonths / 12);
+  return { year, month: totalMonths - year * 12 + 1 };
+}
+
+/** 把 YYYY-MM-DD 解析为年月日；拒绝格式错误与不存在的日期。 */
+export function parseDateKey(dateKey: string): YearMonthDay {
+  if (!DATE_KEY_PATTERN.test(dateKey)) {
+    throw new RangeError(`日期键必须是 YYYY-MM-DD，收到 ${dateKey}`);
+  }
+  const year = Number(dateKey.slice(0, 4));
+  const month = Number(dateKey.slice(5, 7));
+  const day = Number(dateKey.slice(8, 10));
+  // 通过本地 Date 回读校验真实存在（如 2026-02-30 会被 Date 进位）。
+  const date = new Date(year, month - 1, day);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() + 1 !== month ||
+    date.getDate() !== day
+  ) {
+    throw new RangeError(`日期键不是真实存在的日期：${dateKey}`);
+  }
+  return { year, month, day };
+}
+
+/** 把日期键还原为本地 Date（展示层格式化用，构造规则统一收在本模块）。 */
+export function dateFromKey(dateKey: string): Date {
+  const { year, month, day } = parseDateKey(dateKey);
+  return new Date(year, month - 1, day);
+}
+
+/** 日期键按天步进（方向键导航）：本地时间构造，跨月 / 跨年 / 闰年由 Date 归一化。 */
+export function shiftDateKey(dateKey: string, days: number): string {
+  if (!Number.isInteger(days)) {
+    throw new RangeError(`步进天数必须是整数，收到 ${days}`);
+  }
+  const { year, month, day } = parseDateKey(dateKey);
+  return todayKeyFromDate(new Date(year, month - 1, day + days));
+}

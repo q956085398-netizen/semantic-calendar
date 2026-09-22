@@ -344,9 +344,12 @@ npm run tauri -- build
 - 桌面壳通过 Tauri 命令 `data_store_read` / `data_store_write` / `data_store_rename` 访问该目录，文件名白名单校验；
 - 存储接口按未来可替换 SQLite 适配器的形状设计（`FileIO` 端口 + 仓储方法）。
 
-桌面 UI（SC-004）位于 `apps/desktop/src/`：
+桌面 UI（SC-004 / SC-005）位于 `apps/desktop/src/`：
 
 - 三栏骨架 `layout/AppShell.tsx`：Sidebar | Calendar | Inspector，左右栏可独立折叠（CAL-004），折叠后月历占满主区域；
-- 月视图 `calendar/month-grid.ts`（纯函数：6×7 网格、周一起始、跨月日期、今天标记）与 `calendar/MonthView.tsx`（年月标题 + 视图切换占位 + 网格渲染）；
-- 主题 `theme/theme.ts` + `index.css`：浅色暖白 / 深色炭灰同一套 CSS 变量，偏好经 `app.theme` 设置持久化（THEME-003）；
-- 侧栏数据源列表为静态骨架：真实来源由 SC-006 / SC-007 创建，显示开关由 SC-018 接线；月份导航、日期选择与 Inspector 详情属 SC-005。
+- 月视图 `calendar/month-grid.ts`（纯函数：6×7 网格、周一起始、跨月日期、今天标记、月份步进 / 日期键解析 / 按天步进）与 `calendar/MonthView.tsx`（年月标题 + 上一月 / 下一月 / 今天导航 + 视图切换占位 + 日期选择）；
+- 月份导航与选择（SC-005）：点击与方向键（±1 / ±7 天）移动选中日期，跨出当前月自动切换视图；WAI-ARIA grid 模式（roving tabindex + `aria-selected`），键盘导航后焦点跟随选中格；
+- 小月历 `calendar/MiniMonth.tsx`：与主视图共用同一份网格计算（CAL-002 联动），点击日期 / 步进月份双向同步；
+- Inspector `layout/InspectorPanel.tsx`：由选中日期驱动的极简日期详情（CAL-003），普通日期留白；
+- 主题 `theme/theme.ts` + `index.css`：浅色暖白 / 深色炭灰同一套 CSS 变量，偏好经 `app.theme` 设置持久化（THEME-003）；selected / hover / focus 三态视觉区分（ui-design §17 / §24）；
+- 侧栏数据源列表为静态骨架：真实来源由 SC-006 / SC-007 创建，显示开关由 SC-018 接线。

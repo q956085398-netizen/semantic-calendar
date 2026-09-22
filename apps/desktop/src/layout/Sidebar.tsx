@@ -1,10 +1,12 @@
+import type { ReactNode } from "react";
 import type { Theme } from "../theme/theme";
 
 /**
- * 左侧栏（ui-design §4）：品牌区 + 数据源列表 + 主题切换。
+ * 左侧栏（ui-design §4）：品牌区 + 小月历 + 数据源列表 + 主题切换。
  *
+ * 小月历由 App 注入（SC-005），与主视图共享导航状态。
  * v0.1 骨架阶段数据源为静态展示：真实来源由 SC-006 / SC-007 创建，
- * 显示开关与设置入口由 SC-018 接线。小月历随 SC-005 的导航状态加入。
+ * 显示开关与设置入口由 SC-018 接线。
  */
 
 interface SidebarProps {
@@ -12,6 +14,8 @@ interface SidebarProps {
   onToggleTheme: () => void;
   /** 本地数据层状态（含预览模式 / 恢复提示），保证降级可见（app-spec §13）。 */
   storeStatus: string;
+  /** 小月历（SC-005）：与主视图联动的导航件。 */
+  miniCalendar: ReactNode;
 }
 
 interface SourceRow {
@@ -28,7 +32,12 @@ const SOURCE_ROWS: SourceRow[] = [
   { id: "premier-league", name: "英超赛程", color: "var(--source-sport)" },
 ];
 
-export function Sidebar({ theme, onToggleTheme, storeStatus }: SidebarProps) {
+export function Sidebar({
+  theme,
+  onToggleTheme,
+  storeStatus,
+  miniCalendar,
+}: SidebarProps) {
   return (
     <div className="sidebar">
       <div className="brand">
@@ -37,6 +46,8 @@ export function Sidebar({ theme, onToggleTheme, storeStatus }: SidebarProps) {
         </span>
         <span className="brand-name">语义日历</span>
       </div>
+
+      {miniCalendar}
 
       <nav className="sidebar-section" aria-labelledby="sidebar-sources">
         <h2 id="sidebar-sources" className="sidebar-heading">
