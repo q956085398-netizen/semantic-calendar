@@ -1,11 +1,13 @@
 import { parseIcsCalendar, type IcsParseIssue } from "../../ics/parse-ics";
+import { normalizeEventForStorage } from "../../normalize/normalizer";
 import type { CalendarSource } from "../model";
 import type { CalendarStore } from "../store/calendar-store";
 
 /**
  * 本地 ICS 导入服务（SC-006 / SRC-001）。
  *
- * 组合方式：解析（纯函数）→ 稳定数据源 → UID upsert 落库 → 源状态更新。
+ * 组合方式：解析（纯函数）→ 标准化（SC-008）→ 稳定数据源 →
+ * UID upsert 落库 → 源状态更新。
  * 落盘由调用方统一执行（与其他写操作共用一次原子写）。
  *
  * 去重策略（ICS-001）：sourceId 由文件名派生，重复导入同一文件命中
@@ -77,7 +79,9 @@ export async function importLocalIcs(
 
   const { inserted, updated } = store.upsertEvents(
     sourceId,
-    parsed.events.map((event) => ({ ...event, sourceId })),
+    parsed.events.map((event) =>
+      normalizeEventForStorage({ ...event, sourceId }),
+    ),
   );
   return {
     // 返回状态刷新后的最终形态，供调用方直接展示。

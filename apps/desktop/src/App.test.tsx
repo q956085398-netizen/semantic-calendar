@@ -460,6 +460,27 @@ const IMPORT_ICS = [
   "",
 ].join("\r\n");
 
+/** SC-008 集成：重复规则 + EXDATE + RECURRENCE-ID 例外 → 月格展开可见。 */
+const RECURRING_ICS = [
+  "BEGIN:VCALENDAR",
+  "VERSION:2.0",
+  "BEGIN:VEVENT",
+  "UID:weekly-review@example.com",
+  "SUMMARY:每周复盘",
+  "DTSTART:20260923T090000",
+  "RRULE:FREQ=WEEKLY;COUNT=8",
+  "EXDATE:20260930T090000",
+  "END:VEVENT",
+  "BEGIN:VEVENT",
+  "UID:weekly-review@example.com",
+  "RECURRENCE-ID:20261007T090000",
+  "SUMMARY:每周复盘（改期）",
+  "DTSTART:20261008T100000",
+  "END:VEVENT",
+  "END:VCALENDAR",
+  "",
+].join("\r\n");
+
 function icsFile(contents: string, name = "team.ics"): File {
   return new File([contents], name, { type: "text/calendar" });
 }
@@ -626,6 +647,40 @@ describe("本地 ICS 导入（SC-006 / SRC-001）", () => {
     await waitFor(() =>
       expect(screen.getByText(/预览模式.*导入/)).toBeTruthy(),
     );
+  });
+});
+
+describe("重复事件月格展开（SC-008 / ICS-004）", () => {
+  it("每周规则在月格展开；EXDATE 排除；RECURRENCE-ID 改期不重复", async () => {
+    await renderReadyApp();
+    chooseImportFile(icsFile(RECURRING_ICS, "review.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
+
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    // 9 月网格覆盖 8-31 … 10-11；周三 09:00 系列：9/23、9/30（被 EXDATE）、10/7（被改期）。
+    expect(
+      within(grid.querySelector('[data-date="2026-09-23"]')!).getByText(
+        "09:00 每周复盘",
+      ),
+    ).toBeTruthy();
+
+    const excluded = grid.querySelector(
+      '[data-date="2026-09-30"]',
+    ) as HTMLElement;
+    expect(within(excluded).queryByText(/每周复盘/)).toBeNull();
+
+    const original = grid.querySelector(
+      '[data-date="2026-10-07"]',
+    ) as HTMLElement;
+    expect(within(original).queryByText(/每周复盘/)).toBeNull();
+
+    // 改期实例落在 10-08 10:00（跨月格可见），且全网格只出现这一个改期实例。
+    expect(
+      within(grid.querySelector('[data-date="2026-10-08"]')!).getByText(
+        "10:00 每周复盘（改期）",
+      ),
+    ).toBeTruthy();
+    expect(within(grid).getAllByText(/每周复盘（改期）/)).toHaveLength(1);
   });
 });
 

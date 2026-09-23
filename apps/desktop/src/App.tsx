@@ -8,6 +8,7 @@ import {
   type YearMonth,
 } from "./calendar/month-grid";
 import { bucketEventsByDateKey } from "./calendar/event-buckets";
+import { expandEventOccurrences } from "./normalize/occurrences";
 import { MiniMonth } from "./calendar/MiniMonth";
 import { MonthView } from "./calendar/MonthView";
 import { openDesktopCalendarStore } from "./data/desktop-store";
@@ -98,7 +99,20 @@ export default function App() {
     () => buildMonthGrid({ ...view, today: todayKey }),
     [view, todayKey],
   );
-  const eventsByDate = useMemo(() => bucketEventsByDateKey(events), [events]);
+  /**
+   * 可见 occurrence（SC-008）：按当前网格范围展开重复规则并完成时区
+   * 规范化，再进入日期分桶。原始事件列表不由此改动。
+   */
+  const visibleOccurrences = useMemo(() => {
+    const first = grid.weeks[0][0].dateKey;
+    const lastWeek = grid.weeks[grid.weeks.length - 1];
+    const last = lastWeek[lastWeek.length - 1].dateKey;
+    return expandEventOccurrences(events, { from: first, to: last });
+  }, [events, grid]);
+  const eventsByDate = useMemo(
+    () => bucketEventsByDateKey(visibleOccurrences),
+    [visibleOccurrences],
+  );
   const selectedEvents = eventsByDate.get(selectedDateKey) ?? [];
 
   /** 从本地数据层重建 UI 状态；只显示启用来源的事件（SRC-003）。 */

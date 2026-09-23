@@ -24,6 +24,23 @@ export interface CalendarSource {
   lastSyncError?: string;
 }
 
+/**
+ * EXDATE 原值与其参数；与生成实例的比较空间由 Normalizer 决定
+ * （值形态：8 位纯日期 / 墙钟时间 / Z 结尾 UTC）。
+ */
+export interface ExdateValue {
+  /** 原始 ICS 值：YYYYMMDD / YYYYMMDDTHHMMSS / YYYYMMDDTHHMMSSZ。 */
+  value: string;
+  /** EXDATE;TZID=… 的 IANA 时区名。 */
+  tzid?: string;
+}
+
+/** 原始重复规则：只保留原文事实，解释与展开属 Normalizer（SC-008）。 */
+export interface RawRecurrence {
+  rrule?: string;
+  exdates: ExdateValue[];
+}
+
 export interface RawCalendarEvent {
   uid: string;
   sourceId: string;
@@ -35,12 +52,20 @@ export interface RawCalendarEvent {
   end?: string;
   allDay: boolean;
   /**
+   * DTSTART / DTEND 的 TZID 参数原文（IANA 时区名）。
+   * 浮动时间、UTC、全天事件无此字段；墙钟 → UTC 的精确换算属 SC-008。
+   */
+  startTzid?: string;
+  endTzid?: string;
+  /**
    * RECURRENCE-ID 标识的具体实例。属于持久化身份（ICS-001），
    * 因此在原始事件上而非仅标准化事件上保存。
    */
   occurrenceId?: string;
-  /** 原始重复规则（RRULE / EXDATE 等），结构由 SC-008 细化。 */
-  recurrence?: unknown;
+  /** STATUS:CANCELLED；v0.1 仅用于重复规则例外实例的取消语义。 */
+  cancelled?: boolean;
+  /** 原始重复规则（RRULE / EXDATE 等）。 */
+  recurrence?: RawRecurrence;
   /** 原始 ICS 事件片段，保证原始字段可追溯。 */
   rawPayload?: string;
 }

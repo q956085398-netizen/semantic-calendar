@@ -1,5 +1,6 @@
 import type { EnrichedEvent } from "../data/model";
 import { todayKeyFromDate } from "./month-grid";
+import { daysBetweenKeys, shiftDayKey } from "./date-keys";
 
 /**
  * 事件 → 日期键分桶（SC-006：导入后月视图可见）。
@@ -33,7 +34,7 @@ export function eventDateKeys(event: DateKeySource): string[] {
   if (!event.end) {
     return [startDay];
   }
-  return spanKeys(startDay, shiftDay(event.end.slice(0, 10), -1));
+  return spanKeys(startDay, shiftDayKey(event.end.slice(0, 10), -1));
 }
 
 /** 时间事件的结束日：恰为当地 00:00 时回退一天（独占边界）。 */
@@ -46,8 +47,8 @@ function inclusiveEndDay(endIso: string, startDay: string): string {
         hour12: false,
       }).format(new Date(endIso))
     : endIso.slice(11, 16);
-  if (timePart === "00:00" && daysBetween(startDay, endDay) > 0) {
-    return shiftDay(endDay, -1);
+  if (timePart === "00:00" && daysBetweenKeys(startDay, endDay) > 0) {
+    return shiftDayKey(endDay, -1);
   }
   return endDay;
 }
@@ -55,12 +56,12 @@ function inclusiveEndDay(endIso: string, startDay: string): string {
 /** 从 startDay 铺到 endDay（含），非法 / 超长跨度按容错与上限处理。 */
 function spanKeys(startDay: string, endDay: string): string[] {
   const spanDays = Math.min(
-    Math.max(daysBetween(startDay, endDay), 0) + 1,
+    Math.max(daysBetweenKeys(startDay, endDay), 0) + 1,
     MAX_SPAN_DAYS,
   );
   const keys: string[] = [];
   for (let offset = 0; offset < spanDays; offset += 1) {
-    keys.push(shiftDay(startDay, offset));
+    keys.push(shiftDayKey(startDay, offset));
   }
   return keys;
 }
@@ -93,35 +94,6 @@ function dateKeyOfDateTime(iso: string): string {
     return todayKeyFromDate(new Date(iso));
   }
   return iso.slice(0, 10);
-}
-
-/** YYYY-MM-DD 在本地日历上相差的天数（可负）。用 UTC 分量计数，规避夏令时。 */
-function daysBetween(from: string, to: string): number {
-  return Math.round(
-    (utcMidnight(to).getTime() - utcMidnight(from).getTime()) /
-      (24 * 60 * 60 * 1000),
-  );
-}
-
-/** 日期键按天步进：用 UTC 分量构造，跨月 / 跨年由 Date 归一化。 */
-function shiftDay(day: string, days: number): string {
-  const base = utcMidnight(day);
-  const shifted = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
-  return [
-    String(shifted.getUTCFullYear()).padStart(4, "0"),
-    String(shifted.getUTCMonth() + 1).padStart(2, "0"),
-    String(shifted.getUTCDate()).padStart(2, "0"),
-  ].join("-");
-}
-
-function utcMidnight(day: string): Date {
-  return new Date(
-    Date.UTC(
-      Number(day.slice(0, 4)),
-      Number(day.slice(5, 7)) - 1,
-      Number(day.slice(8, 10)),
-    ),
-  );
 }
 
 function compareString(a: string, b: string): number {

@@ -10,9 +10,11 @@
  * 时间映射约定（避免依赖运行机器时区）：
  * - VALUE=DATE 全天：原样保留 YYYY-MM-DD，绝不换算（ICS-002 不漂移）；
  * - Z 结尾：转 ISO UTC（…:ss.000Z）；
- * - 浮动 / TZID 本地时间：转无偏移本地 ISO，TZID 原文留在 rawPayload，
- *   精确换算由 SC-008 依据该片段重算。
+ * - 浮动 / TZID 本地时间：转无偏移本地 ISO，TZID 参数原文保留在
+ *   startTzid / endTzid / EXDATE 条目上，精确换算由 SC-008 完成。
  */
+
+import type { ExdateValue, RawCalendarEvent } from "../data/model";
 
 /** 单个坏事件的说明；eventIndex 为 1 基 VEVENT 序号，undefined 表示文件级问题。 */
 export interface IcsParseIssue {
@@ -21,21 +23,7 @@ export interface IcsParseIssue {
 }
 
 /** 解析出的事件：RawCalendarEvent 去掉 sourceId（由导入服务回填）。 */
-export interface ParsedIcsEvent {
-  uid: string;
-  title: string;
-  description?: string;
-  location?: string;
-  /** ISO 8601；全天为 YYYY-MM-DD，UTC 带 Z，本地无偏移。 */
-  start: string;
-  end?: string;
-  allDay: boolean;
-  /** RECURRENCE-ID 规范化值，与 uid 共同构成持久化身份（ICS-001）。 */
-  occurrenceId?: string;
-  /** 原始重复规则，结构由 SC-008 细化；此处只保证不丢失。 */
-  recurrence?: { rrule?: string; exdates: string[] };
-  rawPayload: string;
-}
+export type ParsedIcsEvent = Omit<RawCalendarEvent, "sourceId">;
 
 export interface IcsParseResult {
   events: ParsedIcsEvent[];
@@ -401,7 +389,7 @@ function parseVevent(bodyLines: string[]): ParsedIcsEvent {
     string,
     { params: Record<string, string>; value: string }
   >();
-  const exdates: string[] = [];
+  const exdates: ExdateValue[] = [];
   let rrule: string | undefined;
 
   // 去掉 BEGIN/END:VEVENT 后收集顶层属性；嵌套子组件（VALARM 等）跳过。
@@ -429,10 +417,14 @@ function parseVevent(bodyLines: string[]): ParsedIcsEvent {
       continue;
     }
     if (parsed.name === "EXDATE") {
+      const tzid = parsed.params.TZID;
       for (const value of parsed.value.split(",")) {
         const trimmed = value.trim();
         if (trimmed !== "") {
-          exdates.push(trimmed);
+          exdates.push({
+            value: trimmed,
+            ...(tzid !== undefined && { tzid }),
+          });
         }
       }
       continue;
@@ -502,9 +494,14 @@ function parseVevent(bodyLines: string[]): ParsedIcsEvent {
     }
   }
 
+  const cancelled =
+    properties.get("STATUS")?.value.trim().toUpperCase() === "CANCELLED";
+
   const title = unescapeText(properties.get("SUMMARY")?.value ?? "");
   const description = properties.get("DESCRIPTION");
   const location = properties.get("LOCATION");
+  const startTzid = dtstart.params.TZID;
+  const endTzid = dtend?.params.TZID;
 
   return {
     uid,
@@ -516,7 +513,10 @@ function parseVevent(bodyLines: string[]): ParsedIcsEvent {
     start: start.iso,
     ...(end !== undefined && { end }),
     allDay: start.allDay,
+    ...(startTzid !== undefined && { startTzid }),
+    ...(endTzid !== undefined && { endTzid }),
     ...(occurrenceId !== undefined && { occurrenceId }),
+    ...(cancelled && { cancelled: true }),
     ...(((rrule !== undefined || exdates.length > 0) && {
       recurrence: { rrule, exdates },
     }) as object),

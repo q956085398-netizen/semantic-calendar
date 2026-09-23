@@ -307,7 +307,7 @@ describe("parseIcsCalendar — 重复事件字段（SC-008 前置保留）", () 
 
     expect(result.events[0].recurrence).toEqual({
       rrule: "FREQ=WEEKLY;BYDAY=WE;COUNT=10",
-      exdates: ["20260930T090000", "20261007T090000"],
+      exdates: [{ value: "20260930T090000" }, { value: "20261007T090000" }],
     });
   });
 
@@ -326,6 +326,101 @@ describe("parseIcsCalendar — 重复事件字段（SC-008 前置保留）", () 
     );
 
     expect(result.events[0].occurrenceId).toBe("2026-09-23T09:00:00");
+  });
+
+  it("EXDATE 的 TZID 与 VALUE=DATE 参数随原值保留", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:exdate-params@example.com",
+          "SUMMARY:带参数的排除日期",
+          "DTSTART;TZID=Asia/Shanghai:20260923T090000",
+          "RRULE:FREQ=DAILY;COUNT=5",
+          "EXDATE;TZID=Asia/Shanghai:20260930T090000,20261001T090000",
+          "EXDATE;VALUE=DATE:20261002",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events[0].recurrence?.exdates).toEqual([
+      { value: "20260930T090000", tzid: "Asia/Shanghai" },
+      { value: "20261001T090000", tzid: "Asia/Shanghai" },
+      { value: "20261002" },
+    ]);
+  });
+
+  it("STATUS:CANCELLED 保留为 cancelled，其余 STATUS 不标记", () => {
+    const cancelled = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:cancel@example.com",
+          "RECURRENCE-ID:20260923T090000",
+          "SUMMARY:这一场取消",
+          "DTSTART:20260923T090000",
+          "STATUS:CONFIRMED",
+          "END:VEVENT",
+          "BEGIN:VEVENT",
+          "UID:cancel@example.com",
+          "RECURRENCE-ID:20260930T090000",
+          "SUMMARY:这一场真的取消",
+          "DTSTART:20260930T090000",
+          "STATUS:cancelled",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(cancelled.events[0].cancelled).toBeUndefined();
+    expect(cancelled.events[1].cancelled).toBe(true);
+  });
+});
+
+describe("parseIcsCalendar — 时区参数保留（SC-008 / ICS-003）", () => {
+  it("DTSTART / DTEND 的 TZID 原文保留，时间值仍为无偏移墙钟 ISO", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:tzid@example.com",
+          "SUMMARY:London meetup",
+          "DTSTART;TZID=Europe/London:20261018T150000",
+          "DTEND;TZID=Europe/London:20261018T170000",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events[0]).toMatchObject({
+      start: "2026-10-18T15:00:00",
+      end: "2026-10-18T17:00:00",
+      startTzid: "Europe/London",
+      endTzid: "Europe/London",
+    });
+  });
+
+  it("UTC 与浮动时间不产生 TZID 字段", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:utc@example.com",
+          "SUMMARY:UTC event",
+          "DTSTART:20261018T163000Z",
+          "END:VEVENT",
+          "BEGIN:VEVENT",
+          "UID:floating@example.com",
+          "SUMMARY:Floating event",
+          "DTSTART:20261018T163000",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events[0].startTzid).toBeUndefined();
+    expect(result.events[1].startTzid).toBeUndefined();
   });
 });
 

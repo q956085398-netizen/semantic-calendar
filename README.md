@@ -372,11 +372,18 @@ npm run tauri -- build
 
 本地 ICS 导入（SC-006）位于 `apps/desktop/src/ics/` 与 `apps/desktop/src/data/import/`：
 
-- 解析器 `ics/parse-ics.ts`（纯函数、零依赖）：行折叠、VEVENT 提取、TEXT 转义、VALARM 嵌套跳过；映射 UID / SUMMARY / DESCRIPTION / LOCATION / DTSTART / DTEND / DURATION / RECURRENCE-ID / RRULE / EXDATE，完整原始片段保留在 `rawPayload`；
+- 解析器 `ics/parse-ics.ts`（纯函数、零依赖）：行折叠、VEVENT 提取、TEXT 转义、VALARM 嵌套跳过；映射 UID / SUMMARY / DESCRIPTION / LOCATION / DTSTART / DTEND / DURATION / RECURRENCE-ID / RRULE / EXDATE（含 TZID / VALUE=DATE 参数）与 STATUS:CANCELLED，完整原始片段保留在 `rawPayload`；
 - 错误按事件隔离（ICS-005）：坏事件进入导入报告，不阻塞其余事件；文件级失败不创建数据源；
-- 全天事件原样保留日期、不做时区换算（ICS-002 不漂移）；UTC 时间转 ISO UTC；浮动 / TZID 本地时间暂存为本地 ISO，精确换算由 SC-008 Normalizer 依据 `rawPayload` 重算；
-- 导入服务 `data/import/import-local-ics.ts`：sourceId 由文件名稳定派生，同一文件重复导入按（sourceId, UID, RECURRENCE-ID）upsert 去重（ICS-001），并更新来源同步状态（SRC-003）；
+- 全天事件原样保留日期、不做时区换算（ICS-002 不漂移）；UTC 时间转 ISO UTC；浮动 / TZID 本地时间暂存为无偏移墙钟 ISO，TZID 参数原文保留在 `startTzid` / `endTzid`，精确换算由 SC-008 Normalizer 完成；
+- 导入服务 `data/import/import-local-ics.ts`：sourceId 由文件名稳定派生，同一文件重复导入按（sourceId, UID, RECURRENCE-ID）upsert 去重（ICS-001），并更新来源同步状态（SRC-003）；入库前经 `normalize/normalizer.ts` 标准化（附加 `normalizedTitle` / `timezone`，原始字段原样保留）；
 - 事件按日期分桶（`calendar/event-buckets.ts`）：全天含跨天（DTEND 独占语义）、时间事件跨天铺满开始日至结束日（结束恰为 00:00 视为独占边界）、UTC 事件按本地日期落格；
 - UI：侧栏「导入 ICS 文件…」入口、月格事件摘要（最多 3 条 + 计数折叠，ui-design §6）、Inspector 当日事件列表（仅在实际存在时展示，§12.2）。
 
-v0.1 已知限制：RRULE 只保留原文、不展开重复实例，TZID 精确换算与 recurrence 展开由 SC-008 Normalizer 依据 `rawPayload` 统一处理；同一文件改名后再次导入会视为新来源（新增副本），来源删除入口由 SC-018 提供。
+标准化与重复展开（SC-008）位于 `apps/desktop/src/normalize/`：
+
+- 标题规范化 `normalize/title.ts`：NFKC（全角→半角）、不可见字符剔除、空白折叠，供 Matcher 使用，不含业务判断；
+- 时区换算 `normalize/timezone.ts`：基于 Intl/IANA tzdata 的墙钟→UTC 两遍偏移探测（含夏令时切换边界），非法时区名抛错、调用方降级为浮动时间（app-spec §13）；
+- RRULE 解析 `normalize/rrule.ts`：DAILY / WEEKLY / MONTHLY / YEARLY 与 INTERVAL / COUNT / UNTIL / BYDAY（含 ±序数）/ BYMONTHDAY；含 BYSETPOS 等无法精确兑现部分的规则返回 undefined，降级为单次事件（P-01：宁可不展开也不展示错误的重复）；
+- Occurrence 展开 `normalize/occurrences.ts`：读取路径按月视图窗口展开——墙钟空间生成保证“每天几点”跨夏令时不漂移、TZID 实例换算为 UTC 瞬时、EXDATE 排除（墙钟 / UTC / 日期三形态匹配）、RECURRENCE-ID 例外替换与 STATUS:CANCELLED 取消、生成实例带稳定 occurrenceId（同一 occurrence 不重复，ICS-001）；迭代上限防御病态规则（app-spec §15）。
+
+v0.1 已知限制：同一文件改名后再次导入会视为新来源（新增副本），来源删除入口由 SC-018 提供；RRULE 的 BYSETPOS / BYWEEKNO 等高级部分按“降级为单次事件”处理，完整支持留给后续版本。

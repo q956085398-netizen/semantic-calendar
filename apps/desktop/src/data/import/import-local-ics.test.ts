@@ -94,6 +94,39 @@ describe("importLocalIcs — 首次导入", () => {
       start: "2026-10-18T16:30:00.000Z",
     });
   });
+
+  it("入库事件带标准化字段（SC-008：normalizedTitle / timezone）", async () => {
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "BEGIN:VEVENT",
+      "UID:fullwidth@example.com",
+      "SUMMARY:　Ａｒｓｅｎａｌ　ｖｓ　Ｃｉｔｙ　",
+      "DTSTART;TZID=Europe/London:20261018T150000",
+      "END:VEVENT",
+      "BEGIN:VEVENT",
+      "UID:utc@example.com",
+      "SUMMARY:UTC kickoff",
+      "DTSTART:20261025T150000Z",
+      "END:VEVENT",
+      "END:VCALENDAR",
+      "",
+    ].join("\r\n");
+
+    await importLocalIcs(store, { fileName: "norm.ics", contents: ics });
+
+    const events = store.listEvents("local-ics:norm");
+    expect(events[0]).toMatchObject({
+      title: "　Ａｒｓｅｎａｌ　ｖｓ　Ｃｉｔｙ　",
+      normalizedTitle: "Arsenal vs City",
+      timezone: "Europe/London",
+      startTzid: "Europe/London",
+    });
+    expect(events[1]).toMatchObject({
+      normalizedTitle: "UTC kickoff",
+      timezone: "UTC",
+    });
+  });
 });
 
 describe("importLocalIcs — 重复导入去重（ICS-001）", () => {
