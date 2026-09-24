@@ -4,6 +4,9 @@ import { buildMonthGrid } from "./month-grid";
 import { MonthView } from "./MonthView";
 import type { EnrichedEvent } from "../data/model";
 import type { FixtureDisplay } from "../semantic/metadata-resolver";
+import type { MarkAssetSource } from "../semantic/marks";
+import type { ChinaDayLabel } from "../semantic/app-china-days";
+import type { ChinaDaySemanticLabel } from "../semantic/app-china-festivals";
 
 afterEach(cleanup);
 
@@ -605,5 +608,246 @@ describe("月格节日 / 节气（SC-012 / CN-005–006）", () => {
     expect(cell.hasAttribute("data-china-semantic")).toBe(false);
     expect(cell.hasAttribute("data-china-backdrop")).toBe(false);
     expect(cell.querySelector(".cell-day")?.textContent).toBe("6");
+  });
+});
+
+/**
+ * SC-013：月格的语义视觉与多语义冲突（ui-design §7–10、§16）。
+ * cellBackdropOf 裁决出唯一的主背景，组件负责把它画出来；假期视觉
+ * （底色 + 大「休」「补」）是主背景之一，让位时整体不画（参考图 10 月 4 日、
+ * 10 月 6 日），比赛对阵与事件摘要是两条独立叠加。裁切与层级是样式契约，
+ * 由 index.css 的契约测试锁定（cell-visual-contract.test.ts）。
+ */
+describe("月格语义视觉与多语义冲突（SC-013 / ui-design §16）", () => {
+  const REST_DAY: ChinaDayLabel = {
+    kind: "rest",
+    glyph: "休",
+    accent: "var(--semantic-holiday)",
+    label: "国庆节假期",
+    position: "第 1 天 / 共 7 天",
+    run: { id: "2026-10-01", index: 0, length: 7 },
+  };
+  const NEXT_REST_DAY: ChinaDayLabel = {
+    ...REST_DAY,
+    position: "第 2 天 / 共 7 天",
+    run: { id: "2026-10-01", index: 1, length: 7 },
+  };
+  const MAKEUP_DAY: ChinaDayLabel = {
+    kind: "makeup",
+    glyph: "补",
+    accent: "var(--semantic-makeup-workday)",
+    label: "国庆节补班日",
+  };
+  const MID_AUTUMN: ChinaDaySemanticLabel = {
+    entries: [
+      {
+        kind: "festival",
+        id: "mid-autumn-festival",
+        name: "中秋节",
+        nameEn: "Mid-Autumn Festival",
+        gloss: "八月十五，赏月团圆，食月饼。",
+        accent: "var(--semantic-festival)",
+        backgroundRef: "bg.festival.mid-autumn-festival",
+      },
+    ],
+  };
+  const MID_AUTUMN_REF = "bg.festival.mid-autumn-festival";
+  const ASSETS: MarkAssetSource = {
+    urlFor: (ref) =>
+      ref === MID_AUTUMN_REF ? "/assets/mid-autumn.webp" : undefined,
+  };
+
+  function renderWith(options: {
+    events?: Map<string, EnrichedEvent[]>;
+    chinaDay?: Map<string, ChinaDayLabel>;
+    chinaSemantic?: Map<string, ChinaDaySemanticLabel>;
+    assets?: MarkAssetSource;
+  }) {
+    const grid = buildMonthGrid({ year: 2026, month: 10, today: "2026-10-01" });
+    render(
+      <MonthView
+        grid={grid}
+        // 选中日避开被测日期：选中状态会改写格子底色（§17），
+        // 语义背景是否成立不应该依赖“是否被选中”。
+        selectedDateKey="2026-10-20"
+        onSelectDate={() => {}}
+        onStepMonth={() => {}}
+        onGoToToday={() => {}}
+        onStepSelection={() => {}}
+        eventsByDate={options.events ?? new Map()}
+        chinaDayByDate={options.chinaDay}
+        chinaSemanticByDate={options.chinaSemantic}
+        assets={options.assets}
+      />,
+    );
+    return screen.getByRole("grid", { name: "2026年10月" });
+  }
+
+  it("休假日：底色语义落到格子上，大「休」是被格子裁切的直接子元素（§7.2）", () => {
+    const grid = renderWith({
+      chinaDay: new Map([["2026-10-01", REST_DAY]]),
+    });
+    const cell = cellOf(grid, "2026-10-01");
+    const glyph = cell.querySelector(".cell-glyph") as HTMLElement;
+
+    expect(cell.getAttribute("data-cell-backdrop")).toBe("holiday");
+    // 底色与大字取同一支语义色，颜色本身不出现在组件里（§20）。
+    expect(cell.style.getPropertyValue("--cell-accent")).toBe(
+      "var(--semantic-holiday)",
+    );
+    expect(glyph.textContent).toBe("休");
+    // 大字是格子的直接子元素：裁切由格子的 overflow 负责，不会溢出到相邻格。
+    expect(glyph.parentElement).toBe(cell);
+    // 日期数字是独立元素，不受大字影响（大字在背景层，见样式契约）。
+    expect(cell.querySelector(".cell-day")?.textContent).toBe("1");
+  });
+
+  it("不再出现第二个「休」标记：整个格子里「休」只渲染一次（§7.3）", () => {
+    const grid = renderWith({
+      chinaDay: new Map([["2026-10-01", REST_DAY]]),
+    });
+    const cell = cellOf(grid, "2026-10-01");
+    const glyphOwners = [...cell.querySelectorAll("*")].filter(
+      (element) => element.textContent === "休",
+    );
+
+    expect(glyphOwners.map((element) => element.className)).toEqual([
+      "cell-glyph",
+    ]);
+  });
+
+  it("一次连休的每一天是同一个主背景、同一支语义色（CN-004 连续视觉 §7.1）", () => {
+    const grid = renderWith({
+      chinaDay: new Map([
+        ["2026-10-01", REST_DAY],
+        ["2026-10-02", NEXT_REST_DAY],
+      ]),
+    });
+    const first = cellOf(grid, "2026-10-01");
+    const second = cellOf(grid, "2026-10-02");
+
+    // 相邻两天的底色同类、同色（区段 id 相同），中间不加任何分隔标记：
+    // 一段假期因此连续读得出来，而不是两张互不相关的卡片。
+    expect(second.getAttribute("data-cell-backdrop")).toBe(
+      first.getAttribute("data-cell-backdrop"),
+    );
+    expect(second.getAttribute("data-china-run")).toBe(
+      first.getAttribute("data-china-run"),
+    );
+    expect(second.style.getPropertyValue("--cell-accent")).toBe(
+      first.style.getPropertyValue("--cell-accent"),
+    );
+    expect(second.querySelector(".cell-glyph")?.textContent).toBe("休");
+  });
+
+  it("补班日与休假同一种视觉语言、另一支语义色（§8）", () => {
+    const grid = renderWith({
+      chinaDay: new Map([["2026-10-10", MAKEUP_DAY]]),
+    });
+    const cell = cellOf(grid, "2026-10-10");
+
+    expect(cell.getAttribute("data-cell-backdrop")).toBe("holiday");
+    expect(cell.getAttribute("data-china-day")).toBe("makeup");
+    expect(cell.querySelector(".cell-glyph")?.textContent).toBe("补");
+    expect(cell.style.getPropertyValue("--cell-accent")).toBe(
+      "var(--semantic-makeup-workday)",
+    );
+  });
+
+  it("载荷缺色时底色照常成立，只是不带 --cell-accent（样式可见地降级）", () => {
+    const withoutAccent: ChinaDayLabel = {
+      kind: "rest",
+      glyph: "休",
+      label: "国庆节假期",
+    };
+    const grid = renderWith({
+      chinaDay: new Map([["2026-10-01", withoutAccent]]),
+    });
+    const cell = cellOf(grid, "2026-10-01");
+
+    expect(cell.getAttribute("data-cell-backdrop")).toBe("holiday");
+    expect(cell.hasAttribute("style")).toBe(false);
+    // 大字照常：缺的是颜色，不是语义。
+    expect(cell.querySelector(".cell-glyph")?.textContent).toBe("休");
+  });
+
+  it("节日专属背景：图片被格子裁切，假期视觉整体让位（§16.1 优先级 1）", () => {
+    const grid = renderWith({
+      chinaSemantic: new Map([["2026-10-06", MID_AUTUMN]]),
+      chinaDay: new Map([["2026-10-06", REST_DAY]]),
+      assets: ASSETS,
+    });
+    const cell = cellOf(grid, "2026-10-06");
+    const backdrop = cell.querySelector(".cell-backdrop") as HTMLElement;
+
+    expect(cell.getAttribute("data-cell-backdrop")).toBe("festival");
+    expect(backdrop.parentElement).toBe(cell);
+    expect(
+      backdrop.querySelector(".cell-backdrop-image")?.getAttribute("src"),
+    ).toBe("/assets/mid-autumn.webp");
+    // 节日名仍在农历那一行（SC-012），背景不取代文字。
+    expect(cell.querySelector(".cell-semantic")?.textContent).toBe("中秋节");
+    // 一个格子只有一个主背景：假期底色与大字都不出现（参考图 10 月 6 日）。
+    expect(cell.querySelector(".cell-glyph")).toBeNull();
+    expect(cell.hasAttribute("style")).toBe(false);
+  });
+
+  it("资源包没有图片时不画背景，语义文字照常（缺图不破相）", () => {
+    const grid = renderWith({
+      chinaSemantic: new Map([["2026-10-06", MID_AUTUMN]]),
+    });
+    const cell = cellOf(grid, "2026-10-06");
+
+    expect(cell.getAttribute("data-cell-backdrop")).toBe("festival");
+    expect(cell.querySelector(".cell-backdrop")).toBeNull();
+    expect(cell.querySelector(".cell-semantic")?.textContent).toBe("中秋节");
+  });
+
+  it("节日 + 假期 + 比赛：只画节日背景，队标 VS 队标照常（§16.1）", () => {
+    const grid = renderWith({
+      events: new Map([["2026-10-06", [FIXTURE]]]),
+      chinaSemantic: new Map([["2026-10-06", MID_AUTUMN]]),
+      chinaDay: new Map([["2026-10-06", REST_DAY]]),
+      assets: ASSETS,
+    });
+    const cell = cellOf(grid, "2026-10-06");
+
+    // 主背景只有一个：节日专属视觉。不再额外叠一个巨大狮标。
+    expect(cell.querySelectorAll(".cell-backdrop")).toHaveLength(1);
+    expect(cell.querySelector(".match-cell-bg")).toBeNull();
+    expect(cell.getAttribute("data-cell-backdrop")).toBe("festival");
+    // 比赛是对阵叠加，仍然显示。
+    expect(cell.querySelectorAll(".match-cell")).toHaveLength(1);
+  });
+
+  it("休假 + 比赛：联赛视觉当主背景，假期底色与大字都不画（参考图 10 月 4 日）", () => {
+    const grid = renderWith({
+      events: new Map([["2026-10-04", [FIXTURE]]]),
+      chinaDay: new Map([["2026-10-04", REST_DAY]]),
+    });
+    const cell = cellOf(grid, "2026-10-04");
+
+    expect(cell.getAttribute("data-cell-backdrop")).toBe("league");
+    expect(cell.querySelector(".match-cell-bg")?.textContent).toBe("英超");
+    // 假期视觉让位：没有底色、也没有大字（§26 多语义不堆叠失控）。
+    expect(cell.querySelector(".cell-glyph")).toBeNull();
+    expect(cell.hasAttribute("style")).toBe(false);
+    // 休假这个事实仍可从载荷读出：格子上仍带着类别与连休区段。
+    expect(cell.getAttribute("data-china-day")).toBe("rest");
+    expect(cell.getAttribute("data-china-run")).toBe("2026-10-01");
+  });
+
+  it("普通日期不画任何背景层：格子保持安静（§6）", () => {
+    const grid = renderWith({
+      events: new Map([["2026-10-12", [PLAIN]]]),
+    });
+    const cell = cellOf(grid, "2026-10-12");
+
+    expect(cell.hasAttribute("data-cell-backdrop")).toBe(false);
+    expect(cell.querySelector(".cell-glyph")).toBeNull();
+    expect(cell.querySelector(".cell-backdrop")).toBeNull();
+    expect(cell.querySelector(".match-cell-bg")).toBeNull();
+    // 普通事件的摘要不受影响。
+    expect(cell.textContent).toContain("每周站会");
   });
 });
