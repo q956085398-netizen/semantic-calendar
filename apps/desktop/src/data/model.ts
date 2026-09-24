@@ -62,6 +62,21 @@ export interface RawRecurrence {
   exdates: ExdateValue[];
 }
 
+/**
+ * 事件自带的提醒（ICS VALARM，SC-017 / NOTIFY-002）。
+ *
+ * 只记录来源给定的事实（相对事件时间提前 / 延后多久），
+ * “什么时候真的弹窗”属于提醒计划与调度（notifications/），不在这里判断。
+ */
+export interface EventAlarm {
+  /** 偏移量（分钟），非负；方向由 direction 决定。 */
+  minutes: number;
+  /** before：事件之前（TRIGGER:-PT30M）；after：事件之后（TRIGGER:+PT5M）。 */
+  direction: "before" | "after";
+  /** 偏移基准：开始时间或结束时间（TRIGGER;RELATED=END）。 */
+  related: "start" | "end";
+}
+
 export interface RawCalendarEvent {
   uid: string;
   sourceId: string;
@@ -87,6 +102,8 @@ export interface RawCalendarEvent {
   cancelled?: boolean;
   /** 原始重复规则（RRULE / EXDATE 等）。 */
   recurrence?: RawRecurrence;
+  /** 事件自带的提醒（VALARM）；没有则缺省，提醒计划回落到用户设置（SC-017）。 */
+  alarms?: EventAlarm[];
   /** 原始 ICS 事件片段，保证原始字段可追溯。 */
   rawPayload?: string;
 }

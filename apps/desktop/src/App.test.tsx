@@ -28,6 +28,10 @@ function mockBackend(
     dataStoreRead?: string | null | Error;
     webcalFetch?: (args: Record<string, unknown>) => unknown;
     shellSetCloseBehavior?: unknown;
+    /** 通知权限状态（SC-017）；默认已允许。 */
+    notificationStatus?: unknown;
+    /** 通知发送结果（SC-017）；默认发送成功。 */
+    notificationSend?: unknown;
   } = {},
 ) {
   invokeMock.mockImplementation(
@@ -49,9 +53,48 @@ function mockBackend(
           },
         );
       }
+      if (
+        cmd === "notification_status" ||
+        cmd === "notification_request_permission"
+      ) {
+        return asPromise(
+          overrides.notificationStatus ?? { permission: "granted" },
+        );
+      }
+      if (cmd === "notification_send") {
+        return asPromise(overrides.notificationSend ?? null);
+      }
       return Promise.resolve(null);
     },
   );
+}
+
+/** 已发送的本地通知（SC-017）：桌面壳收到的标题与正文。 */
+function sentNotifications(): Array<{ title: string; body: string }> {
+  return invokeMock.mock.calls
+    .filter(([cmd]) => cmd === "notification_send")
+    .map(([, args]) => ({
+      title: String(args?.title),
+      body: String(args?.body),
+    }));
+}
+
+/** 快照 settings（最近一次落盘）：通知设置与去重日志的断言点。 */
+function snapshotSettings(): Record<string, unknown> {
+  return writtenSnapshots().at(-1)!.settings as Record<string, unknown>;
+}
+
+/** 从冻结的当前时刻推进到指定本地时刻（假定时器）。 */
+async function advanceTo(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+): Promise<void> {
+  const delta =
+    new Date(year, month - 1, day, hour, minute).getTime() - Date.now();
+  await vi.advanceTimersByTimeAsync(Math.max(0, delta));
 }
 
 function writtenSnapshots(): Array<Record<string, unknown>> {
@@ -1216,11 +1259,12 @@ describe("关注球队（SC-016 / SPORT-006）", () => {
     await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
 
     expect(within(sidebar()).getByText("未选择")).toBeTruthy();
-    expect(
-      within(sidebar())
-        .getAllByRole("checkbox")
-        .some((box) => (box as HTMLInputElement).checked),
-    ).toBe(false);
+    // 只看球队复选框：侧栏还有通知开关等其他复选框（SC-017）。
+    const teamBoxes = sidebar().querySelectorAll<HTMLInputElement>(
+      ".followed-team-check",
+    );
+    expect(teamBoxes.length).toBeGreaterThan(0);
+    expect([...teamBoxes].some((box) => box.checked)).toBe(false);
   });
 });
 
@@ -1546,5 +1590,217 @@ describe("窗口行为（SC-002）", () => {
     // 失败的是执行侧：设置照常落盘，下次启动仍会按用户选择推送。
     fireEvent.click(closeBehaviorButton("退出应用"));
     await waitFor(() => expect(closeBehaviorInSnapshot()).toBe("quit"));
+  });
+});
+
+/** SC-017 集成：两场比赛，用来验证“重启后未触发的提醒仍会触发”。 */
+const TWO_MATCHES_ICS = [
+  "BEGIN:VCALENDAR",
+  "VERSION:2.0",
+  "BEGIN:VEVENT",
+  "UID:match-a@example.com",
+  "SUMMARY:Arsenal vs Manchester City",
+  "DTSTART:20260926T233000",
+  "END:VEVENT",
+  "BEGIN:VEVENT",
+  "UID:match-b@example.com",
+  "SUMMARY:Liverpool vs Chelsea",
+  "DTSTART:20260927T200000",
+  "END:VEVENT",
+  "END:VCALENDAR",
+  "",
+].join("\r\n");
+
+/** 通知设置键按字面量写：键名被改名时旧快照会读不出设置（与 SC-016 同一口径）。 */
+const MATCH_REMINDER_KEY = "notifications.matchReminderMinutes";
+const NOTIFICATIONS_ENABLED_KEY = "notifications.enabled";
+const FIRED_REMINDERS_KEY = "notifications.firedReminders";
+
+describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
+  it("比赛按默认建议（赛前 30 分钟）弹出本地通知，并把去重状态写入快照", async () => {
+    await renderReadyApp();
+    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+
+    // 侧栏此刻已经能说明下一条提醒（app-spec §12 可解释状态）。
+    await waitFor(() =>
+      expect(within(sidebar()).getByText(/下一条提醒/)).toBeTruthy(),
+    );
+    expect(sentNotifications()).toEqual([]);
+
+    // 比赛 2026-09-26 23:30，默认提前 30 分钟。
+    await advanceTo(2026, 9, 26, 22, 59);
+    expect(sentNotifications()).toEqual([]);
+
+    await advanceTo(2026, 9, 26, 23, 0);
+    expect(sentNotifications()).toEqual([
+      {
+        title: "Arsenal vs Manchester City",
+        body: expect.stringContaining("赛前 30 分钟"),
+      },
+    ]);
+
+    // 去重日志（NOTIFY-004）与“已发送”的事实一起落盘。
+    await waitFor(() =>
+      expect(snapshotSettings()[FIRED_REMINDERS_KEY]).toHaveLength(1),
+    );
+    expect(snapshotSettings()[FIRED_REMINDERS_KEY]).toEqual([
+      expect.objectContaining({ outcome: "fired" }),
+    ]);
+  });
+
+  it("重启后已触发的提醒不重复、未触发的照常触发（NOTIFY-004）", async () => {
+    await renderReadyApp();
+    chooseImportFile(icsFile(TWO_MATCHES_ICS, "two-matches.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
+
+    // 第一场 2026-09-26 23:30 → 23:00 触发；第二场次日 20:00 → 19:30 触发。
+    await advanceTo(2026, 9, 26, 23, 0);
+    expect(sentNotifications().map((entry) => entry.title)).toEqual([
+      "Arsenal vs Manchester City",
+    ]);
+
+    // 重启：用同一份快照重新启动应用（去重日志随快照一起恢复）。
+    const snapshot = JSON.stringify(writtenSnapshots().at(-1));
+    cleanup();
+    mockBackend({ dataStoreRead: snapshot });
+    freezeClock();
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/本地数据层就绪/)).toBeTruthy(),
+    );
+    expect(sentNotifications()).toHaveLength(1);
+
+    // 已触发的那场不会重复弹；还没到点的那场仍然会弹（待触发提醒被恢复）。
+    await advanceTo(2026, 9, 27, 19, 29);
+    expect(sentNotifications()).toHaveLength(1);
+    await advanceTo(2026, 9, 27, 19, 30);
+    expect(sentNotifications().map((entry) => entry.title)).toEqual([
+      "Arsenal vs Manchester City",
+      "Liverpool vs Chelsea",
+    ]);
+  });
+
+  it("用户设置的提前量优先（NOTIFY-003），并写回快照", async () => {
+    mockBackend({
+      dataStoreRead: seededSnapshot({ [MATCH_REMINDER_KEY]: 60 }),
+    });
+    freezeClock();
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
+
+    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+
+    // 提醒时间：23:30 前 60 分钟 → 22:30。
+    await advanceTo(2026, 9, 26, 22, 29);
+    expect(sentNotifications()).toEqual([]);
+    await advanceTo(2026, 9, 26, 22, 30);
+    expect(sentNotifications()).toEqual([
+      {
+        title: "Arsenal vs Manchester City",
+        body: expect.stringContaining("赛前 60 分钟"),
+      },
+    ]);
+
+    // 详情栏的提醒行与调度同口径：写明来源是用户设置。
+    fireEvent.click(
+      screen
+        .getByRole("grid", { name: "2026年9月" })
+        .querySelector('[data-date="2026-09-26"]') as HTMLElement,
+    );
+    const match = within(
+      screen.getByRole("complementary", { name: "详情栏" }),
+    ).getByRole("region", { name: "阿森纳 对 曼城" });
+    expect(within(match).getByText("提醒")).toBeTruthy();
+    expect(within(match).getByText(/赛前 60 分钟（用户设置）/)).toBeTruthy();
+  });
+
+  it("选择“不提醒”后不再弹出，并在详情栏说明原因", async () => {
+    mockBackend({
+      dataStoreRead: seededSnapshot({ [MATCH_REMINDER_KEY]: null }),
+    });
+    freezeClock();
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
+
+    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+    await advanceTo(2026, 9, 27, 0, 0);
+
+    expect(sentNotifications()).toEqual([]);
+    fireEvent.click(
+      screen
+        .getByRole("grid", { name: "2026年9月" })
+        .querySelector('[data-date="2026-09-26"]') as HTMLElement,
+    );
+    const match = within(
+      screen.getByRole("complementary", { name: "详情栏" }),
+    ).getByRole("region", { name: "阿森纳 对 曼城" });
+    expect(within(match).getByText("已关闭（用户设置）")).toBeTruthy();
+  });
+
+  it("通知开关与比赛提醒提前量写入快照", async () => {
+    await renderReadyApp();
+
+    fireEvent.click(within(sidebar()).getByLabelText("日历提醒"));
+    await waitFor(() =>
+      expect(snapshotSettings()[NOTIFICATIONS_ENABLED_KEY]).toBe(false),
+    );
+
+    fireEvent.change(within(sidebar()).getByLabelText("比赛提醒提前量"), {
+      target: { value: "15" },
+    });
+    await waitFor(() =>
+      expect(snapshotSettings()[MATCH_REMINDER_KEY]).toBe(15),
+    );
+  });
+
+  it("权限被拒绝时解释状态，日历继续可用（§13）", async () => {
+    mockBackend({ notificationStatus: { permission: "denied" } });
+    freezeClock();
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
+
+    expect(within(sidebar()).getByText(/系统通知权限被拒绝/)).toBeTruthy();
+    expect(
+      within(sidebar()).getByRole("button", { name: "请求系统授权" }),
+    ).toBeTruthy();
+    // 日历本身继续可用：月视图照常渲染。
+    expect(screen.getByRole("grid", { name: "2026年9月" })).toBeTruthy();
+  });
+
+  it("发送失败时给出可解释状态，且同一提醒不再重复", async () => {
+    mockBackend({
+      notificationSend: Object.assign(new Error("系统拒绝"), {
+        kind: "send-failed",
+      }),
+    });
+    await renderReadyApp();
+    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+
+    await advanceTo(2026, 9, 26, 23, 0);
+    await waitFor(() =>
+      expect(within(sidebar()).getByText(/系统通知未能弹出/)).toBeTruthy(),
+    );
+    expect(sentNotifications()).toHaveLength(1);
+
+    // 已记为已处理：继续推进时间不会再弹（NOTIFY-004）。
+    await advanceTo(2026, 9, 26, 23, 10);
+    expect(sentNotifications()).toHaveLength(1);
+  });
+
+  it("浏览器预览模式：说明系统通知需要桌面环境", async () => {
+    mockBackend({
+      dataStoreRead: new Error(
+        "window.__TAURI_INTERNALS__ is undefined（浏览器预览）",
+      ),
+    });
+
+    render(<App />);
+    await waitFor(() =>
+      expect(within(sidebar()).getByText(/系统通知需要桌面环境/)).toBeTruthy(),
+    );
   });
 });

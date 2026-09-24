@@ -14,7 +14,7 @@
  *   startTzid / endTzid / EXDATE 条目上，精确换算由 SC-008 完成。
  */
 
-import type { ExdateValue, RawCalendarEvent } from "../data/model";
+import type { EventAlarm, ExdateValue, RawCalendarEvent } from "../data/model";
 
 /** 单个坏事件的说明；eventIndex 为 1 基 VEVENT 序号，undefined 表示文件级问题。 */
 export interface IcsParseIssue {
@@ -213,15 +213,14 @@ function pad(value: number, width: number): string {
 }
 
 /**
- * DURATION → 结束时间。以“墙上时钟”做加法（UTC 分量容器），
- * 浮动时间与 UTC 语义下都正确，且不依赖运行机器时区。
+ * DURATION → 毫秒（保留符号）；格式非法返回 null。
+ * 同一份解析供 DTEND 推算与 VALARM 的 TRIGGER 使用。
  */
-function applyDuration(start: IcsDateTime, duration: string): IcsDateTime {
-  const match = DURATION.exec(duration.trim());
+function parseDurationMs(value: string): number | null {
+  const match = DURATION.exec(value.trim());
   if (!match) {
-    throw new Error(`DURATION 格式非法：${duration}`);
+    return null;
   }
-  const negative = match[1] === "-";
   const weeks = Number(match[2] ?? 0);
   const days = Number(match[3] ?? 0);
   const hours = Number(match[4] ?? 0);
@@ -230,7 +229,18 @@ function applyDuration(start: IcsDateTime, duration: string): IcsDateTime {
   const totalMs =
     (((weeks * 7 + days) * 24 + hours) * 60 + minutes) * 60 * 1000 +
     seconds * 1000;
-  const delta = negative ? -totalMs : totalMs;
+  return match[1] === "-" ? -totalMs : totalMs;
+}
+
+/**
+ * DURATION → 结束时间。以“墙上时钟”做加法（UTC 分量容器），
+ * 浮动时间与 UTC 语义下都正确，且不依赖运行机器时区。
+ */
+function applyDuration(start: IcsDateTime, duration: string): IcsDateTime {
+  const delta = parseDurationMs(duration);
+  if (delta === null) {
+    throw new Error(`DURATION 格式非法：${duration}`);
+  }
 
   if (start.allDay) {
     const { year, month, day } = parseIsoDate(start.iso);
@@ -290,6 +300,94 @@ function parseIsoDateTime(iso: string) {
     hour: Number(iso.slice(11, 13)),
     minute: Number(iso.slice(14, 16)),
     second: Number(iso.slice(17, 19)),
+  };
+}
+
+/**
+ * 收集属性：同名属性取第一个（ICS 惯例）。
+ * 顶层 VEVENT 属性与 VALARM 属性共用同一份规则。
+ */
+function collectProperties(
+  lines: readonly string[],
+): Map<string, { params: Record<string, string>; value: string }> {
+  const properties = new Map<
+    string,
+    { params: Record<string, string>; value: string }
+  >();
+  for (const line of lines) {
+    const parsed = parseContentLine(line);
+    if (parsed === null || properties.has(parsed.name)) {
+      continue;
+    }
+    properties.set(parsed.name, {
+      params: parsed.params,
+      value: parsed.value,
+    });
+  }
+  return properties;
+}
+
+/** RRULE / EXDATE 收集；重复给出 RRULE 时以最后一条为准。 */
+function collectRecurrence(lines: readonly string[]): {
+  rrule?: string;
+  exdates: ExdateValue[];
+} {
+  const exdates: ExdateValue[] = [];
+  let rrule: string | undefined;
+  for (const line of lines) {
+    const parsed = parseContentLine(line);
+    if (parsed === null) {
+      continue;
+    }
+    if (parsed.name === "EXDATE") {
+      const tzid = parsed.params.TZID;
+      for (const value of parsed.value.split(",")) {
+        const trimmed = value.trim();
+        if (trimmed !== "") {
+          exdates.push({
+            value: trimmed,
+            ...(tzid !== undefined && { tzid }),
+          });
+        }
+      }
+      continue;
+    }
+    if (parsed.name === "RRULE") {
+      rrule = parsed.value.trim();
+    }
+  }
+  return { rrule, exdates };
+}
+
+/**
+ * VALARM → 事件自带提醒（SC-017 / NOTIFY-002）。
+ *
+ * 只解释“相对时间”的 TRIGGER（-PT30M / -P1D 等，RFC 5545 的主流写法），
+ * 并且只接收 ACTION:DISPLAY（或未声明 ACTION）：绝对时间 TRIGGER
+ * （VALUE=DATE-TIME）与 EMAIL / AUDIO 类动作都不产生本地提醒——
+ * 宁可不提醒，也不按错误的时间弹窗（P-03）。
+ */
+function parseValarm(lines: readonly string[]): EventAlarm | null {
+  const properties = collectProperties(lines);
+  const trigger = properties.get("TRIGGER");
+  if (trigger === undefined) {
+    return null;
+  }
+  if (trigger.params.VALUE?.toUpperCase() === "DATE-TIME") {
+    return null;
+  }
+  const action = properties.get("ACTION")?.value.trim().toUpperCase();
+  if (action !== undefined && action !== "DISPLAY") {
+    return null;
+  }
+  const deltaMs = parseDurationMs(trigger.value);
+  if (deltaMs === null) {
+    return null;
+  }
+  return {
+    minutes: Math.abs(deltaMs) / 60_000,
+    direction: deltaMs <= 0 ? "before" : "after",
+    related: trigger.params.RELATED?.toUpperCase() === "END" ? "end" : "start",
   };
 }
 
@@ -385,20 +483,20 @@ export function parseIcsCalendar(text: string): IcsParseResult {
 }
 
 function parseVevent(bodyLines: string[]): ParsedIcsEvent {
-  const properties = new Map<
-    string,
-    { params: Record<string, string>; value: string }
-  >();
-  const exdates: ExdateValue[] = [];
-  let rrule: string | undefined;
-
-  // 去掉 BEGIN/END:VEVENT 后收集顶层属性；嵌套子组件（VALARM 等）跳过。
+  // 去掉 BEGIN/END:VEVENT 后收集顶层属性；嵌套子组件单独收集：
+  // VALARM 解释为事件自带提醒（SC-017），其余（VTIMEZONE 等）只保留原文。
   const inner = bodyLines.slice(1, -1);
-  let skipDepth = 0;
+  const topLevel: string[] = [];
+  const alarms: EventAlarm[] = [];
   const keptLines: string[] = [];
+  let skipDepth = 0;
+  let nested: { lines: string[] } | null = null;
   for (const line of inner) {
     const upper = line.trim().toUpperCase();
     if (upper.startsWith("BEGIN:")) {
+      const component = upper.slice("BEGIN:".length);
+      // 嵌套里的嵌套（非标准写法）不参与解释：只收整块原文。
+      nested = skipDepth === 0 && component === "VALARM" ? { lines: [] } : null;
       skipDepth += 1;
       keptLines.push(line);
       continue;
@@ -406,42 +504,25 @@ function parseVevent(bodyLines: string[]): ParsedIcsEvent {
     if (upper.startsWith("END:")) {
       skipDepth -= 1;
       keptLines.push(line);
+      if (skipDepth === 0 && nested !== null) {
+        const alarm = parseValarm(nested.lines);
+        if (alarm !== null) {
+          alarms.push(alarm);
+        }
+        nested = null;
+      }
       continue;
     }
     keptLines.push(line);
     if (skipDepth > 0) {
+      nested?.lines.push(line);
       continue;
     }
-    const parsed = parseContentLine(line);
-    if (parsed === null) {
-      continue;
-    }
-    if (parsed.name === "EXDATE") {
-      const tzid = parsed.params.TZID;
-      for (const value of parsed.value.split(",")) {
-        const trimmed = value.trim();
-        if (trimmed !== "") {
-          exdates.push({
-            value: trimmed,
-            ...(tzid !== undefined && { tzid }),
-          });
-        }
-      }
-      continue;
-    }
-    if (parsed.name === "RRULE") {
-      rrule = parsed.value.trim();
-      continue;
-    }
-    // 同名属性取第一个（ICS 惯例）。
-    if (!properties.has(parsed.name)) {
-      properties.set(parsed.name, {
-        params: parsed.params,
-        value: parsed.value,
-      });
-    }
+    topLevel.push(line);
   }
   const rawPayload = keptLines.join("\n");
+  const properties = collectProperties(topLevel);
+  const { rrule, exdates } = collectRecurrence(topLevel);
 
   const uid = properties.get("UID")?.value.trim();
   if (!uid) {
@@ -517,6 +598,7 @@ function parseVevent(bodyLines: string[]): ParsedIcsEvent {
     ...(endTzid !== undefined && { endTzid }),
     ...(occurrenceId !== undefined && { occurrenceId }),
     ...(cancelled && { cancelled: true }),
+    ...(alarms.length > 0 && { alarms }),
     ...(((rrule !== undefined || exdates.length > 0) && {
       recurrence: { rrule, exdates },
     }) as object),

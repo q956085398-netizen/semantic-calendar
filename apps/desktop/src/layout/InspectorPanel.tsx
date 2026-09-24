@@ -10,6 +10,7 @@ import type {
   ChinaDaySemanticEntry,
   ChinaDaySemanticLabel,
 } from "../semantic/app-china-festivals";
+import type { MatchReminderSetting } from "../notifications/notification-settings";
 import { MatchdayInspector } from "./MatchdayInspector";
 
 /**
@@ -51,6 +52,8 @@ interface InspectorPanelProps {
   chinaSemantic?: ChinaDaySemanticLabel;
   /** 用户关注的球队 id（SC-016）；只在比赛详情里做标记。 */
   followedTeamIds?: readonly string[];
+  /** 比赛提醒提前量的用户设置（SC-017）；提醒行据此说明会不会提醒。 */
+  matchReminder?: MatchReminderSetting;
   /** 队徽 / 联赛 Logo 资源包（SC-022 接入；默认不携带图片）。 */
   assets?: MarkAssetSource;
 }
@@ -62,6 +65,7 @@ export function InspectorPanel({
   chinaDay,
   chinaSemantic,
   followedTeamIds = [],
+  matchReminder,
   assets,
 }: InspectorPanelProps) {
   const { year, month, day } = parseDateKey(dateKey);
@@ -143,6 +147,7 @@ export function InspectorPanel({
           fixture={fixture}
           event={event}
           followedTeamIds={followedTeamIds}
+          matchReminder={matchReminder}
           assets={assets}
         />
       ))}

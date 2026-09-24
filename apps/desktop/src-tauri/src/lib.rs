@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use tauri::Manager;
 
+mod notify;
 mod shell;
 mod webcal;
 
@@ -106,6 +107,9 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             shell::show_main_window(app);
         }))
+        // 本地通知（SC-017）：插件只提供“权限状态 / 发送”，不注册任何定时器——
+        // 什么时候提醒由前端调度器决定（app-spec §12 只用“下一条通知调度”唤醒）。
+        .plugin(tauri_plugin_notification::init())
         .manage(shell::ShellState::new())
         .setup(|app| {
             // 托盘不可用不阻塞启动：关闭行为会自动退化为退出
@@ -127,6 +131,9 @@ pub fn run() {
             data_store_write,
             data_store_rename,
             webcal_fetch,
+            notify::notification_status,
+            notify::notification_request_permission,
+            notify::notification_send,
             shell::shell_set_close_behavior
         ])
         .run(tauri::generate_context!())

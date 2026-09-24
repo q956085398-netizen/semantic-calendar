@@ -7,11 +7,14 @@ import {
   type MarkAssetSource,
 } from "../semantic/marks";
 import {
-  displayMetadataOf,
   type FixtureDisplay,
   type FixtureTeamDisplay,
 } from "../semantic/metadata-resolver";
-import { reminderLabel } from "../format/reminder";
+import {
+  describeEventReminder,
+  type EventReminderDescription,
+} from "../notifications/reminder-plan";
+import type { MatchReminderSetting } from "../notifications/notification-settings";
 import { eventTimeLabel } from "../calendar/event-display";
 import type { EnrichedEvent } from "../data/model";
 
@@ -27,10 +30,12 @@ import type { EnrichedEvent } from "../data/model";
  * - 场地：只有来源事件确实带 LOCATION 时才有值——LOCATION 是事件地点，
  *   未必等于主队球场，因此标题用“场地”而不是“主场”；
  * - 开赛：全天比赛没有开赛时间，不写；
- * - 提醒：写的是策略建议（NOTIFY-003），不是事件数据，因此标题用“建议提醒”。
+ * - 提醒：调度的口径与通知调度器完全一致（SC-017 的 describeEventReminder）
+ *   ——默认建议写“建议提醒”，用户设置或事件自带提醒写“提醒”，
+ *   用户关掉比赛提醒时写明已关闭，而不是继续写一个不会发生的建议。
  *
  * 关注球队（SPORT-006）在这里只做标记：月格不因关注改变（§10.2 只显示
- * 队标 VS 队标），提醒策略由 SC-017 消费同一份关注状态。
+ * 队标 VS 队标），赛前提醒由 SC-017 消费同一份关注状态。
  */
 
 interface MatchdayInspectorProps {
@@ -38,6 +43,8 @@ interface MatchdayInspectorProps {
   event: EnrichedEvent;
   /** 用户关注的球队 id（SC-016 持久化设置）。 */
   followedTeamIds: readonly string[];
+  /** 比赛提醒提前量的用户设置（SC-017）；缺省表示跟随默认建议。 */
+  matchReminder?: MatchReminderSetting;
   /** 资源包：默认不携带图片（SC-022 接入）。 */
   assets?: MarkAssetSource;
 }
@@ -46,12 +53,16 @@ export function MatchdayInspector({
   fixture,
   event,
   followedTeamIds,
+  matchReminder,
   assets = NO_MARK_ASSETS,
 }: MatchdayInspectorProps) {
   const [home, away] = fixture.teams;
   const time = eventTimeLabel(event);
   const venue = event.location?.trim();
-  const reminder = displayMetadataOf(event)?.reminder;
+  const reminder: EventReminderDescription | undefined = describeEventReminder(
+    event,
+    matchReminder,
+  );
   const competition = resolveCompetitionMark(fixture.competition, assets);
 
   return (
@@ -104,10 +115,10 @@ export function MatchdayInspector({
         )}
         {reminder !== undefined && (
           <>
-            {/* 提醒是策略建议（NOTIFY-003「比赛可建议赛前 30 分钟」），
-                不是事件自带的数据，因此不写成事实陈述 */}
-            <dt>建议提醒</dt>
-            <dd>{reminderLabel(reminder)}</dd>
+            {/* 提醒行与通知调度共用同一套优先级（SC-017）：
+                建议 / 用户设置 / 事件自带 / 已关闭 */}
+            <dt>{reminder.label}</dt>
+            <dd>{reminder.detail}</dd>
           </>
         )}
       </dl>

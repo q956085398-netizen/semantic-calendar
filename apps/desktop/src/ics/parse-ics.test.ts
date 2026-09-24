@@ -551,3 +551,165 @@ describe("parseIcsCalendar — 文件级失败", () => {
     expect(result.events).toHaveLength(1);
   });
 });
+
+/**
+ * SC-017 / NOTIFY-002：事件自带提醒（VALARM）。
+ *
+ * 只把相对时间的 TRIGGER + ACTION:DISPLAY 当作本地提醒；绝对时间与
+ * 邮件 / 铃声类动作不产生提醒（宁可不提醒，也不按错误的时间弹窗）。
+ */
+describe("parseIcsCalendar — 事件自带提醒（VALARM）", () => {
+  function withAlarm(...alarmLines: string[]): string {
+    return [
+      "BEGIN:VEVENT",
+      "UID:meeting@example.com",
+      "SUMMARY:周会",
+      "DTSTART:20260923T190000",
+      "DTEND:20260923T200000",
+      "BEGIN:VALARM",
+      ...alarmLines,
+      "END:VALARM",
+      "END:VEVENT",
+    ].join("\r\n");
+  }
+
+  it("解析提前 30 分钟的显示提醒", () => {
+    const result = parseIcsCalendar(
+      wrap(withAlarm("ACTION:DISPLAY", "DESCRIPTION:提醒", "TRIGGER:-PT30M")),
+    );
+
+    expect(result.issues).toEqual([]);
+    expect(result.events[0].alarms).toEqual([
+      { minutes: 30, direction: "before", related: "start" },
+    ]);
+  });
+
+  it("支持按天 / 小时的提前量与多个提醒（顺序即原文顺序）", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        [
+          "BEGIN:VEVENT",
+          "UID:meeting@example.com",
+          "SUMMARY:周会",
+          "DTSTART:20260923T190000",
+          "BEGIN:VALARM",
+          "TRIGGER:-P1D",
+          "ACTION:DISPLAY",
+          "END:VALARM",
+          "BEGIN:VALARM",
+          "TRIGGER:-PT2H",
+          "ACTION:DISPLAY",
+          "END:VALARM",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events[0].alarms).toEqual([
+      { minutes: 1440, direction: "before", related: "start" },
+      { minutes: 120, direction: "before", related: "start" },
+    ]);
+  });
+
+  it("RELATED=END 与正向偏移都按原文记录", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        withAlarm("TRIGGER;RELATED=END:-PT15M", "ACTION:DISPLAY"),
+        [
+          "BEGIN:VEVENT",
+          "UID:second@example.com",
+          "SUMMARY:另一个事件",
+          "DTSTART:20260924T100000",
+          "BEGIN:VALARM",
+          "TRIGGER;RELATED=END:PT5M",
+          "ACTION:DISPLAY",
+          "END:VALARM",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events[0].alarms).toEqual([
+      { minutes: 15, direction: "before", related: "end" },
+    ]);
+    expect(result.events[1].alarms).toEqual([
+      { minutes: 5, direction: "after", related: "end" },
+    ]);
+  });
+
+  it("绝对时间 TRIGGER 不产生提醒（不猜当地时刻）", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        withAlarm("TRIGGER;VALUE=DATE-TIME:20260923T120000Z", "ACTION:DISPLAY"),
+      ),
+    );
+
+    expect(result.events[0].alarms).toBeUndefined();
+  });
+
+  it("EMAIL / AUDIO 类动作不产生本地提醒", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        withAlarm("TRIGGER:-PT30M", "ACTION:EMAIL", "ATTENDEE:mailto:a@b.c"),
+        [
+          "BEGIN:VEVENT",
+          "UID:audio@example.com",
+          "SUMMARY:带铃声的事件",
+          "DTSTART:20260924T100000",
+          "BEGIN:VALARM",
+          "TRIGGER:-PT5M",
+          "ACTION:AUDIO",
+          "END:VALARM",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events[0].alarms).toBeUndefined();
+    expect(result.events[1].alarms).toBeUndefined();
+  });
+
+  it("缺少 ACTION 时按显示提醒处理，TRIGGER 坏值则忽略", () => {
+    const result = parseIcsCalendar(
+      wrap(
+        withAlarm("TRIGGER:-PT10M"),
+        [
+          "BEGIN:VEVENT",
+          "UID:broken@example.com",
+          "SUMMARY:坏 TRIGGER",
+          "DTSTART:20260924T100000",
+          "BEGIN:VALARM",
+          "TRIGGER:明天早上",
+          "ACTION:DISPLAY",
+          "END:VALARM",
+          "END:VEVENT",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(result.events[0].alarms).toEqual([
+      { minutes: 10, direction: "before", related: "start" },
+    ]);
+    expect(result.events[1].alarms).toBeUndefined();
+  });
+
+  it("VALARM 原文仍保留在 rawPayload，且不影响顶层属性解析", () => {
+    const result = parseIcsCalendar(
+      wrap(withAlarm("TRIGGER:-PT30M", "ACTION:DISPLAY")),
+    );
+
+    expect(result.events[0].rawPayload).toContain("BEGIN:VALARM");
+    expect(result.events[0]).toMatchObject({
+      uid: "meeting@example.com",
+      title: "周会",
+      start: "2026-09-23T19:00:00",
+      end: "2026-09-23T20:00:00",
+    });
+  });
+
+  it("没有 VALARM 的事件不带 alarms 字段（不写空数组）", () => {
+    const result = parseIcsCalendar(wrap(BASIC_EVENT));
+
+    expect(result.events[0].alarms).toBeUndefined();
+  });
+});

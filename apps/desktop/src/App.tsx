@@ -38,12 +38,50 @@ import { createAppSemanticStack } from "./semantic/app-registry";
 import { lunarLabelsOf } from "./semantic/app-lunar";
 import { chinaDayLabelsOf } from "./semantic/app-china-days";
 import { chinaSemanticLabelsOf } from "./semantic/app-china-festivals";
+import { semanticTypeDefaults } from "./semantic/metadata-resolver";
+import { reminderLabel } from "./format/reminder";
 import {
   FOLLOWED_TEAMS_SETTING_KEY,
   listFollowableTeams,
   readFollowedTeamIds,
   toggleFollowedTeam,
 } from "./semantic/app-followed-teams";
+import {
+  FIRED_REMINDERS_SETTING_KEY,
+  handledReminderIds,
+  markReminderHandled,
+  pruneHandledReminders,
+  readHandledReminders,
+  type HandledReminder,
+  type ReminderOutcome,
+} from "./notifications/fired-reminders";
+import {
+  describeNotificationFailure,
+  createTauriNotificationBridge,
+  isPermissionDeniedFailure,
+  type NotificationPermissionState,
+} from "./notifications/notification-bridge";
+import {
+  MATCH_REMINDER_SETTING_KEY,
+  NOTIFICATIONS_ENABLED_SETTING_KEY,
+  DEFAULT_NOTIFICATIONS_ENABLED,
+  normalizeMatchReminderSetting,
+  normalizeNotificationsEnabled,
+  type MatchReminderSetting,
+} from "./notifications/notification-settings";
+import {
+  REMINDER_HORIZON_DAYS,
+  planReminders,
+  type PlannedReminder,
+} from "./notifications/reminder-plan";
+import {
+  createNotificationScheduler,
+  type NotificationScheduler,
+} from "./notifications/notification-scheduler";
+import {
+  canRequestNotificationPermission,
+  describeNotificationStatus,
+} from "./notifications/notification-status";
 import { AppShell } from "./layout/AppShell";
 import { InspectorPanel } from "./layout/InspectorPanel";
 import { Sidebar } from "./layout/Sidebar";
@@ -78,6 +116,22 @@ const httpIO = createTauriHttpIO();
 
 /** 桌面壳（SC-002）：关闭行为由 Rust 侧执行，前端只推送设置值。 */
 const shellBridge = createTauriShellBridge();
+
+/**
+ * 本地通知（SC-017 / NOTIFY-001）：发送与权限状态都在 Rust 侧，
+ * 这里只是端口；调度（什么时候发）在前端，见 notifications/。
+ */
+const notificationBridge = createTauriNotificationBridge();
+
+/**
+ * 比赛提醒默认建议的文案（NOTIFY-003）：来自 Metadata Resolver 的类型级
+ * 默认值，界面因此不必再写一份“赛前 30 分钟”——默认值只有一处来源。
+ */
+const MATCH_REMINDER_DEFAULT = semanticTypeDefaults("sport.fixture")?.reminder;
+const MATCH_REMINDER_DEFAULT_LABEL =
+  MATCH_REMINDER_DEFAULT === undefined
+    ? undefined
+    : reminderLabel(MATCH_REMINDER_DEFAULT);
 
 /**
  * 可关注球队（SC-016）：静态元数据，启动装配一次即可。
@@ -162,6 +216,11 @@ function describeError(error: unknown, url: string): string {
   );
 }
 
+/** IPC 失败 → 可展示文案；桌面壳不可用以外的失败都要让用户看到（§13）。 */
+function describeIpcError(prefix: string, error: unknown): string {
+  return `${prefix}：${error instanceof Error ? error.message : String(error)}`;
+}
+
 export default function App() {
   const [theme, setTheme] = useState<Theme>("light");
   const [storeStatus, setStoreStatus] = useState("正在初始化本地数据层…");
@@ -185,6 +244,28 @@ export default function App() {
 
   // 关注球队（SC-016 / SPORT-006）：设置里的稳定球队 id 列表。
   const [followedTeamIds, setFollowedTeamIds] = useState<readonly string[]>([]);
+
+  // 通知（SC-017 / NOTIFY-001–003）：设置 + 权限状态 + 最近一次失败说明。
+  const [notificationsEnabled, setNotificationsEnabled] = useState(
+    DEFAULT_NOTIFICATIONS_ENABLED,
+  );
+  const [matchReminder, setMatchReminder] =
+    useState<MatchReminderSetting>(undefined);
+  const [notificationPermission, setNotificationPermission] = useState<
+    NotificationPermissionState | "unknown"
+  >("unknown");
+  /** 发送失败 / 权限请求失败的用户可读说明（§13）。 */
+  const [notificationProblem, setNotificationProblem] = useState<
+    string | undefined
+  >();
+  /** 已处理提醒日志（NOTIFY-004）：内存副本 + 落盘在快照 settings。 */
+  const handledRef = useRef<readonly HandledReminder[]>([]);
+  /** 当前计划与“下一条提醒”，供侧栏解释调度状态（§12）。 */
+  const [reminderSummary, setReminderSummary] = useState<{
+    pending: number;
+    next: PlannedReminder | null;
+  }>({ pending: 0, next: null });
+  const reminderSchedulerRef = useRef<NotificationScheduler | null>(null);
 
   // 订阅状态（SC-007）：添加 / 刷新的进行中标记与最近一次动作结果。
   const [subscriptionStatus, setSubscriptionStatus] = useState<
@@ -253,6 +334,41 @@ export default function App() {
   );
 
   /**
+   * 提醒计划（SC-017 / NOTIFY-002–004）：与月格同源的事件集合，窗口是
+   * “当前日期起 30 天”。计划只在调度需要时（启动、数据变化、跨天、到点）
+   * 才算一次，不随渲染重算；窗口每次都读实时时钟，因此常驻数天的会话不会
+   * 一直用启动那天的窗口。已处理的提醒（fired 日志）在这里就被排除，
+   * 刷新 / 重启后不会重复弹同一条。
+   */
+  const reminderInputRef = useRef({
+    events,
+    notificationsEnabled,
+    matchReminder,
+  });
+  const buildReminderPlan = useCallback(() => {
+    const input = reminderInputRef.current;
+    const from = todayKeyFromDate(new Date());
+    const occurrences = expandEventOccurrences(input.events, {
+      from,
+      to: shiftDateKey(from, REMINDER_HORIZON_DAYS),
+    });
+    return planReminders({
+      events: occurrences,
+      notificationsEnabled: input.notificationsEnabled,
+      matchReminder: input.matchReminder,
+      nowMs: Date.now(),
+      handledIds: handledReminderIds(handledRef.current),
+      horizonDays: REMINDER_HORIZON_DAYS,
+    });
+  }, []);
+
+  /** 事件或设置变化 → 让调度器按最新输入重排（启动时的首次排程同此路径）。 */
+  useEffect(() => {
+    reminderInputRef.current = { events, notificationsEnabled, matchReminder };
+    reminderSchedulerRef.current?.reschedule();
+  }, [events, notificationsEnabled, matchReminder]);
+
+  /**
    * 从本地数据层重建 UI 状态；只显示启用来源的事件（SRC-003）。
    * useCallback：供启动 effect 与后台调度长期持有，身份必须稳定。
    */
@@ -296,9 +412,7 @@ export default function App() {
       if (isTauriIpcUnavailable(error)) {
         return;
       }
-      setCloseBehaviorStatus(
-        `关闭行为未能应用：${error instanceof Error ? error.message : String(error)}`,
-      );
+      setCloseBehaviorStatus(describeIpcError("关闭行为未能应用", error));
     }
   }, []);
 
@@ -340,6 +454,58 @@ export default function App() {
     [markRefreshing, refreshFromStore],
   );
 
+  /**
+   * 读取系统通知权限（启动一次，不轮询）；桌面端没有授权对话框，
+   * 权限恒为已允许，因此它主要服务于移动端与“上一次被拒绝”的情形。
+   */
+  const refreshNotificationPermission = useCallback(async () => {
+    try {
+      setNotificationPermission(await notificationBridge.status());
+    } catch (error) {
+      if (isTauriIpcUnavailable(error)) {
+        // 没有桌面壳（浏览器预览）：通知不可用，但日历继续可用（§13）。
+        setNotificationPermission("unsupported");
+        return;
+      }
+      setNotificationPermission("unknown");
+      setNotificationProblem(describeIpcError("读取系统通知状态失败", error));
+    }
+  }, []);
+
+  /** 向系统请求通知权限（用户开启通知时，或点“请求系统授权”）。 */
+  const requestNotificationPermission = useCallback(async () => {
+    try {
+      setNotificationPermission(await notificationBridge.requestPermission());
+    } catch (error) {
+      if (isTauriIpcUnavailable(error)) {
+        setNotificationPermission("unsupported");
+        return;
+      }
+      setNotificationProblem(describeIpcError("请求系统通知权限失败", error));
+    }
+  }, []);
+
+  /**
+   * 记一条提醒为已处理（NOTIFY-004）：内存 + 快照一起更新。
+   * 落盘失败只影响下次启动的去重，因此不阻塞、也不向用户报错。
+   */
+  const markReminderProcessed = useCallback(
+    (reminder: PlannedReminder, outcome: ReminderOutcome) => {
+      const nextLog = markReminderHandled(
+        handledRef.current,
+        { id: reminder.id, at: new Date().toISOString(), outcome },
+        Date.now(),
+      );
+      handledRef.current = nextLog;
+      const store = storeRef.current;
+      if (store) {
+        store.setSetting(FIRED_REMINDERS_SETTING_KEY, nextLog);
+        store.save().catch(() => undefined);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     let cancelled = false;
 
@@ -349,6 +515,8 @@ export default function App() {
 
       if (!opened) {
         setStoreStatus("浏览器预览模式：本地数据层仅桌面壳可用");
+        // 没有桌面壳就没有系统通知：状态直接说明，而不是停在“正在读取”（§13）。
+        setNotificationPermission("unsupported");
         return;
       }
 
@@ -397,6 +565,58 @@ export default function App() {
         readFollowedTeamIds(store.getSetting(FOLLOWED_TEAMS_SETTING_KEY)),
       );
 
+      // 通知（SC-017）：设置与去重日志都从快照恢复，坏值回落到默认。
+      setNotificationsEnabled(
+        normalizeNotificationsEnabled(
+          store.getSetting(NOTIFICATIONS_ENABLED_SETTING_KEY),
+        ),
+      );
+      setMatchReminder(
+        normalizeMatchReminderSetting(
+          store.getSetting(MATCH_REMINDER_SETTING_KEY),
+        ),
+      );
+      // 去重日志顺带裁剪过期条目：日志是状态而不是历史，体量必须可控。
+      handledRef.current = pruneHandledReminders(
+        readHandledReminders(store.getSetting(FIRED_REMINDERS_SETTING_KEY)),
+        Date.now(),
+      );
+      await refreshNotificationPermission();
+      if (cancelled) return;
+
+      /**
+       * 提醒调度（SC-017 / §12）：与 WebCal 刷新同一条形状——一个指向
+       * “下一条提醒”的定时器，外加每个自然日一次的跨天重算（窗口跟着日期
+       * 滑动），没有轮询。已处理状态落盘在快照里，重启后由上面的日志恢复。
+       */
+      const reminders = createNotificationScheduler({
+        plan: buildReminderPlan,
+        replan: buildReminderPlan,
+        send: async (reminder) => {
+          await notificationBridge.send({
+            title: reminder.title,
+            body: reminder.body,
+          });
+          // 发送成功即清掉上一次的失败说明：状态行说的是当前事实（§13）。
+          setNotificationProblem(undefined);
+        },
+        mark: markReminderProcessed,
+        onError: (error) => {
+          setNotificationProblem(describeNotificationFailure(error));
+          if (isPermissionDeniedFailure(error)) {
+            setNotificationPermission("denied");
+          }
+        },
+        onPlanChange: () => {
+          setReminderSummary({
+            pending: reminders.pendingCount(),
+            next: reminders.nextReminder(),
+          });
+        },
+      });
+      reminderSchedulerRef.current = reminders;
+      reminders.start();
+
       const previous = store.getSetting<string | undefined>(
         LAST_OPENED_SETTING,
       );
@@ -428,13 +648,18 @@ export default function App() {
       cancelled = true;
       schedulerRef.current?.stop();
       schedulerRef.current = null;
+      reminderSchedulerRef.current?.stop();
+      reminderSchedulerRef.current = null;
     };
-    // 三个回调身份稳定（useCallback），该 effect 实际只在挂载时执行一次。
+    // 回调身份稳定（useCallback），该 effect 实际只在挂载时执行一次。
   }, [
     markRefreshing,
     pushCloseBehavior,
     refreshFromStore,
     refreshSubscription,
+    markReminderProcessed,
+    refreshNotificationPermission,
+    buildReminderPlan,
   ]);
 
   /**
@@ -584,6 +809,31 @@ export default function App() {
   }
 
   /**
+   * 通知总开关（NOTIFY-001）：开启时顺带向系统请求一次权限——
+   * 这是权限请求的唯一触发点（另外还有用户显式点的“请求系统授权”），
+   * 不在后台反复询问。关闭后计划立即清空，调度器随之释放定时器。
+   */
+  async function handleToggleNotifications(enabled: boolean) {
+    setNotificationsEnabled(enabled);
+    setNotificationProblem(undefined);
+    await persistSetting(NOTIFICATIONS_ENABLED_SETTING_KEY, enabled);
+    if (enabled && notificationPermission !== "granted") {
+      await requestNotificationPermission();
+    }
+    reminderSchedulerRef.current?.reschedule();
+  }
+
+  /**
+   * 比赛提醒提前量（NOTIFY-003）：用户设置优先于 Resolver 建议。
+   * “跟随默认”写回 undefined（快照里没有该键），因此默认值只有 Resolver 一处。
+   */
+  async function handleChangeMatchReminder(next: MatchReminderSetting) {
+    setMatchReminder(next);
+    await persistSetting(MATCH_REMINDER_SETTING_KEY, next);
+    reminderSchedulerRef.current?.reschedule();
+  }
+
+  /**
    * 导入本地 ICS（SC-006 / SRC-001）：文件选择 → 解析 → 落库 → 匹配 → 刷新。
    * 解析错误按事件隔离后聚合反馈（ICS-005），异常也不中断月视图。
    */
@@ -645,6 +895,33 @@ export default function App() {
           closeBehavior={closeBehavior}
           onChangeCloseBehavior={handleChangeCloseBehavior}
           closeBehaviorStatus={closeBehaviorStatus}
+          notifications={{
+            enabled: notificationsEnabled,
+            onToggleEnabled: handleToggleNotifications,
+            matchReminder,
+            onChangeMatchReminder: handleChangeMatchReminder,
+            ...(MATCH_REMINDER_DEFAULT_LABEL === undefined
+              ? {}
+              : { matchReminderDefaultLabel: MATCH_REMINDER_DEFAULT_LABEL }),
+            permission: notificationPermission,
+            status: describeNotificationStatus({
+              enabled: notificationsEnabled,
+              permission: notificationPermission,
+              pendingCount: reminderSummary.pending,
+              next: reminderSummary.next,
+              nowMs: Date.now(),
+              ...(notificationProblem === undefined
+                ? {}
+                : { problem: notificationProblem }),
+            }),
+            canRequestPermission: canRequestNotificationPermission(
+              notificationPermission,
+              notificationsEnabled,
+            ),
+            onRequestPermission: () => {
+              void requestNotificationPermission();
+            },
+          }}
         />
       }
       inspector={
@@ -655,6 +932,7 @@ export default function App() {
           chinaDay={chinaDayByDate.get(selectedDateKey)}
           chinaSemantic={chinaSemanticByDate.get(selectedDateKey)}
           followedTeamIds={followedTeamIds}
+          matchReminder={matchReminder}
         />
       }
     >

@@ -313,19 +313,88 @@ button:focus-visible {
     background 120ms ease;
 }
 
-/* 窗口行为（SC-002）：侧栏宽度固定，分段控件撑满并压缩内边距 */
-.shell-behavior .segmented {
+/* 侧栏设置块（SC-002 关闭行为 / SC-017 通知）：小标题 + 控件 + 状态说明 */
+.sidebar-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 侧栏宽度固定，分段控件撑满并压缩内边距 */
+.sidebar-setting .segmented {
   display: flex;
   width: 100%;
 }
 
-.shell-behavior .segmented-item {
+.sidebar-setting .segmented-item {
   flex: 1;
   padding: 7px 8px;
 }
 
-.shell-behavior .store-status {
-  margin-top: 8px;
+.sidebar-setting .store-status {
+  margin-top: 0;
+}
+
+/* 通知（SC-017 / NOTIFY-001–003）：开关 + 提前量 + 权限状态 */
+.notification-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.notification-toggle input {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.notification-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+}
+
+.notification-field-label {
+  flex: none;
+}
+
+.notification-select {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.notification-permission-request {
+  align-self: flex-start;
+  padding: 5px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.notification-permission-request:hover {
+  color: var(--text-primary);
+  background: var(--bg-cell-hover);
 }
 
 .theme-toggle:hover {

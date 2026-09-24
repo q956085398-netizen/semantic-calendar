@@ -12,21 +12,49 @@ import {
   describeCloseBehavior,
   type CloseBehavior,
 } from "../shell/close-behavior";
+import {
+  matchReminderOptionValue,
+  matchReminderOptionsFor,
+  matchReminderSettingFromOption,
+  type MatchReminderSetting,
+} from "../notifications/notification-settings";
+import type { NotificationPermissionState } from "../notifications/notification-bridge";
 import { FollowedTeamsPicker } from "./FollowedTeamsPicker";
 import type { FixtureTeamDisplay } from "../semantic/metadata-resolver";
 
 /**
- * 左侧栏（ui-design §4）：品牌区 + 小月历 + 数据源列表 + 关注球队 + 导入 / 订阅 + 窗口行为 + 主题切换。
+ * 左侧栏（ui-design §4）：品牌区 + 小月历 + 数据源列表 + 关注球队 + 导入 / 订阅 + 通知 + 窗口行为 + 主题切换。
  *
  * 小月历由 App 注入（SC-005），与主视图共享导航状态。
  * SC-006 起列出真实导入的本地 ICS 数据源；
  * SC-007 起列出 WebCal 订阅，并可添加 / 刷新 / 启停 / 删除（SRC-002 / SRC-003）；
  * SC-016 起提供关注球队选择（SPORT-006），持久化由 App 负责；
  * SC-002 起提供关闭窗口行为（隐藏到托盘 / 退出），执行者是桌面壳；
+ * SC-017 起提供通知开关与比赛提醒提前量，并把系统通知权限状态写成一句话
+ *   （§13：权限不可用时状态要能解释）；
  * 内置行（节假日 / 节气 / 英超）仍是静态占位：节假日数据由 SC-011 提供、
  * 传统节日与节气由 SC-012 提供、英超元数据由 SC-014–016 提供；
- * 显示开关与设置入口由 SC-018 接线。
+ * 显示开关与完整设置页由 SC-018 接线（通知这一组设置同样搬过去）。
  */
+
+/** 通知一组设置与状态（SC-017）：侧栏只渲染，不决定语义。 */
+export interface SidebarNotificationsProps {
+  /** 通知总开关（NOTIFY-001）。 */
+  enabled: boolean;
+  onToggleEnabled: (enabled: boolean) => void;
+  /** 比赛提醒提前量（NOTIFY-003）：跟随默认 / 分钟数 / 不提醒。 */
+  matchReminder: MatchReminderSetting;
+  onChangeMatchReminder: (setting: MatchReminderSetting) => void;
+  /** Resolver 的默认建议文案，用于“跟随默认建议（…）”，避免再写一份默认值。 */
+  matchReminderDefaultLabel?: string;
+  /** 系统通知权限状态（供样式与测试挂钩）。 */
+  permission: NotificationPermissionState | "unknown";
+  /** 状态行文案（notifications/notification-status 的输出）。 */
+  status: string;
+  /** 是否提供“请求系统授权”入口（权限待确认或被拒绝时）。 */
+  canRequestPermission: boolean;
+  onRequestPermission: () => void;
+}
 
 interface SidebarProps {
   theme: Theme;
@@ -69,6 +97,8 @@ interface SidebarProps {
   onChangeCloseBehavior: (behavior: CloseBehavior) => void;
   /** 关闭行为未能应用到桌面壳时的说明（§13 可解释状态）。 */
   closeBehaviorStatus?: string;
+  /** 通知设置与状态（SC-017）。 */
+  notifications: SidebarNotificationsProps;
 }
 
 interface StaticSourceRow {
@@ -147,6 +177,7 @@ export function Sidebar({
   closeBehavior,
   onChangeCloseBehavior,
   closeBehaviorStatus,
+  notifications,
 }: SidebarProps) {
   const [draftUrl, setDraftUrl] = useState("");
 
@@ -316,9 +347,66 @@ export function Sidebar({
       />
 
       <div className="sidebar-footer">
+        {/* 通知（SC-017 / NOTIFY-001–003）：开关 + 比赛提醒提前量 + 权限状态。
+            状态行必须能解释“为什么没提醒”（§13），因此它读的是调度链路的
+            同一份权限状态，而不是另写一句乐观文案。 */}
+        <div className="sidebar-setting">
+          <h2 id="notifications-heading" className="sidebar-heading">
+            通知
+          </h2>
+          <label className="notification-toggle">
+            <input
+              type="checkbox"
+              checked={notifications.enabled}
+              onChange={(event) =>
+                notifications.onToggleEnabled(event.target.checked)
+              }
+            />
+            日历提醒
+          </label>
+          <label className="notification-field">
+            <span className="notification-field-label">比赛提醒</span>
+            <select
+              className="notification-select"
+              aria-label="比赛提醒提前量"
+              value={matchReminderOptionValue(notifications.matchReminder)}
+              onChange={(event) =>
+                notifications.onChangeMatchReminder(
+                  matchReminderSettingFromOption(event.target.value),
+                )
+              }
+            >
+              {matchReminderOptionsFor(
+                notifications.matchReminder,
+                notifications.matchReminderDefaultLabel,
+              ).map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p
+            className="store-status"
+            role="status"
+            data-notification-permission={notifications.permission}
+          >
+            {notifications.status}
+          </p>
+          {notifications.canRequestPermission && (
+            <button
+              type="button"
+              className="notification-permission-request"
+              onClick={notifications.onRequestPermission}
+            >
+              请求系统授权
+            </button>
+          )}
+        </div>
+
         {/* 窗口行为（SC-002）：两种语义互斥，用分段控件明确表达当前选择，
             文字同时说明“应用是否还在运行”，不靠颜色单独传达。 */}
-        <div className="shell-behavior">
+        <div className="sidebar-setting">
           <h2 id="shell-behavior-heading" className="sidebar-heading">
             关闭窗口时
           </h2>
