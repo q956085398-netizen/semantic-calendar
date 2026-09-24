@@ -64,3 +64,89 @@ describe("详情栏事件列表的语义增强显示（SC-009）", () => {
     expect(within(plain!).getByText("09:00")).toBeTruthy();
   });
 });
+
+/** SC-016：带完整对阵载荷的比赛事件。 */
+const FIXTURE_EVENT: EnrichedEvent = {
+  ...MATCH,
+  location: "Emirates Stadium",
+  metadata: {
+    accent: "var(--semantic-sport)",
+    label: "英超",
+    reminder: { kind: "minutes-before-start", minutes: 30 },
+    fixture: {
+      competition: {
+        id: "premier-league",
+        label: "英超",
+        nameZh: "英格兰足球超级联赛",
+        nameEn: "Premier League",
+        logoRef: "logo.competition.premier-league",
+        colors: { primary: "#37003C", secondary: "#00FF87" },
+      },
+      teams: [
+        {
+          id: "arsenal",
+          nameZh: "阿森纳",
+          nameEn: "Arsenal",
+          code: "ARS",
+          crestRef: "crest.team.arsenal",
+          colors: { primary: "#EF0107", secondary: "#FFFFFF" },
+        },
+        {
+          id: "manchester-city",
+          nameZh: "曼城",
+          nameEn: "Manchester City",
+          code: "MCI",
+          crestRef: "crest.team.manchester-city",
+          colors: { primary: "#6CABDD", secondary: "#1C2C5B" },
+        },
+      ],
+    },
+  },
+};
+
+describe("比赛日详情栏模式（SC-016 / SPORT-005 / ui-design §13）", () => {
+  it("当日有比赛时进入比赛模式：星期行追加 MATCHDAY，比赛成为视觉中心", () => {
+    render(<InspectorPanel dateKey="2026-10-18" events={[FIXTURE_EVENT]} />);
+
+    const inspector = document.querySelector(".inspector") as HTMLElement;
+    expect(inspector.getAttribute("data-matchday")).toBe("true");
+    expect(screen.getByText(/SUNDAY · MATCHDAY/)).toBeTruthy();
+    // 日期与年份仍在（§13 头部结构）。
+    expect(screen.getByText("10月18日")).toBeTruthy();
+    expect(screen.getByText("2026")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "阿森纳 对 曼城" })).toBeTruthy();
+  });
+
+  it("当日其余事件仍作为状态语义列出（多语义不互相吞掉）", () => {
+    render(
+      <InspectorPanel dateKey="2026-10-18" events={[FIXTURE_EVENT, PLAIN]} />,
+    );
+
+    // 比赛标题不再作为普通事件重复出现。
+    expect(screen.queryByText("Arsenal vs Manchester City")).toBeNull();
+    expect(screen.getByText("每周站会")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "事件" })).toBeTruthy();
+  });
+
+  it("关注球队在比赛详情里标记（SPORT-006 的可见效果）", () => {
+    render(
+      <InspectorPanel
+        dateKey="2026-10-18"
+        events={[FIXTURE_EVENT]}
+        followedTeamIds={["arsenal"]}
+      />,
+    );
+
+    expect(screen.getAllByText("关注")).toHaveLength(1);
+  });
+
+  it("普通日期不进入比赛模式：结构与留白不变（§12）", () => {
+    render(<InspectorPanel dateKey="2026-10-18" events={[PLAIN]} />);
+
+    const inspector = document.querySelector(".inspector") as HTMLElement;
+    expect(inspector.hasAttribute("data-matchday")).toBe(false);
+    expect(inspector.className).toBe("inspector");
+    expect(screen.getByText("SUNDAY")).toBeTruthy();
+    expect(screen.queryByText(/MATCHDAY/)).toBeNull();
+  });
+});

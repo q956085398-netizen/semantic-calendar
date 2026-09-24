@@ -3,6 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { buildMonthGrid } from "./month-grid";
 import { MonthView } from "./MonthView";
 import type { EnrichedEvent } from "../data/model";
+import type { FixtureDisplay } from "../semantic/metadata-resolver";
 
 afterEach(cleanup);
 
@@ -93,5 +94,221 @@ describe("月格事件摘要的语义增强显示（SC-009）", () => {
     // accent 非法被丢弃 → 不注入 style；类型标记仍来自 semantic 本身。
     expect(chip?.hasAttribute("style")).toBe(false);
     expect(chip?.getAttribute("data-semantic-type")).toBe("festival");
+  });
+});
+
+/** SC-016：比赛事件的完整对阵载荷（形状与 Resolver 输出一致）。 */
+/** SC-016：比赛事件的完整对阵载荷（形状与 Resolver 输出一致）。 */
+const FIXTURE_DISPLAY: FixtureDisplay = {
+  competition: {
+    id: "premier-league",
+    label: "英超",
+    nameZh: "英格兰足球超级联赛",
+    nameEn: "Premier League",
+    logoRef: "logo.competition.premier-league",
+    colors: { primary: "#37003C", secondary: "#00FF87" },
+  },
+  teams: [
+    {
+      id: "arsenal",
+      nameZh: "阿森纳",
+      nameEn: "Arsenal",
+      code: "ARS",
+      crestRef: "crest.team.arsenal",
+      colors: { primary: "#EF0107", secondary: "#FFFFFF" },
+    },
+    {
+      id: "manchester-city",
+      nameZh: "曼城",
+      nameEn: "Manchester City",
+      code: "MCI",
+      crestRef: "crest.team.manchester-city",
+      colors: { primary: "#6CABDD", secondary: "#1C2C5B" },
+    },
+  ],
+};
+
+const FIXTURE: EnrichedEvent = {
+  uid: "match-1",
+  sourceId: "src-1",
+  title: "Arsenal vs Manchester City",
+  normalizedTitle: "Arsenal vs Manchester City",
+  start: "2026-10-01T23:30:00",
+  allDay: false,
+  semantic: {
+    type: "sport.fixture",
+    subtype: "premier-league",
+    matcherId: "football.fixture-title",
+  },
+  metadata: {
+    accent: "var(--semantic-sport)",
+    label: "英超",
+    reminder: { kind: "minutes-before-start", minutes: 30 },
+    fixture: FIXTURE_DISPLAY,
+  },
+};
+
+/** 同一天的第二 / 第三场比赛，用于验证单格上限。 */
+function extraFixture(uid: string, home: string, away: string): EnrichedEvent {
+  const team = (id: string) =>
+    FIXTURE_DISPLAY.teams.find((entry) => entry.id === id) ?? {
+      ...FIXTURE_DISPLAY.teams[0],
+      id,
+    };
+  return {
+    ...FIXTURE,
+    uid,
+    metadata: {
+      ...FIXTURE.metadata,
+      fixture: { ...FIXTURE_DISPLAY, teams: [team(home), team(away)] },
+    },
+  };
+}
+
+function cellOf(grid: HTMLElement, dateKey: string): HTMLElement {
+  return grid.querySelector(`[data-date="${dateKey}"]`) as HTMLElement;
+}
+
+describe("比赛月格（SC-016 / SPORT-004 / ui-design §10）", () => {
+  it("格内只显示队标 VS 队标：队名、开赛时间都不进格子", () => {
+    const grid = renderOctober(new Map([["2026-10-01", [FIXTURE]]]));
+    const cell = cellOf(grid, "2026-10-01");
+
+    const marks = cell.querySelectorAll(".match-cell .mark.is-fallback");
+    expect([...marks].map((mark) => mark.textContent)).toEqual(["ARS", "MCI"]);
+    expect(cell.querySelector(".match-cell-vs")?.textContent).toBe("VS");
+    // 标题、队名、开赛时间都属于 Inspector（§10.2）。
+    expect(cell.textContent).not.toContain("Arsenal");
+    expect(cell.textContent).not.toContain("阿森纳");
+    expect(cell.textContent).not.toContain("23:30");
+  });
+
+  it("整块比赛区域给出对阵与开赛时间的 hover / 读屏描述（§18.1）", () => {
+    const grid = renderOctober(new Map([["2026-10-01", [FIXTURE]]]));
+    const block = cellOf(grid, "2026-10-01").querySelector(
+      ".match-cell-teams",
+    ) as HTMLElement;
+
+    expect(block.getAttribute("role")).toBe("img");
+    expect(block.getAttribute("aria-label")).toBe("阿森纳 vs 曼城 · 23:30");
+    // 两侧队徽是装饰：文字与读屏由整块描述承担，hover 仍可看队名。
+    const marks = [...block.querySelectorAll(".mark")];
+    expect(marks.map((mark) => mark.getAttribute("aria-hidden"))).toEqual([
+      "true",
+      "true",
+    ]);
+    expect(marks.map((mark) => mark.getAttribute("title"))).toEqual([
+      "阿森纳",
+      "曼城",
+    ]);
+  });
+
+  it("联赛背景是日期格的直接子元素（由格子裁切，不溢出到相邻格）", () => {
+    const grid = renderOctober(new Map([["2026-10-01", [FIXTURE]]]));
+    const cell = cellOf(grid, "2026-10-01");
+    const background = cell.querySelector(".match-cell-bg") as HTMLElement;
+
+    expect(background.parentElement).toBe(cell);
+    // 资源包缺失时背景用联赛短标签，仍然是可渲染的降级视觉。
+    expect(background.textContent).toBe("英超");
+  });
+
+  it("一天多场比赛：单格最多两场，其余折叠为计数", () => {
+    const grid = renderOctober(
+      new Map([
+        [
+          "2026-10-01",
+          [
+            FIXTURE,
+            extraFixture("match-2", "manchester-city", "arsenal"),
+            extraFixture("match-3", "arsenal", "manchester-city"),
+          ],
+        ],
+      ]),
+    );
+    const cell = cellOf(grid, "2026-10-01");
+
+    expect(cell.querySelectorAll(".match-cell")).toHaveLength(2);
+    expect(cell.querySelector(".cell-event-more")?.textContent).toBe(
+      "还有 1 场比赛",
+    );
+    // 背景每格只画一次，不随场次叠加。
+    expect(cell.querySelectorAll(".match-cell-bg")).toHaveLength(1);
+  });
+
+  it("比赛与普通事件同日：普通事件仍按摘要显示（多语义不互相吞掉）", () => {
+    const grid = renderOctober(new Map([["2026-10-01", [FIXTURE, PLAIN]]]));
+    const cell = cellOf(grid, "2026-10-01");
+
+    expect(cell.querySelectorAll(".match-cell")).toHaveLength(1);
+    expect(cell.textContent).toContain("09:00 每周站会");
+  });
+
+  it("有比赛时普通摘要减少展示数，保证计数行留在格内（格子裁切）", () => {
+    const meetings = Array.from({ length: 4 }, (_, index) => ({
+      ...PLAIN,
+      uid: `plain-${index}`,
+      title: `站会 ${index}`,
+    }));
+    const grid = renderOctober(
+      new Map([["2026-10-01", [FIXTURE, ...meetings]]]),
+    );
+    const cell = cellOf(grid, "2026-10-01");
+
+    expect(cell.querySelectorAll(".match-cell")).toHaveLength(1);
+    expect(cell.querySelectorAll(".cell-event")).toHaveLength(2);
+    expect(cell.querySelector(".cell-event-more")?.textContent).toBe(
+      "还有 2 项",
+    );
+  });
+
+  it("对阵载荷残缺时按普通事件显示：不渲染半张比赛卡（SEM-003）", () => {
+    const broken: EnrichedEvent = {
+      ...FIXTURE,
+      metadata: {
+        accent: "var(--semantic-sport)",
+        label: "英超",
+        fixture: { ...FIXTURE_DISPLAY, teams: [FIXTURE_DISPLAY.teams[0]] },
+      },
+    };
+    const grid = renderOctober(new Map([["2026-10-01", [broken]]]));
+    const cell = cellOf(grid, "2026-10-01");
+
+    expect(cell.querySelector(".match-cell")).toBeNull();
+    expect(cell.querySelector(".match-cell-bg")).toBeNull();
+    expect(cell.textContent).toContain("Arsenal vs Manchester City");
+  });
+
+  it("资源包提供图片时渲染 img，缺失时降级为代码（§22 固定容器）", () => {
+    const grid = buildMonthGrid({
+      year: 2026,
+      month: 10,
+      today: "2026-10-01",
+    });
+    render(
+      <MonthView
+        grid={grid}
+        selectedDateKey="2026-10-01"
+        onSelectDate={() => {}}
+        onStepMonth={() => {}}
+        onGoToToday={() => {}}
+        onStepSelection={() => {}}
+        eventsByDate={new Map([["2026-10-01", [FIXTURE]]])}
+        assets={{ urlFor: (ref) => `/assets/${ref}.svg` }}
+      />,
+    );
+
+    const cell = cellOf(
+      screen.getByRole("grid", { name: "2026年10月" }),
+      "2026-10-01",
+    );
+    // 两侧队徽与联赛背景都解析为图片；默认资源包（上面的用例）则全部降级为文字。
+    expect(cell.querySelectorAll(".match-cell .mark.is-asset")).toHaveLength(2);
+    expect(cell.querySelectorAll(".match-cell .mark.is-fallback")).toHaveLength(
+      0,
+    );
+    expect(
+      (cell.querySelector(".match-cell-bg-image") as HTMLImageElement).src,
+    ).toContain("/assets/logo.competition.premier-league.svg");
   });
 });

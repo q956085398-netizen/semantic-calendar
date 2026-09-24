@@ -223,10 +223,10 @@ semantic-calendar/
 - [ ] 中国法定节假日
 - [ ] 中国传统节日
 - [ ] 二十四节气
-- [ ] 英超事件识别
+- [x] 英超事件识别
 - [x] 英超球队元数据
-- [ ] 球队徽标展示
-- [ ] 主队 / 关注球队设置
+- [x] 球队徽标展示（fallback 口径，资源包由 SC-022 接入）
+- [x] 主队识别（SC-015）与关注球队设置（SC-016）
 - [ ] 事件提醒
 - [ ] 明暗主题
 - [ ] 基础性能测试
@@ -413,7 +413,7 @@ v0.1 已知限制：同一文件改名后再次导入会视为新来源（新增
 - 球队字典 `teams.ts`：20 支球队的稳定 ID（`arsenal` / `manchester-city`…）、中英文名、常见别名、3 字母代码、近似球队色与 `crestRef` 逻辑引用；有歧义的简称（裸 `city` / `united` 之类）刻意不收录——宁可不识别，也不误识别（P-03）；
 - 联赛与赛季 `competitions.ts`：联赛 ID / 中文短标签（“英超”）/ 视觉基线色 / Logo 逻辑引用，以及赛季参赛名单（`SeasonRoster`）。名单是独立数据条目，新赛季只需追加一条，Matcher（SC-015）、Resolver 与 UI 都不用改；
 - 目录装配 `football-catalog.ts`：装配期即校验坏数据——球队 id / 代码重复、别名跨队冲突或未规范化、赛季引用未知球队、颜色非法，都会在启动装配阶段直接抛错，而不是让 UI 在运行期渲染出半支球队。查询接口 `teamById` / `teamByAlias` / `competitionById` / `rosterOf` / `latestSeason` / `newestRosterContaining`（两队同属某季名单的查询，SC-015 用），以及识别词表 `teamAliasEntries` / `competitionAliasEntries`（别名 + 规范名，SC-015 的 Matcher 扫描标题用，与 `teamByAlias` 同源）；别名匹配复用 SC-008 的标题比较键（`titleKey`），所以 `MAN CITY`、`Ａｒｓｅｎａｌ`、`阿森纳` 都能命中；
-- 队徽与联赛 Logo `crests.ts`：仓库不携带任何图片二进制（开发原则 §10 版权边界），元数据只保存逻辑引用；`resolveTeamCrest` / `resolveCompetitionLogo` 在资源包缺失、未收录该引用、甚至资源包自身抛错时都确定性降级为 fallback（球队 3 字母代码 / 联赛短标签 + 主题色），因此 Logo 缺失不会破坏 UI；
+- 队徽与联赛 Logo 解析 `semantic/marks.ts`（SC-016 从 Provider 移到核心）：仓库不携带任何图片二进制（开发原则 §10 版权边界），元数据只保存逻辑引用；`resolveTeamMark` / `resolveCompetitionMark` 在资源包缺失、未收录该引用、甚至资源包自身抛错时都确定性降级为 fallback（球队 3 字母代码 / 联赛短标签 + 主题色），因此 Logo 缺失不会破坏 UI。放在核心是因为解析规则针对的是核心展示契约（`FixtureDisplay`），且 UI 不能 import Provider 目录（`ui-boundary.test.ts`）——月格与 Inspector 都要渲染标记，核心是唯一同时满足这两条的位置；
 - Metadata Resolver `football-metadata-resolver.ts`：消费 `sport.fixture` 语义（`subtype` 为联赛 ID，`entities` 中 `type === "team"` 为参赛球队），产出联赛短标签与语义色、Logo 引用与双方展示载荷 `fixture`（中英文名、代码、队色、队徽引用；数组顺序即主客队顺序，由 SC-015 决定）。已注册进应用解析链并排在内置默认值之前，因此自带类型级默认值（语义色 + 赛前 30 分钟提醒），联赛自己的色值与短标签覆盖默认值——色值只有 `competitions.ts` 一处。联赛未登记、或可解析球队不足两支时返回 null，按普通增强事件显示（SEM-003）——“队标 VS 队标”少一侧不成立，个别球队缺元数据只跳过该队；
 - 读取边界 `displayMetadataOf` 同步收窄嵌套的 `fixture` 载荷：磁盘 JSON 被改写时逐字段校验、畸形字段丢弃，两侧凑不齐时整块丢弃，UI 拿不到半张卡片；
 - UI 不承载领域知识：`ui-boundary.test.ts` 把“UI 源码不出现任何球队名称 / 别名 / 稳定 ID，也不直接 import Provider 目录”变成可执行断言（扫描用排除法覆盖 `src/` 下所有 UI 目录），UI 只消费 Resolver 的输出。
@@ -431,4 +431,17 @@ SC-014 的数据边界：赛季名单是数据维护动作——当前登记的�
 
 SC-015 的边界：v0.1 只登记英超，因此“两队都在英超名单内”即认定为英超比赛——两支英超球队的杯赛（如足总杯）在 v0.1 也会标为英超；多联赛支持是 SPORT-001 的扩展点（登记新联赛与名单后判定链自动适用，标题写明联赛名时优先采信标题）。3 字母代码（`ARS` / `MCI`）刻意不进词表：`EVE` / `SUN` / `NEW` 这类代码在普通标题里会误命中（P-03）。
 
-SC-015 之后仍未接线：比赛月格与 Matchday Inspector（SC-016）、关注球队与设置（SC-016 / SC-018）。
+关注球队、比赛月格与 Matchday Inspector（SC-016）把语义结果接进 UI（SPORT-004 / SPORT-005 / SPORT-006）：
+
+- 关注球队规则 `providers/football/followed-teams.ts`：关注状态是“稳定球队 id 列表”，不保存任何展示字段——球队改名 / 换色 / 换队徽不需要迁移；读取边界 `readFollowedTeamIds` 只接受目录认识的 id，坏值（非数组、数字、未登记球队、带空白的写法）一律丢弃，不猜成某支球队（P-03）；列表统一规范化到最新赛季名单顺序，因此同一组关注只对应一种快照写法；
+- 关注球队接线 `semantic/app-followed-teams.ts`：Provider 与 UI 之间唯一的门（UI 不 import Provider 目录），把规则绑定到应用目录后以展示载荷暴露；设置键 `football.followedTeams` 由 `App` 写入本地数据层，重启后由启动读取恢复（浏览器预览模式与主题切换一致：可切换、不持久化）；
+- 侧栏 `layout/FollowedTeamsPicker.tsx`：可折叠的关注球队列表（20 支球队，来自元数据层，UI 不做球队名匹配），摘要显示关注数量，勾选即落盘；
+- 比赛月格 `calendar/MatchCell.tsx`（SPORT-004 / ui-design §10）：格内只显示“队标 VS 队标”，队名、开赛时间、球场、天气、提醒都不进格子（§10.2，队名与开赛时间只出现在 `title` / `aria-label` 这类辅助信息里，§18.1）；联赛背景是日期格的直接子元素，由格子的 `overflow: hidden` 裁切（§10.1 不溢出到相邻格），一天多场比赛时每格只画一次；单格最多两场，其余折叠为计数；有比赛时普通摘要从 3 条减到 2 条——格子是裁切的，溢出等于丢信息；比赛事件不再重复出现在普通摘要里，同日普通事件照常显示（多语义不互相吞掉）；
+- 队徽渲染 `display/Mark.tsx` + `semantic/marks.ts`：固定容器 + `object-fit` + 按需加载（§22 布局决定 Logo 如何显示），资源缺失降级为球队代码 / 联赛短标签 + 主题色，容器色来自球队 / 联赛色而文字取主题前景色（深浅主题都可读）；地址能解析但图片加载失败时，`display/mark-asset.ts` 的 `onError` 会换成同一个 fallback——解析层看不到加载结果，因此 fallback 随解析结果一起交给渲染层，界面不会出现破图；联赛背景 / 水印由 `display/CompetitionBackdrop.tsx` 统一渲染，月格与详情栏共用同一份降级口径；
+- Matchday Inspector `layout/MatchdayInspector.tsx`（SPORT-005 / ui-design §13–15）：一级信息是日期、对阵双方与队徽，二级是联赛与开赛时间，三级是场地与提醒；缺字段就不渲染该行——**天气在 v0.1 没有可靠来源，因此这一行从不出现**（§13 不伪造数据）；场地取自来源事件的 `LOCATION`，用“场地”而不是“主场”表述（`LOCATION` 是事件地点，未必等于主队球场）；提醒文案由 Resolver 的提醒策略翻译（`format/reminder.ts`，SC-017 复用同一策略），标题写成“建议提醒”——NOTIFY-003 说的是“比赛可建议赛前 30 分钟”，它是策略建议而不是事件数据；当日其余事件作为状态语义留在下方，普通日期结构与留白不变（§12）；
+- 浅色主题的赛事详情栏用降低饱和度的蓝灰渐变 + 左缘柔和过渡（§14 “它是主界面的一部分”），深色主题用深蓝渐变与联赛字形水印（§15.4），信息架构与浅色完全一致；主题差异全部由 `--bg-matchday-*` 变量承担；
+- 关注状态的可见效果：比赛详情里对应球队带“关注”标记。月格不因关注改变（§10.2 只显示队标 VS 队标），赛前提醒由 SC-017 消费同一份关注状态；设置页入口（含关注球队）由 SC-018 接线。
+
+SC-016 的边界：赛季名单更新时，已经不在名单内的球队会同时从可关注集合与关注列表消失——这是名单登记的显式后果（只在登记新赛季时发生），而不是运行期静默丢数据；球队徽标 / 联赛 Logo 二进制仍不随仓库分发，默认全部走 fallback，资源包接入由 SC-022 处理；比赛日详情中的天气字段等可靠来源接入后再显示。
+
+SC-016 之后仍未接线：中国日历（SC-010 / SC-011 / SC-012）、语义日期格与多语义冲突规则（SC-013）、本地通知（SC-017）、设置页（SC-018）。

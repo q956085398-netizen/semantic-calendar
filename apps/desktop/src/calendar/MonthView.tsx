@@ -7,8 +7,11 @@ import {
 } from "react";
 import { eventKey, identityOfEvent, type EnrichedEvent } from "../data/model";
 import { WEEKDAY_LABELS, type MonthGrid } from "./month-grid";
-import { eventTimeLabel } from "./event-display";
+import { eventTimeLabel, splitFixtureEvents } from "./event-display";
+import { MatchCell } from "./MatchCell";
+import { CompetitionBackdrop } from "../display/CompetitionBackdrop";
 import { displayMetadataOf } from "../semantic/metadata-resolver";
+import type { MarkAssetSource } from "../semantic/marks";
 
 /**
  * 月视图（CAL-001 / CAL-002）：6×7 网格、月份导航、日期选择。
@@ -18,6 +21,7 @@ import { displayMetadataOf } from "../semantic/metadata-resolver";
  * - 方向键 ±1 / ±7 天移动选择，跨出当前月时由 App 联动切换视图；
  * - 键盘 / 点击选择后焦点落在新的选中格，跨月导航后焦点不丢失；
  * - 事件摘要按日期键注入（SC-006），只做排版不做业务判断；
+ * - 比赛事件渲染为“队标 VS 队标”（SC-016 / §10.2），其余事件按普通摘要渲染；
  * - 农历简写与语义视觉分别由 SC-010 / SC-013 填充；
  * - v0.1 只提供月视图，周 / 日入口保留占位但不激活。
  */
@@ -33,6 +37,12 @@ const ARROW_STEPS: Record<string, number> = {
 /** 单格最多直接展示的事件数，其余折叠为计数（ui-design §6 必要摘要）。 */
 const MAX_CELL_EVENTS = 3;
 
+/** 有比赛时单格高度已被比赛块占用，普通摘要相应减少（格子裁切，溢出即丢信息）。 */
+const MAX_CELL_EVENTS_WITH_FIXTURES = 2;
+
+/** 单格最多展示的比赛场数，其余折叠为计数（一天多场时格子仍保持简洁）。 */
+const MAX_CELL_FIXTURES = 2;
+
 interface MonthViewProps {
   grid: MonthGrid;
   selectedDateKey: string;
@@ -44,6 +54,8 @@ interface MonthViewProps {
   onStepSelection: (days: number) => void;
   /** 按日期键分桶的事件（SC-006 导入结果）。 */
   eventsByDate: Map<string, EnrichedEvent[]>;
+  /** 队徽 / 联赛 Logo 资源包（SC-022 接入；默认不携带图片）。 */
+  assets?: MarkAssetSource;
 }
 
 export function MonthView({
@@ -54,6 +66,7 @@ export function MonthView({
   onGoToToday,
   onStepSelection,
   eventsByDate,
+  assets,
 }: MonthViewProps) {
   const title = `${grid.year}年${grid.month}月`;
   // roving tabindex 的落点：优先选中格。纯月份导航不移动选择，选中格可能
@@ -182,7 +195,10 @@ export function MonthView({
                   onKeyDown={handleKeyDown}
                 >
                   <span className="cell-day">{cell.day}</span>
-                  <CellEvents events={eventsByDate.get(cell.dateKey)} />
+                  <CellContent
+                    events={eventsByDate.get(cell.dateKey)}
+                    assets={assets}
+                  />
                 </div>
               );
             })}
@@ -194,39 +210,81 @@ export function MonthView({
 }
 
 /**
- * 单格事件摘要：时间前缀 + 标题，超出上限折叠为计数。
- * 语义增强（SC-009）只消费 Metadata Resolver 的输出：accent 与
- * data-semantic-type 都是通用管道，组件不含任何球队 / 节日判断。
+ * 单格内容：比赛事件渲染“队标 VS 队标”（SC-016 / §10.2），
+ * 其余事件按摘要渲染（时间前缀 + 标题，超出上限折叠为计数）。
+ * 语义增强（SC-009）只消费 Metadata Resolver 的输出：accent、
+ * data-semantic-type 与对阵载荷都是通用管道，组件不含任何球队 / 节日判断。
  */
-function CellEvents({ events }: { events: EnrichedEvent[] | undefined }) {
+function CellContent({
+  events,
+  assets,
+}: {
+  events: EnrichedEvent[] | undefined;
+  assets?: MarkAssetSource;
+}) {
   if (!events || events.length === 0) {
     return null;
   }
-  const visible = events.slice(0, MAX_CELL_EVENTS);
-  const hidden = events.length - visible.length;
+  const { fixtures, ordinary } = splitFixtureEvents(events);
+  const visibleFixtures = fixtures.slice(0, MAX_CELL_FIXTURES);
+  const hiddenFixtures = fixtures.length - visibleFixtures.length;
+  // 比赛块已经占掉一格里的主要高度，普通摘要相应减少，
+  // 让计数行与最后一条摘要都留在格内（格子是裁切的，溢出等于丢信息）。
+  const eventBudget =
+    visibleFixtures.length > 0
+      ? MAX_CELL_EVENTS_WITH_FIXTURES
+      : MAX_CELL_EVENTS;
+  const visibleEvents = ordinary.slice(0, eventBudget);
+  const hiddenEvents = ordinary.length - visibleEvents.length;
+
   return (
-    <div className="cell-events">
-      {visible.map((event) => {
-        const time = eventTimeLabel(event);
-        const accent = displayMetadataOf(event)?.accent;
-        return (
-          <span
-            key={eventKey(identityOfEvent(event))}
-            className={accent ? "cell-event is-semantic" : "cell-event"}
-            data-semantic-type={event.semantic?.type}
-            style={
-              accent
-                ? ({ "--event-accent": accent } as CSSProperties)
-                : undefined
-            }
-            title={event.title}
-          >
-            {time ? `${time} ` : ""}
-            {event.title || "（无标题）"}
-          </span>
-        );
-      })}
-      {hidden > 0 && <span className="cell-event-more">还有 {hidden} 项</span>}
-    </div>
+    <>
+      {/* 联赛背景每格只画一次（§10.1），多场比赛共用同一块联赛视觉 */}
+      {visibleFixtures.length > 0 && (
+        <CompetitionBackdrop
+          competition={visibleFixtures[0].fixture.competition}
+          className="match-cell-bg"
+          assets={assets}
+        />
+      )}
+      {visibleFixtures.map(({ event, fixture }) => (
+        <MatchCell
+          key={eventKey(identityOfEvent(event))}
+          fixture={fixture}
+          event={event}
+          assets={assets}
+        />
+      ))}
+      {hiddenFixtures > 0 && (
+        <span className="cell-event-more">还有 {hiddenFixtures} 场比赛</span>
+      )}
+      {(visibleEvents.length > 0 || hiddenEvents > 0) && (
+        <div className="cell-events">
+          {visibleEvents.map((event) => {
+            const time = eventTimeLabel(event);
+            const accent = displayMetadataOf(event)?.accent;
+            return (
+              <span
+                key={eventKey(identityOfEvent(event))}
+                className={accent ? "cell-event is-semantic" : "cell-event"}
+                data-semantic-type={event.semantic?.type}
+                style={
+                  accent
+                    ? ({ "--event-accent": accent } as CSSProperties)
+                    : undefined
+                }
+                title={event.title}
+              >
+                {time ? `${time} ` : ""}
+                {event.title || "（无标题）"}
+              </span>
+            );
+          })}
+          {hiddenEvents > 0 && (
+            <span className="cell-event-more">还有 {hiddenEvents} 项</span>
+          )}
+        </div>
+      )}
+    </>
   );
 }

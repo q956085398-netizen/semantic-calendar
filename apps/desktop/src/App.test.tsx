@@ -1065,3 +1065,172 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
     ).toHaveLength(0);
   });
 });
+
+/** SC-016 集成：关注球队 → 持久化；比赛 ICS → 比赛月格 → Matchday Inspector。 */
+const MATCH_ICS = [
+  "BEGIN:VCALENDAR",
+  "VERSION:2.0",
+  "BEGIN:VEVENT",
+  "UID:match-1@example.com",
+  "SUMMARY:Arsenal vs Manchester City",
+  "LOCATION:Emirates Stadium",
+  "DTSTART:20260926T233000",
+  "END:VEVENT",
+  "END:VCALENDAR",
+  "",
+].join("\r\n");
+
+/**
+ * 设置键按字面量写：这里是持久化格式的断言点——键名被改名时，
+ * 旧快照里的关注状态会读不出来，而只引用常量的话这种回归测不出来。
+ */
+const FOLLOWED_TEAMS_KEY = "football.followedTeams";
+
+function followedTeamsInSnapshot(): unknown {
+  const settings = writtenSnapshots().at(-1)!.settings as Record<
+    string,
+    unknown
+  >;
+  return settings[FOLLOWED_TEAMS_KEY];
+}
+
+function teamCheckbox(name: RegExp): HTMLInputElement {
+  return within(sidebar()).getByLabelText(name) as HTMLInputElement;
+}
+
+describe("关注球队（SC-016 / SPORT-006）", () => {
+  it("关注状态从快照恢复：勾选与计数都来自持久化设置", async () => {
+    mockBackend({
+      dataStoreRead: seededSnapshot({ [FOLLOWED_TEAMS_KEY]: ["arsenal"] }),
+    });
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
+
+    expect(within(sidebar()).getByText("已关注 1 支")).toBeTruthy();
+    expect(teamCheckbox(/阿森纳/).checked).toBe(true);
+    expect(teamCheckbox(/曼城/).checked).toBe(false);
+    // 可关注球队来自元数据层，UI 不做球队名匹配。
+    expect(
+      within(sidebar()).getAllByRole("checkbox").length,
+    ).toBeGreaterThanOrEqual(20);
+  });
+
+  it("关注 / 取消关注写入快照，按名单顺序规范化", async () => {
+    await renderReadyApp();
+    expect(within(sidebar()).getByText("未选择")).toBeTruthy();
+
+    fireEvent.click(teamCheckbox(/曼城/));
+    await waitFor(() =>
+      expect(followedTeamsInSnapshot()).toEqual(["manchester-city"]),
+    );
+
+    fireEvent.click(teamCheckbox(/阿森纳/));
+    await waitFor(() =>
+      expect(followedTeamsInSnapshot()).toEqual(["arsenal", "manchester-city"]),
+    );
+
+    fireEvent.click(teamCheckbox(/曼城/));
+    await waitFor(() => expect(followedTeamsInSnapshot()).toEqual(["arsenal"]));
+    expect(teamCheckbox(/阿森纳/).checked).toBe(true);
+  });
+
+  it("快照里的坏值不会变成关注状态（不猜）", async () => {
+    mockBackend({
+      dataStoreRead: seededSnapshot({
+        [FOLLOWED_TEAMS_KEY]: ["not-a-team", 42],
+      }),
+    });
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
+
+    expect(within(sidebar()).getByText("未选择")).toBeTruthy();
+    expect(
+      within(sidebar())
+        .getAllByRole("checkbox")
+        .some((box) => (box as HTMLInputElement).checked),
+    ).toBe(false);
+  });
+});
+
+describe("比赛月格与 Matchday Inspector（SC-016 / SPORT-004 / SPORT-005）", () => {
+  it("导入的比赛在月格显示队标 VS 队标，点击后进入比赛详情", async () => {
+    await renderReadyApp();
+    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const cell = grid.querySelector('[data-date="2026-09-26"]') as HTMLElement;
+    // 格内只有队标 VS 队标与联赛背景，标题 / 时间不进格子（§10.2）。
+    expect(
+      [...cell.querySelectorAll(".match-cell .mark")].map(
+        (mark) => mark.textContent,
+      ),
+    ).toEqual(["ARS", "MCI"]);
+    expect(cell.querySelector(".match-cell-vs")?.textContent).toBe("VS");
+    expect(cell.querySelector(".match-cell-bg")?.textContent).toBe("英超");
+    expect(cell.textContent).not.toContain("Arsenal");
+    expect(cell.textContent).not.toContain("23:30");
+
+    fireEvent.click(cell);
+
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(within(inspector).getByText(/SATURDAY · MATCHDAY/)).toBeTruthy();
+    const match = within(inspector).getByRole("region", {
+      name: "阿森纳 对 曼城",
+    });
+    expect(within(match).getByText("Arsenal")).toBeTruthy();
+    // 联赛短标签：正文一行 + 低透明度背景水印（§13.2）。
+    expect(match.querySelector(".matchday-competition")?.textContent).toBe(
+      "英超",
+    );
+    expect(within(match).getByText("23:30")).toBeTruthy();
+    expect(within(match).getByText("Emirates Stadium")).toBeTruthy();
+    expect(within(match).getByText("赛前 30 分钟")).toBeTruthy();
+    expect(within(match).getByText("建议提醒")).toBeTruthy();
+    // 天气在 v0.1 没有可靠来源：不显示伪造值。
+    expect(match.textContent).not.toContain("天气");
+  });
+
+  it("关注的球队在比赛详情里带标记（SPORT-006 的可见效果）", async () => {
+    mockBackend({
+      dataStoreRead: seededSnapshot({ [FOLLOWED_TEAMS_KEY]: ["arsenal"] }),
+    });
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
+
+    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+    fireEvent.click(
+      screen
+        .getByRole("grid", { name: "2026年9月" })
+        .querySelector('[data-date="2026-09-26"]') as HTMLElement,
+    );
+
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    const match = within(inspector).getByRole("region", {
+      name: "阿森纳 对 曼城",
+    });
+    expect(within(match).getAllByText("关注")).toHaveLength(1);
+    expect(
+      match.querySelectorAll(".matchday-followed")[0].closest(".matchday-team")
+        ?.textContent,
+    ).toContain("阿森纳");
+  });
+
+  it("普通标题导入后仍按普通事件显示，不进入比赛模式", async () => {
+    await renderReadyApp();
+    chooseImportFile(icsFile(IMPORT_ICS, "plain.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
+
+    fireEvent.click(
+      screen
+        .getByRole("grid", { name: "2026年9月" })
+        .querySelector('[data-date="2026-09-23"]') as HTMLElement,
+    );
+
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(inspector.querySelector(".matchday")).toBeNull();
+    expect(inspector.hasAttribute("data-matchday")).toBe(false);
+    expect(within(inspector).getByText("19:00")).toBeTruthy();
+  });
+});

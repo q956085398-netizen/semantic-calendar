@@ -7,14 +7,17 @@ import {
 import { WEBCAL_SOURCE_TYPE, type CalendarSource } from "../data/model";
 import { formatDateTime } from "../format/time";
 import type { Theme } from "../theme/theme";
+import { FollowedTeamsPicker } from "./FollowedTeamsPicker";
+import type { FixtureTeamDisplay } from "../semantic/metadata-resolver";
 
 /**
- * 左侧栏（ui-design §4）：品牌区 + 小月历 + 数据源列表 + 导入 / 订阅 + 主题切换。
+ * 左侧栏（ui-design §4）：品牌区 + 小月历 + 数据源列表 + 关注球队 + 导入 / 订阅 + 主题切换。
  *
  * 小月历由 App 注入（SC-005），与主视图共享导航状态。
  * SC-006 起列出真实导入的本地 ICS 数据源；
  * SC-007 起列出 WebCal 订阅，并可添加 / 刷新 / 启停 / 删除（SRC-002 / SRC-003）；
- * 内置行（节假日 / 节气 / 英超）仍是静态占位，由 SC-011 / SC-012 / SC-016 提供数据，
+ * SC-016 起提供关注球队选择（SPORT-006），持久化由 App 负责；
+ * 内置行（节假日 / 节气 / 英超）仍是静态占位，由 SC-011 / SC-012 提供数据，
  * 显示开关与设置入口由 SC-018 接线。
  */
 
@@ -47,6 +50,12 @@ interface SidebarProps {
   refreshingSourceIds: readonly string[];
   /** 订阅操作的结果或错误说明。 */
   subscriptionStatus?: string;
+  /** 可关注球队（SC-016）：由 App 从元数据层注入，侧栏不做球队匹配。 */
+  followableTeams: FixtureTeamDisplay[];
+  /** 已关注的球队 id（SC-016 持久化状态）。 */
+  followedTeamIds: readonly string[];
+  /** 关注 / 取消关注。 */
+  onToggleFollowedTeam: (teamId: string, followed: boolean) => void;
 }
 
 interface StaticSourceRow {
@@ -119,6 +128,9 @@ export function Sidebar({
   subscribeBusy,
   refreshingSourceIds,
   subscriptionStatus,
+  followableTeams,
+  followedTeamIds,
+  onToggleFollowedTeam,
 }: SidebarProps) {
   const [draftUrl, setDraftUrl] = useState("");
 
@@ -280,6 +292,12 @@ export function Sidebar({
           </p>
         )}
       </nav>
+
+      <FollowedTeamsPicker
+        teams={followableTeams}
+        followedIds={followedTeamIds}
+        onToggleTeam={onToggleFollowedTeam}
+      />
 
       <div className="sidebar-footer">
         <button

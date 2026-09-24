@@ -14,7 +14,7 @@ import {
   createMetadataResolver,
   displayMetadataOf,
 } from "../../semantic/metadata-resolver";
-import { resolveTeamCrest } from "./crests";
+import { resolveTeamMark } from "../../semantic/marks";
 import { COMPETITIONS, SEASONS } from "./competitions";
 import { createFootballCatalog, footballCatalog } from "./football-catalog";
 import { createFootballMatcher } from "./football-matcher";
@@ -360,7 +360,7 @@ describe("集成：ICS 导入 → Matcher 识别 → 元数据解析 → 队徽 
     const teams = metadata?.fixture?.teams ?? [];
     expect(teams.map((team) => team.nameZh)).toEqual(["阿森纳", "曼城"]);
     // Logo 资源缺失不会破坏展示：月格拿到的是可渲染的 fallback 标记。
-    expect(teams.map((team) => resolveTeamCrest(team))).toEqual([
+    expect(teams.map((team) => resolveTeamMark(team))).toEqual([
       {
         kind: "fallback",
         ref: "crest.team.arsenal",

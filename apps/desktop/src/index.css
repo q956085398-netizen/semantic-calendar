@@ -42,6 +42,12 @@
   --semantic-festival: #b9803c;
   --semantic-solar-term: var(--source-solar);
   --semantic-sport: var(--source-sport);
+
+  /* 比赛日详情栏（SC-016 / §14）：浅色主题用降低饱和度的蓝灰，
+     不能像一块突兀的深色海报贴在应用右侧 */
+  --bg-matchday-top: #e7edf3;
+  --bg-matchday-bottom: #f6f8fa;
+  --matchday-veil: rgba(255, 255, 255, 0.55);
 }
 
 :root[data-theme="dark"] {
@@ -62,6 +68,12 @@
   /* 深色下提高两个字面色值的可读性；token 引用型自动跟随 */
   --semantic-makeup-workday: #7aa7cf;
   --semantic-festival: #d0a05a;
+
+  /* 比赛日详情栏（SC-016 / §15.4）：深色主题更沉浸——深蓝渐变，
+     但不用大面积纯黑，与中央区域保持平滑过渡 */
+  --bg-matchday-top: #1d2b45;
+  --bg-matchday-bottom: #151c27;
+  --matchday-veil: rgba(255, 255, 255, 0.05);
 }
 
 * {
@@ -546,6 +558,9 @@ button:focus-visible {
   background: var(--bg-cell);
   transition: background 120ms ease;
   cursor: pointer;
+  /* 比赛格的联赛背景必须裁切在格内（ui-design §10.1），
+     因此整格承担裁切职责，背景层不需要自己算尺寸 */
+  overflow: hidden;
 }
 
 .month-cell:hover {
@@ -634,6 +649,93 @@ button:focus-visible {
   padding-left: 7px;
   color: var(--text-muted);
   font-size: 11px;
+}
+
+/* ---------------- 标记渲染（SC-016 / ui-design §18.1、§22） ---------------- */
+
+/* 固定容器 + object-fit：素材尺寸不同不改变布局；fallback 用球队 / 联赛色
+   着色，文字取主题前景色，深浅主题都保持可读（不靠颜色单独表达信息）。 */
+.mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mark-primary) 18%, var(--bg-cell));
+  box-shadow: inset 0 0 0 1.5px
+    color-mix(in srgb, var(--mark-primary) 55%, transparent);
+  color: var(--text-primary);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.mark-sm {
+  width: 26px;
+  height: 26px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.mark-lg {
+  width: 58px;
+  height: 58px;
+  border-radius: 16px;
+  font-size: 15px;
+}
+
+.mark.is-asset {
+  object-fit: contain;
+  background: none;
+  box-shadow: none;
+}
+
+/* ---------------- 比赛月格（SC-016 / SPORT-004、ui-design §10） ---------------- */
+
+.match-cell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 32px;
+  padding: 3px 4px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--semantic-sport) 8%, transparent);
+}
+
+.match-cell-teams {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.match-cell-vs {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+/* 联赛背景：绝对定位于日期格（格子的 overflow: hidden 负责裁切），
+   低透明度、面积可远大于格子内容 */
+.match-cell-bg {
+  position: absolute;
+  right: -8px;
+  bottom: -16px;
+  color: var(--semantic-sport);
+  font-size: 46px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  opacity: 0.16;
+  pointer-events: none;
+  user-select: none;
+}
+
+.match-cell-bg-image {
+  display: block;
+  width: 62px;
+  height: 62px;
+  object-fit: contain;
+  opacity: 0.2;
 }
 
 /* ---------------- 详情栏（§12 普通日期留白） ---------------- */
@@ -749,6 +851,240 @@ button:focus-visible {
 .pane-inspector .pane-toggle-collapse {
   margin: 0 14px 14px;
   align-self: flex-end;
+}
+
+/* ---------------- 比赛日详情栏（SC-016 / ui-design §13–15） ---------------- */
+
+/* 比赛日整栏换成赛事氛围背景：视觉中心是比赛本身，而不是右栏里再嵌一张卡片 */
+.inspector.is-matchday {
+  background:
+    linear-gradient(
+      100deg,
+      color-mix(in srgb, var(--bg-app) 70%, transparent) 0%,
+      transparent 26%
+    ),
+    linear-gradient(
+      180deg,
+      var(--bg-matchday-top) 0%,
+      var(--bg-matchday-bottom) 72%
+    );
+}
+
+.matchday {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 4px;
+}
+
+/* 巨大低透明度联赛字形 / Logo 水印（§13.2）：只作背景，不参与布局 */
+.matchday-bg {
+  position: absolute;
+  right: -14px;
+  top: -18px;
+  color: var(--semantic-sport);
+  font-size: 76px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  opacity: 0.12;
+  pointer-events: none;
+  user-select: none;
+}
+
+.matchday-bg-image {
+  display: block;
+  width: 124px;
+  height: 124px;
+  object-fit: contain;
+  opacity: 0.16;
+}
+
+.matchday-teams {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+}
+
+.matchday-team {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.matchday-team-en {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.matchday-team-zh {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.matchday-vs {
+  align-self: center;
+  padding-top: 20px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.matchday-followed {
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.matchday-competition {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+/* 三级信息（场地 / 提醒）与开赛时间：可用字段才渲染，缺字段不留空行 */
+.matchday-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  margin: 2px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--semantic-sport) 22%, transparent);
+  font-size: 12.5px;
+}
+
+.matchday-facts dt {
+  color: var(--text-muted);
+}
+
+.matchday-facts dd {
+  margin: 0;
+  color: var(--text-primary);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* 开赛时间（§13.1 二级）与场地 / 提醒（三级）同列但视觉更强 */
+.matchday-facts .matchday-fact-primary {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* 比赛日里的普通事件作为状态语义留在下方，不再抢占视觉中心 */
+.inspector.is-matchday .inspector-events {
+  margin-top: 18px;
+}
+
+.inspector.is-matchday .inspector-event {
+  background: var(--matchday-veil);
+}
+
+/* ---------------- 关注球队（SC-016 / SPORT-006、ui-design §4） ---------------- */
+
+.followed-teams {
+  margin-top: 18px;
+}
+
+.followed-teams-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.followed-teams-summary::-webkit-details-marker {
+  display: none;
+}
+
+.followed-teams-summary .sidebar-heading {
+  margin: 0;
+}
+
+/* 折叠指示用文字而非图形，避免依赖颜色 / 图标单独表达状态 */
+.followed-teams-summary .sidebar-heading::after {
+  content: " ▸";
+  font-size: 10px;
+}
+
+.followed-teams[open] .followed-teams-summary .sidebar-heading::after {
+  content: " ▾";
+}
+
+.followed-teams-count {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.followed-teams-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 8px;
+  max-height: 190px;
+  margin: 10px 0 0;
+  padding: 0;
+  overflow: hidden auto;
+  list-style: none;
+}
+
+.followed-team {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.followed-team-check {
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+
+.followed-team-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.followed-team-code {
+  color: var(--text-outside);
+  font-size: 10px;
+}
+
+.followed-teams-empty {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 /* ---------------- 侧栏导入入口（SC-006 / SRC-001） ---------------- */

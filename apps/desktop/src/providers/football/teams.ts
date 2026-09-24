@@ -10,7 +10,7 @@ import type { MarkColors } from "../../semantic/metadata-resolver";
  *
  * 版权边界（开发原则 §10）：仓库不携带球队徽标、联赛 Logo 等图片二进制，
  * 只保存 crestRef 逻辑引用；资源由资源包 / 用户配置单独提供，
- * 缺失时一律走 fallback（crests.ts）。
+ * 缺失时一律走 fallback（semantic/marks.ts）。
  *
  * 别名的书写规则：必须以 normalizeEventTitle 之后的小写形态给出，
  * 装配期会校验（football-catalog.ts）。像 "city" / "united" / "rovers"

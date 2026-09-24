@@ -35,6 +35,12 @@ import type { CalendarStore } from "./data/store/calendar-store";
 import type { StoreRecoveryReason } from "./data/store/calendar-store";
 import { reEnrichStore } from "./semantic/enrich";
 import { createAppSemanticStack } from "./semantic/app-registry";
+import {
+  FOLLOWED_TEAMS_SETTING_KEY,
+  listFollowableTeams,
+  readFollowedTeamIds,
+  toggleFollowedTeam,
+} from "./semantic/app-followed-teams";
 import { AppShell } from "./layout/AppShell";
 import { InspectorPanel } from "./layout/InspectorPanel";
 import { Sidebar } from "./layout/Sidebar";
@@ -58,6 +64,12 @@ const semanticStack = createAppSemanticStack();
 
 /** 订阅网络访问（SC-007）：桌面壳由 Rust 侧抓取，webview 不直接联网。 */
 const httpIO = createTauriHttpIO();
+
+/**
+ * 可关注球队（SC-016）：静态元数据，启动装配一次即可。
+ * 侧栏只渲染这份展示载荷，不做任何球队名匹配。
+ */
+const followableTeams = listFollowableTeams();
 
 const REASON_LABELS: Record<StoreRecoveryReason, string> = {
   "corrupt-json": "文件损坏",
@@ -144,6 +156,9 @@ export default function App() {
   const [events, setEvents] = useState<EnrichedEvent[]>([]);
   const [importStatus, setImportStatus] = useState<string | undefined>();
   const [importBusy, setImportBusy] = useState(false);
+
+  // 关注球队（SC-016 / SPORT-006）：设置里的稳定球队 id 列表。
+  const [followedTeamIds, setFollowedTeamIds] = useState<readonly string[]>([]);
 
   // 订阅状态（SC-007）：添加 / 刷新的进行中标记与最近一次动作结果。
   const [subscriptionStatus, setSubscriptionStatus] = useState<
@@ -278,6 +293,11 @@ export default function App() {
       const savedTheme = normalizeTheme(store.getSetting(THEME_SETTING_KEY));
       applyTheme(savedTheme);
       setTheme(savedTheme);
+
+      // 关注球队（SC-016）：坏值在读取边界丢弃，不猜成某支球队。
+      setFollowedTeamIds(
+        readFollowedTeamIds(store.getSetting(FOLLOWED_TEAMS_SETTING_KEY)),
+      );
 
       const previous = store.getSetting<string | undefined>(
         LAST_OPENED_SETTING,
@@ -446,6 +466,21 @@ export default function App() {
   }
 
   /**
+   * 关注 / 取消关注（SC-016 / SPORT-006）：状态立即生效并落盘，
+   * 重启后由启动读取恢复。浏览器预览模式与主题切换一致——可切换但不持久化。
+   */
+  async function handleToggleFollowedTeam(teamId: string, followed: boolean) {
+    const next = toggleFollowedTeam(followedTeamIds, teamId, followed);
+    setFollowedTeamIds(next);
+
+    const store = storeRef.current;
+    if (store) {
+      store.setSetting(FOLLOWED_TEAMS_SETTING_KEY, next);
+      await store.save();
+    }
+  }
+
+  /**
    * 导入本地 ICS（SC-006 / SRC-001）：文件选择 → 解析 → 落库 → 匹配 → 刷新。
    * 解析错误按事件隔离后聚合反馈（ICS-005），异常也不中断月视图。
    */
@@ -501,10 +536,17 @@ export default function App() {
           subscribeBusy={subscribeBusy}
           refreshingSourceIds={refreshingSourceIds}
           subscriptionStatus={subscriptionStatus}
+          followableTeams={followableTeams}
+          followedTeamIds={followedTeamIds}
+          onToggleFollowedTeam={handleToggleFollowedTeam}
         />
       }
       inspector={
-        <InspectorPanel dateKey={selectedDateKey} events={selectedEvents} />
+        <InspectorPanel
+          dateKey={selectedDateKey}
+          events={selectedEvents}
+          followedTeamIds={followedTeamIds}
+        />
       }
     >
       <MonthView
