@@ -149,6 +149,8 @@ Metadata Resolver 根据语义信息解析展示所需数据。
 
 这样未来更换图标包、主题或语言时，不需要修改识别逻辑。
 
+> 当前实现（SC-014）：Provider 位于 `apps/desktop/src/providers/football/`（球队字典、联赛与赛季名单、队徽逻辑引用与 fallback），Resolver 通过静态注册进入解析链。徽标 / 联赛 Logo 只保存逻辑引用，图片资源不随仓库分发；UI 源码不出现任何球队名称（由 `ui-boundary.test.ts` 守住）。仓库仍是单一 workspace，未按本节末尾的建议目录拆包。
+
 ---
 
 ## 6. Calendar UI

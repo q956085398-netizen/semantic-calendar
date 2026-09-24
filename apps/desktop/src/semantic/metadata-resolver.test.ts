@@ -4,6 +4,7 @@ import {
   createBuiltinTypeMetadataResolver,
   createMetadataResolver,
   displayMetadataOf,
+  sportFixtureMetadataDefaults,
   type MetadataResolver,
 } from "./metadata-resolver";
 
@@ -57,6 +58,20 @@ describe("内置类型级 Resolver（app-spec §7.5）", () => {
 
   it("普通事件与未知类型不产生元数据（回退普通显示）", () => {
     expect(resolver.resolve(semantic("calendar.event"), EVENT)).toBeNull();
+  });
+
+  it("sportFixtureMetadataDefaults 与内置默认值一致，且每次是新对象", () => {
+    const builtin = resolver.resolve(semantic("sport.fixture"), EVENT);
+    const defaults = sportFixtureMetadataDefaults();
+    expect(defaults).toEqual(builtin);
+    expect(defaults).not.toBe(builtin);
+
+    // Provider 改写自己拿到的副本时不能污染内置默认值。
+    defaults.label = "被 Provider 改写";
+    expect(sportFixtureMetadataDefaults().label).toBe("体育赛事");
+    expect(resolver.resolve(semantic("sport.fixture"), EVENT)?.label).toBe(
+      "体育赛事",
+    );
   });
 });
 

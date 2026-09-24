@@ -224,7 +224,7 @@ semantic-calendar/
 - [ ] 中国传统节日
 - [ ] 二十四节气
 - [ ] 英超事件识别
-- [ ] 英超球队元数据
+- [x] 英超球队元数据
 - [ ] 球队徽标展示
 - [ ] 主队 / 关注球队设置
 - [ ] 事件提醒
@@ -407,3 +407,17 @@ WebCal / ICS 订阅（SC-007）位于 `apps/desktop/src/data/webcal/` 与 `apps/
 - UI（`layout/Sidebar.tsx`）：地址输入 + 添加、每行「刷新 / 停用·启用 / 删除」，行状态显示“刷新中… / 上次成功 … / 刷新失败：… / 已停用 / 尚未刷新”（SRC-003）；停用后事件立即从月视图消失但数据保留，删除会确认并级联删除该源事件；导入的本地 ICS 源仍是只读行，来源管理与设置入口由 SC-018 接线。
 
 v0.1 已知限制：同一文件改名后再次导入会视为新来源（新增副本），本地来源的删除入口由 SC-018 提供；WebCal 抓取暂不读取系统代理（reqwest 默认 feature 关闭 `system-proxy`，以避免额外依赖），正文按 UTF-8 宽松解码；RRULE 的 BYSETPOS / BYWEEKNO 等高级部分按“降级为单次事件”处理，完整支持留给后续版本；语义色 token 为临时基线，完整语义色体系由 SC-013 定稿。
+
+英超元数据 Provider（SC-014）位于 `apps/desktop/src/providers/football/`，把“识别这是什么”（Matcher）与“展示素材从哪来”（Metadata）分开（架构草案 §5 / SPORT-001）：
+
+- 球队字典 `teams.ts`：20 支球队的稳定 ID（`arsenal` / `manchester-city`…）、中英文名、常见别名、3 字母代码、近似球队色与 `crestRef` 逻辑引用；有歧义的简称（裸 `city` / `united` 之类）刻意不收录——宁可不识别，也不误识别（P-03）；
+- 联赛与赛季 `competitions.ts`：联赛 ID / 中文短标签（“英超”）/ 视觉基线色 / Logo 逻辑引用，以及赛季参赛名单（`SeasonRoster`）。名单是独立数据条目，新赛季只需追加一条，Matcher（SC-015）、Resolver 与 UI 都不用改；
+- 目录装配 `football-catalog.ts`：装配期即校验坏数据——球队 id / 代码重复、别名跨队冲突或未规范化、赛季引用未知球队、颜色非法，都会在启动装配阶段直接抛错，而不是让 UI 在运行期渲染出半支球队。查询接口 `teamById` / `teamByAlias` / `competitionById` / `rosterOf` / `latestSeason`；别名匹配复用 SC-008 的标题规范化再压小写，所以 `MAN CITY`、`Ａｒｓｅｎａｌ`、`阿森纳` 都能命中；
+- 队徽与联赛 Logo `crests.ts`：仓库不携带任何图片二进制（开发原则 §10 版权边界），元数据只保存逻辑引用；`resolveTeamCrest` / `resolveCompetitionLogo` 在资源包缺失、未收录该引用、甚至资源包自身抛错时都确定性降级为 fallback（球队 3 字母代码 / 联赛短标签 + 主题色），因此 Logo 缺失不会破坏 UI；
+- Metadata Resolver `football-metadata-resolver.ts`：消费 `sport.fixture` 语义（`subtype` 为联赛 ID，`entities` 中 `type === "team"` 为参赛球队），产出联赛短标签与语义色、Logo 引用与双方展示载荷 `fixture`（中英文名、代码、队色、队徽引用；数组顺序即主客队顺序，由 SC-015 决定）。已注册进应用解析链并排在内置默认值之前，因此自带类型级默认值（语义色 + 赛前 30 分钟提醒），联赛自己的色值与短标签覆盖默认值——色值只有 `competitions.ts` 一处。联赛未登记、或可解析球队不足两支时返回 null，按普通增强事件显示（SEM-003）——“队标 VS 队标”少一侧不成立，个别球队缺元数据只跳过该队；
+- 读取边界 `displayMetadataOf` 同步收窄嵌套的 `fixture` 载荷：磁盘 JSON 被改写时逐字段校验、畸形字段丢弃，两侧凑不齐时整块丢弃，UI 拿不到半张卡片；
+- UI 不承载领域知识：`ui-boundary.test.ts` 把“UI 源码不出现任何球队名称 / 别名 / 稳定 ID，也不直接 import Provider 目录”变成可执行断言（扫描用排除法覆盖 `src/` 下所有 UI 目录），UI 只消费 Resolver 的输出。
+
+SC-014 的数据边界：赛季名单是数据维护动作——当前登记的是 2025/26 已确认名单，`latestSeason()` 表示“已登记名单里最新的一季”，不等于“今天正在进行的一季”，2026/27 名单确认后追加条目即可；球队色是用于低透明度背景的近似值；队徽与联赛 Logo 资源不随仓库分发（版权），默认全部走 fallback，资源包接入与许可审查由 SC-022 处理。
+
+SC-014 之后仍未接线：比赛标题 Matcher（SC-015，本轮用测试 Matcher 驱动过真实链路）、比赛月格与 Matchday Inspector（SC-016）、关注球队与设置（SC-016 / SC-018）。

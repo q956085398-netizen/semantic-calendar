@@ -10,6 +10,8 @@ import {
   type ResolverErrorReport,
 } from "./metadata-resolver";
 import type { SemanticStack } from "./enrich";
+import { footballCatalog } from "../providers/football/football-catalog";
+import { createFootballMetadataResolver } from "../providers/football/football-metadata-resolver";
 
 /**
  * 应用级静态注册（SC-009 / SEM-001）。
@@ -18,14 +20,19 @@ import type { SemanticStack } from "./enrich";
  * 具体领域 Matcher 由后续 Ticket 加入：
  * - 法定节假日 / 补班：SC-011
  * - 传统节日与二十四节气：SC-012
- * - 英超球队元数据：SC-014；比赛标题 Matcher：SC-015
+ * - 英超比赛标题识别：SC-015
  * 集合为空时所有事件按普通事件显示（SEM-003），链路照常执行。
  */
 
 const APP_MATCHERS: readonly EventMatcher[] = [];
 
-/** 元数据解析链：自定义 Provider（SC-014+）注册在内置默认值之前。 */
+/**
+ * 元数据解析链：自定义 Provider（SC-014+）注册在内置默认值之前。
+ * 顺序有意义——解析链首个非 null 生效，所以 Provider 必须自己带上
+ * 类型级默认值（sportFixtureMetadataDefaults），否则会丢掉默认提醒策略。
+ */
 const APP_METADATA_RESOLVERS: readonly MetadataResolver[] = [
+  createFootballMetadataResolver(footballCatalog),
   createBuiltinTypeMetadataResolver(),
 ];
 
