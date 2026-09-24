@@ -1,3 +1,4 @@
+import { epochDayOfKey, keyOfEpochDay } from "./date-key";
 import {
   HOLIDAY_ARRANGEMENTS,
   type HolidayArrangementData,
@@ -75,42 +76,6 @@ export interface ChinaHolidayCalendar {
    * 日期键格式错误或不是真实存在的日期时抛 RangeError（调用方 bug）。
    */
   chinaHolidayOfKey(dateKey: string): ChinaHolidayDay | undefined;
-}
-
-const DATE_KEY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
-const DAY_MS = 86_400_000;
-
-/**
- * 日期键 → 距 1970-01-01 的天数；按 UTC 计算，与本机时区无关。
- *
- * 与 lunar.ts 的天数运算口径相同但各自实现：两者的基准日与范围规则不同
- * （农历从 1901-02-19 起算并限定在表范围内，这里只做公历天的加减），
- * 共用模块要等第三个使用方出现——现在抽出来只会多一层间接。
- */
-function epochDayOfKey(dateKey: string): number {
-  const match = DATE_KEY_PATTERN.exec(dateKey);
-  if (!match) {
-    throw new RangeError(`日期键必须是 YYYY-MM-DD，收到 ${dateKey}`);
-  }
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const date = new Date(Date.UTC(2000, month - 1, day));
-  // 年份按字面值处理，避免 Date.UTC 把 0–99 年当作 19xx。
-  date.setUTCFullYear(year);
-  if (date.getUTCMonth() + 1 !== month || date.getUTCDate() !== day) {
-    throw new RangeError(`日期键不是真实存在的日期：${dateKey}`);
-  }
-  return Math.round(date.getTime() / DAY_MS);
-}
-
-/** 天数 → 日期键；只用于把数据里已经校验过的日期还原回来。 */
-function keyOfEpochDay(epochDay: number): string {
-  const date = new Date(epochDay * DAY_MS);
-  const year = String(date.getUTCFullYear()).padStart(4, "0");
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 
 /** 登记中的一天：区段计算需要天数，组装结果时需要假期名与版本。 */

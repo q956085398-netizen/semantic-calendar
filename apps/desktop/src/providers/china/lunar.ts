@@ -1,3 +1,4 @@
+import { assertRealDate, parseDateKey } from "./date-key";
 import {
   LUNAR_FIRST_YEAR,
   LUNAR_LAST_YEAR,
@@ -41,8 +42,6 @@ const DAY_MS = 86_400_000;
 
 /** 天数累计的起点：农历 1901 年正月初一，即 LUNAR_FIRST_DATE_KEY（测试断言两者同一天）。 */
 const EPOCH_MS = Date.UTC(1901, 1, 19);
-
-const DATE_KEY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /** 一年 12 个月按 29 天计的基础天数；大月与闰月在此之上累加。 */
 const BASE_YEAR_DAYS = 348;
@@ -112,35 +111,20 @@ export function lunarDateOf(
 
 /** 日期键 YYYY-MM-DD → 农历；格式错误抛 RangeError，范围外返回 undefined。 */
 export function lunarDateOfKey(dateKey: string): LunarDate | undefined {
-  const match = DATE_KEY_PATTERN.exec(dateKey);
-  if (!match) {
-    throw new RangeError(`日期键必须是 YYYY-MM-DD，收到 ${dateKey}`);
-  }
-  return lunarDateOf(Number(match[1]), Number(match[2]), Number(match[3]));
+  const { year, month, day } = parseDateKey(dateKey);
+  return lunarDateOf(year, month, day);
 }
 
 /**
  * 距离农历 1901 年正月初一的天数（可为负，范围判定交给调用方）。
  * 不存在的日期（2026-02-30、非闰年的 02-29）抛 RangeError，而不是被 Date
  * 静默进位；年份一律按字面值处理，包括会被 Date.UTC 当作 19xx 的 0–99 年。
+ * 日期合法性校验与节假日、节气共用 date-key.ts，三个 Provider 不会各有一套规则。
  */
 function daysFromEpoch(year: number, month: number, day: number): number {
-  if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(month) ||
-    !Number.isInteger(day) ||
-    month < 1 ||
-    month > 12 ||
-    day < 1 ||
-    day > 31
-  ) {
-    throw new RangeError(`非法公历日期：${year}-${month}-${day}`);
-  }
+  assertRealDate(year, month, day);
   const date = new Date(Date.UTC(2000, month - 1, day));
   date.setUTCFullYear(year);
-  if (date.getUTCMonth() + 1 !== month || date.getUTCDate() !== day) {
-    throw new RangeError(`非法公历日期：${year}-${month}-${day}`);
-  }
   return Math.round((date.getTime() - EPOCH_MS) / DAY_MS);
 }
 
