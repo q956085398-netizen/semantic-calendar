@@ -312,3 +312,77 @@ describe("比赛月格（SC-016 / SPORT-004 / ui-design §10）", () => {
     ).toContain("/assets/logo.competition.premier-league.svg");
   });
 });
+
+/**
+ * SC-010：月格农历简写（CN-001 / ui-design §5.2）。
+ * 组件只渲染注入的展示载荷（日期键 → 文本），不自己做换算；
+ * 载荷缺省的日期安静地少一行，不影响日期数字与事件摘要。
+ */
+describe("月格农历简写（SC-010 / CN-001）", () => {
+  const LUNAR = new Map([
+    ["2026-10-01", { cell: "八月", detail: "农历八月初一" }],
+    ["2026-10-10", { cell: "九月", detail: "农历九月初一" }],
+    ["2026-10-18", { cell: "初九", detail: "农历九月初九" }],
+  ]);
+
+  function renderWithLunar() {
+    const grid = buildMonthGrid({ year: 2026, month: 10, today: "2026-10-01" });
+    render(
+      <MonthView
+        grid={grid}
+        selectedDateKey="2026-10-01"
+        onSelectDate={() => {}}
+        onStepMonth={() => {}}
+        onGoToToday={() => {}}
+        onStepSelection={() => {}}
+        eventsByDate={new Map()}
+        lunarByDate={LUNAR}
+      />,
+    );
+    return screen.getByRole("grid", { name: "2026年10月" });
+  }
+
+  it("农历文本按日期键落在对应格子，日期数字保持独立元素", () => {
+    const grid = renderWithLunar();
+    const cell = cellOf(grid, "2026-10-18");
+
+    const lunar = cell.querySelector(".cell-lunar");
+    expect(lunar?.textContent).toBe("初九");
+    // 农历行是日期数字之后的兄弟节点：不覆盖、也不挤进数字本身。
+    const day = cell.querySelector(".cell-day");
+    expect(day?.textContent).toBe("18");
+    expect(day?.nextElementSibling).toBe(lunar);
+  });
+
+  it("初一是农历月份边界，写月名；跨月格同样显示", () => {
+    const grid = renderWithLunar();
+
+    expect(
+      cellOf(grid, "2026-10-10").querySelector(".cell-lunar")?.textContent,
+    ).toBe("九月");
+    expect(cellOf(grid, "2026-09-28").querySelector(".cell-lunar")).toBeNull();
+  });
+
+  it("载荷缺省时不渲染农历行：日期与事件摘要照常", () => {
+    const grid = buildMonthGrid({ year: 2026, month: 10 });
+    render(
+      <MonthView
+        grid={grid}
+        selectedDateKey="2026-10-01"
+        onSelectDate={() => {}}
+        onStepMonth={() => {}}
+        onGoToToday={() => {}}
+        onStepSelection={() => {}}
+        eventsByDate={new Map([["2026-10-01", [PLAIN]]])}
+      />,
+    );
+
+    const cell = cellOf(
+      screen.getByRole("grid", { name: "2026年10月" }),
+      "2026-10-01",
+    );
+    expect(cell.querySelector(".cell-lunar")).toBeNull();
+    expect(cell.querySelector(".cell-day")?.textContent).toBe("1");
+    expect(cell.textContent).toContain("每周站会");
+  });
+});

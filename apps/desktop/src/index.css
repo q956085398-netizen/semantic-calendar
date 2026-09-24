@@ -579,10 +579,30 @@ button:focus-visible {
   line-height: 1.2;
 }
 
-/* 跨月日期：安静弱化（§6） */
+/* 农历简写（SC-010 / §5.2）：日期数字下的次要信息。
+   单行省略 + 固定字号，长月名（闰十一月）也不会把日期数字挤走；
+   格子本身裁切（overflow: hidden），这一行溢出只会自己消失。
+   用 text-secondary 而不是更淡的 text-muted：农历是要读的信息，
+   层级靠字号与字重（15px/600 的数字 vs 11px/400 的农历）表达，
+   不靠把字调到读不清（§24 对比度）。 */
+.cell-lunar {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+/* 跨月日期：安静弱化（§6）；农历行跟随日期数字用同一个弱化色，
+   保持“整格退到背景”的一致观感（弱化口径是既有的，不因本行改变） */
 .month-cell.is-outside .cell-day {
   color: var(--text-outside);
   font-weight: 500;
+}
+
+.month-cell.is-outside .cell-lunar {
+  color: var(--text-outside);
 }
 
 .month-cell.is-outside {
@@ -763,6 +783,13 @@ button:focus-visible {
   margin: 0;
   font-size: 30px;
   font-weight: 700;
+}
+
+/* 农历行（SC-010 / §12）：跟在公历日期与年份之后，比它们更安静 */
+.inspector-lunar {
+  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font-size: 15px;
 }
 
 .inspector-year {

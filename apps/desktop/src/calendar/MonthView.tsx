@@ -12,6 +12,7 @@ import { MatchCell } from "./MatchCell";
 import { CompetitionBackdrop } from "../display/CompetitionBackdrop";
 import { displayMetadataOf } from "../semantic/metadata-resolver";
 import type { MarkAssetSource } from "../semantic/marks";
+import type { LunarLabel } from "../semantic/app-lunar";
 
 /**
  * 月视图（CAL-001 / CAL-002）：6×7 网格、月份导航、日期选择。
@@ -22,7 +23,8 @@ import type { MarkAssetSource } from "../semantic/marks";
  * - 键盘 / 点击选择后焦点落在新的选中格，跨月导航后焦点不丢失；
  * - 事件摘要按日期键注入（SC-006），只做排版不做业务判断；
  * - 比赛事件渲染为“队标 VS 队标”（SC-016 / §10.2），其余事件按普通摘要渲染；
- * - 农历简写与语义视觉分别由 SC-010 / SC-013 填充；
+ * - 农历简写（SC-010 / §5.2）与事件摘要一样按日期键注入，只排版不换算；
+ * - 语义视觉（休 / 补 / 节气 / 节日背景）由 SC-013 填充；
  * - v0.1 只提供月视图，周 / 日入口保留占位但不激活。
  */
 
@@ -54,6 +56,8 @@ interface MonthViewProps {
   onStepSelection: (days: number) => void;
   /** 按日期键分桶的事件（SC-006 导入结果）。 */
   eventsByDate: Map<string, EnrichedEvent[]>;
+  /** 按日期键分桶的农历简写（SC-010；范围外的日期缺省，不显示该行）。 */
+  lunarByDate?: Map<string, LunarLabel>;
   /** 队徽 / 联赛 Logo 资源包（SC-022 接入；默认不携带图片）。 */
   assets?: MarkAssetSource;
 }
@@ -66,6 +70,7 @@ export function MonthView({
   onGoToToday,
   onStepSelection,
   eventsByDate,
+  lunarByDate,
   assets,
 }: MonthViewProps) {
   const title = `${grid.year}年${grid.month}月`;
@@ -173,6 +178,7 @@ export function MonthView({
           <div className="month-week" role="row" key={weekIndex}>
             {week.map((cell) => {
               const isSelected = cell.dateKey === selectedDateKey;
+              const lunar = lunarByDate?.get(cell.dateKey);
               return (
                 <div
                   key={cell.dateKey}
@@ -195,6 +201,7 @@ export function MonthView({
                   onKeyDown={handleKeyDown}
                 >
                   <span className="cell-day">{cell.day}</span>
+                  {lunar && <span className="cell-lunar">{lunar.cell}</span>}
                   <CellContent
                     events={eventsByDate.get(cell.dateKey)}
                     assets={assets}

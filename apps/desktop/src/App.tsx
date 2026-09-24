@@ -35,6 +35,7 @@ import type { CalendarStore } from "./data/store/calendar-store";
 import type { StoreRecoveryReason } from "./data/store/calendar-store";
 import { reEnrichStore } from "./semantic/enrich";
 import { createAppSemanticStack } from "./semantic/app-registry";
+import { lunarLabelsOf } from "./semantic/app-lunar";
 import {
   FOLLOWED_TEAMS_SETTING_KEY,
   listFollowableTeams,
@@ -199,6 +200,12 @@ export default function App() {
     [visibleOccurrences],
   );
   const selectedEvents = eventsByDate.get(selectedDateKey) ?? [];
+
+  /**
+   * 农历简写（SC-010 / CN-001）：随网格一起重算，范围外的日期不进 Map。
+   * 与事件一样按日期键注入月视图，组件不做换算（业务规则不进 UI）。
+   */
+  const lunarByDate = useMemo(() => lunarLabelsOf(grid.weeks.flat()), [grid]);
 
   /**
    * 从本地数据层重建 UI 状态；只显示启用来源的事件（SRC-003）。
@@ -545,6 +552,7 @@ export default function App() {
         <InspectorPanel
           dateKey={selectedDateKey}
           events={selectedEvents}
+          lunar={lunarByDate.get(selectedDateKey)}
           followedTeamIds={followedTeamIds}
         />
       }
@@ -557,6 +565,7 @@ export default function App() {
         onGoToToday={goToToday}
         onStepSelection={stepSelection}
         eventsByDate={eventsByDate}
+        lunarByDate={lunarByDate}
       />
     </AppShell>
   );

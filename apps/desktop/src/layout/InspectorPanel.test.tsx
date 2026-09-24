@@ -150,3 +150,35 @@ describe("比赛日详情栏模式（SC-016 / SPORT-005 / ui-design §13）", ()
     expect(screen.queryByText(/MATCHDAY/)).toBeNull();
   });
 });
+
+/**
+ * SC-010：详情栏农历行（ui-design §12「10月14日 / 2026 / 农历九月初五」）。
+ * 文本由应用层注入，组件不换算；范围外（无载荷）时整行不出现。
+ */
+describe("详情栏农历行（SC-010 / CN-001）", () => {
+  it("显示农历完整写法，位于公历日期与年份之后（§12 次序）", () => {
+    render(
+      <InspectorPanel
+        dateKey="2026-10-18"
+        events={[]}
+        lunar={{ cell: "初九", detail: "农历九月初九" }}
+      />,
+    );
+
+    const lunar = screen.getByText("农历九月初九");
+    expect(lunar.className).toBe("inspector-lunar");
+    expect(lunar.previousElementSibling?.textContent).toBe("2026");
+    expect(lunar.previousElementSibling?.previousElementSibling?.textContent).toBe(
+      "10月18日",
+    );
+  });
+
+  it("无农历载荷时不显示该行（范围外不猜）", () => {
+    render(<InspectorPanel dateKey="2026-10-18" events={[PLAIN]} />);
+
+    expect(document.querySelector(".inspector-lunar")).toBeNull();
+    // 其余日期详情不受影响。
+    expect(screen.getByText("10月18日")).toBeTruthy();
+    expect(screen.getByText("2026")).toBeTruthy();
+  });
+});

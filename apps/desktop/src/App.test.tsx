@@ -1234,3 +1234,52 @@ describe("比赛月格与 Matchday Inspector（SC-016 / SPORT-004 / SPORT-005）
     expect(within(inspector).getByText("19:00")).toBeTruthy();
   });
 });
+
+describe("月格与详情栏的农历（SC-010 / CN-001）", () => {
+  it("月格显示农历简写：初一显示月名（月份边界），其余显示日名", () => {
+    freezeClock();
+    render(<App />);
+
+    const grid = within(screen.getByRole("main")).getByRole("grid", {
+      name: "2026年9月",
+    });
+    const lunarOf = (dateKey: string) =>
+      grid.querySelector(`[data-date="${dateKey}"] .cell-lunar`)?.textContent;
+
+    // 2026 年八月初一 = 9 月 11 日（官方对照表），前后两天分别属于七月与八月。
+    expect(lunarOf("2026-09-10")).toBe("廿九");
+    expect(lunarOf("2026-09-11")).toBe("八月");
+    expect(lunarOf("2026-09-23")).toBe("十三");
+    // 跨月格（8 月 31 日）同样有农历，只是视觉上弱化。
+    expect(lunarOf("2026-08-31")).toBe("十九");
+  });
+
+  it("详情栏显示选中日期的农历，随选择更新", () => {
+    freezeClock();
+    render(<App />);
+
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(within(inspector).getByText("农历八月十三")).toBeTruthy();
+
+    const grid = within(screen.getByRole("main")).getByRole("grid", {
+      name: "2026年9月",
+    });
+    fireEvent.click(grid.querySelector('[data-date="2026-10-01"]')!);
+
+    expect(within(inspector).getByText("农历八月廿一")).toBeTruthy();
+    expect(within(inspector).queryByText("农历八月十三")).toBeNull();
+  });
+
+  it("日历农历随月份导航重算", () => {
+    freezeClock();
+    render(<App />);
+
+    const main = screen.getByRole("main");
+    fireEvent.click(within(main).getByRole("button", { name: "下一月" }));
+
+    const grid = within(main).getByRole("grid", { name: "2026年10月" });
+    expect(
+      grid.querySelector('[data-date="2026-10-10"] .cell-lunar')?.textContent,
+    ).toBe("九月");
+  });
+});

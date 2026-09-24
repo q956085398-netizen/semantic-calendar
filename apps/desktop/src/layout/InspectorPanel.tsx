@@ -4,6 +4,7 @@ import { dateFromKey, parseDateKey } from "../calendar/month-grid";
 import { eventTimeLabel, splitFixtureEvents } from "../calendar/event-display";
 import { displayMetadataOf } from "../semantic/metadata-resolver";
 import type { MarkAssetSource } from "../semantic/marks";
+import type { LunarLabel } from "../semantic/app-lunar";
 import { MatchdayInspector } from "./MatchdayInspector";
 
 /**
@@ -12,10 +13,11 @@ import { MatchdayInspector } from "./MatchdayInspector";
  * SC-005 起由选中日期驱动（点击 / 键盘 / 小月历联动）；
  * SC-006 起列出当日普通事件——只在确实存在时展示（§12.2 不做固定安排填充）；
  * SC-009 起增强事件带语义色与短标签（Metadata Resolver 输出，无领域判断）；
+ * SC-010 起日期下补一行农历（§9.2「农历八月廿七」），范围外不显示；
  * SC-016 起当日有比赛时以比赛为视觉中心（§13）：星期行追加 MATCHDAY，
  * 对阵双方 / 队徽 / 联赛 / 开赛 / 场地 / 提醒由 MatchdayInspector 渲染，
  * 当日其余事件仍作为状态语义列在下方。
- * 农历与语义详情由 SC-010 补充。普通日期保持极简留白。
+ * 语义详情（休 / 补 / 节气 / 节日）由 SC-013 补充，普通日期保持极简留白。
  */
 
 interface InspectorPanelProps {
@@ -23,6 +25,8 @@ interface InspectorPanelProps {
   dateKey: string;
   /** 选中日期上的事件（由 App 按日期键分桶后注入）。 */
   events: EnrichedEvent[];
+  /** 选中日期的农历展示载荷（SC-010）；范围外缺省，不显示该行。 */
+  lunar?: LunarLabel;
   /** 用户关注的球队 id（SC-016）；只在比赛详情里做标记。 */
   followedTeamIds?: readonly string[];
   /** 队徽 / 联赛 Logo 资源包（SC-022 接入；默认不携带图片）。 */
@@ -32,6 +36,7 @@ interface InspectorPanelProps {
 export function InspectorPanel({
   dateKey,
   events,
+  lunar,
   followedTeamIds = [],
   assets,
 }: InspectorPanelProps) {
@@ -56,6 +61,7 @@ export function InspectorPanel({
       </p>
       <p className="inspector-date">{monthDay}</p>
       <p className="inspector-year">{year}</p>
+      {lunar && <p className="inspector-lunar">{lunar.detail}</p>}
 
       {fixtures.map(({ event, fixture }) => (
         <MatchdayInspector
