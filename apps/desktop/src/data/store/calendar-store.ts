@@ -8,6 +8,7 @@ import {
   type EventIdentity,
   type SourceSyncStatus,
   type StoredEvent,
+  type WebcalCache,
 } from "../model";
 import { migrateAndValidate, readVersion } from "./migrations";
 import {
@@ -43,6 +44,11 @@ export interface UpsertResult {
   updated: number;
 }
 
+export interface ReplaceResult extends UpsertResult {
+  /** 本次批次中已消失、被删除的事件数。 */
+  removed: number;
+}
+
 /**
  * v0.1 本地持久化：单一版本化 JSON 快照 + 原子写。
  *
@@ -60,6 +66,8 @@ export class CalendarStore {
   private readonly events = new Map<string, StoredEvent>();
   private readonly enrichments = new Map<string, EventEnrichment>();
   private readonly settings = new Map<string, unknown>();
+  /** save() 的串行队列，见 save() 注释。 */
+  private saveChain: Promise<void> = Promise.resolve();
 
   private constructor(
     private readonly fileIO: FileIO,
@@ -103,14 +111,25 @@ export class CalendarStore {
 
   // ---- 落盘 ----
 
-  /** 原子写：先写临时文件再 rename，避免崩溃留下半份快照。 */
-  async save(): Promise<void> {
-    const tmpPath = `${this.filePath}.tmp`;
-    await this.fileIO.writeFile(
-      tmpPath,
-      JSON.stringify(this.toSnapshot(), null, 2),
-    );
-    await this.fileIO.renameFile(tmpPath, this.filePath);
+  /**
+   * 原子写：先写临时文件再 rename，避免崩溃留下半份快照。
+   *
+   * 写入串行化：低频刷新与手动刷新可能同时触发落盘，而临时文件路径
+   * 只有一个，交叉写入会让 rename 撞上已被移走的 tmp 文件。
+   * 快照在队列内序列化，保证最后一次调用写入的是最新状态。
+   */
+  save(): Promise<void> {
+    const write = this.saveChain.then(async () => {
+      const tmpPath = `${this.filePath}.tmp`;
+      await this.fileIO.writeFile(
+        tmpPath,
+        JSON.stringify(this.toSnapshot(), null, 2),
+      );
+      await this.fileIO.renameFile(tmpPath, this.filePath);
+    });
+    // 失败只交给本次调用方，不阻塞后续写入。
+    this.saveChain = write.catch(() => undefined);
+    return write;
   }
 
   toSnapshot(): StoreSnapshotV1 {
@@ -131,6 +150,11 @@ export class CalendarStore {
     return [...this.sources.values()].sort(byId).map(clone);
   }
 
+  getSource(id: string): CalendarSource | undefined {
+    const source = this.sources.get(id);
+    return source === undefined ? undefined : clone(source);
+  }
+
   upsertSource(source: CalendarSource): void {
     this.sources.set(source.id, clone(source));
   }
@@ -145,6 +169,30 @@ export class CalendarStore {
       delete next.lastSyncError;
     }
     this.sources.set(id, next);
+    return true;
+  }
+
+  /** 启用 / 停用来源（SRC-003）；停用后事件不进入 UI，但数据保留。 */
+  setSourceEnabled(id: string, enabled: boolean): boolean {
+    const source = this.sources.get(id);
+    if (!source) {
+      return false;
+    }
+    this.sources.set(id, { ...source, enabled });
+    return true;
+  }
+
+  /**
+   * 整体替换 WebCal 缓存元数据（SC-007 / SRC-004）。
+   * 不做增量合并：服务端不再返回校验值时必须能清掉旧值，
+   * 否则会用过期 ETag 发出条件请求而永远拿不到新内容。
+   */
+  setSourceCache(id: string, cache: WebcalCache): boolean {
+    const source = this.sources.get(id);
+    if (!source) {
+      return false;
+    }
+    this.sources.set(id, { ...source, webcal: clone(cache) });
     return true;
   }
 
@@ -191,10 +239,28 @@ export class CalendarStore {
     }
   }
 
-  /** 整体替换一个来源的事件（WebCal 全量刷新场景）。 */
-  replaceSourceEvents(sourceId: string, events: StoredEvent[]): UpsertResult {
-    this.removeEvents(sourceId);
-    return this.upsertEvents(sourceId, events);
+  /**
+   * 用一批新事件替换某来源的事件（WebCal 全量刷新场景）。
+   *
+   * 按持久化键求差集，而不是“先清空再写入”：
+   * - 批次中仍存在的事件保持原记录，增强结果不会因刷新被整体丢弃；
+   * - 只有批次中消失的事件才被删除。
+   */
+  replaceSourceEvents(sourceId: string, events: StoredEvent[]): ReplaceResult {
+    const nextKeys = new Set(
+      events.map((event) => eventKey(identityOfEvent({ ...event, sourceId }))),
+    );
+    const prefix = eventKeyPrefix(sourceId);
+    let removed = 0;
+    for (const key of [...this.events.keys()]) {
+      if (key.startsWith(prefix) && !nextKeys.has(key)) {
+        this.events.delete(key);
+        this.enrichments.delete(key);
+        removed += 1;
+      }
+    }
+    const { inserted, updated } = this.upsertEvents(sourceId, events);
+    return { inserted, updated, removed };
   }
 
   // ---- 增强结果（SEM-004）----

@@ -11,7 +11,26 @@
 export type CalendarSourceType =
   "local-ics" | "webcal" | "builtin" | "provider";
 
+/** 订阅来源类型（SC-007）：判定与构造共用同一常量，避免字符串散落。 */
+export const WEBCAL_SOURCE_TYPE: CalendarSourceType = "webcal";
+
 export type SourceSyncStatus = "ok" | "error" | "never";
+
+/**
+ * WebCal 订阅的本地缓存元数据（SC-007 / SRC-004）。
+ *
+ * url 可能包含服务端签发的敏感 token，因此只用于本地抓取：
+ * 日志、错误文案与 UI 一律使用脱敏形式（webcal-url.ts）。
+ */
+export interface WebcalCache {
+  /** 归一化后的订阅地址（webcal:// 已按 https:// 处理）。 */
+  url: string;
+  /** 条件请求校验值，服务端未提供时缺省（下次为无条件请求）。 */
+  etag?: string;
+  lastModified?: string;
+  /** 最近一次抓取尝试的时间，含失败与 304（低频刷新调度的依据）。 */
+  lastCheckedAt?: string;
+}
 
 export interface CalendarSource {
   id: string;
@@ -22,6 +41,8 @@ export interface CalendarSource {
   lastSyncAt?: string;
   lastSyncStatus?: SourceSyncStatus;
   lastSyncError?: string;
+  /** 仅 type === "webcal"：订阅地址与条件请求缓存。 */
+  webcal?: WebcalCache;
 }
 
 /**

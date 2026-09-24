@@ -795,3 +795,129 @@ button:focus-visible {
 .source-item.is-imported {
   color: var(--text-primary);
 }
+
+/* ---------------- 侧栏订阅入口与订阅行（SC-007 / SRC-002） ---------------- */
+
+.subscribe-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.subscribe-label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.subscribe-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.subscribe-input {
+  flex: 1 1 120px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-cell);
+  color: var(--text-primary);
+  font-size: 12.5px;
+}
+
+.subscribe-input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.subscribe-input::placeholder {
+  color: var(--text-outside);
+}
+
+.subscribe-submit {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.subscribe-submit:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-cell-hover);
+}
+
+.subscribe-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 订阅行：名称 / 状态 / 操作三段纵向排列，避免在窄侧栏里挤压 */
+.source-item.is-webcal {
+  align-items: flex-start;
+}
+
+.source-item.is-webcal .source-dot {
+  margin-top: 4px;
+}
+
+.source-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.source-item.is-webcal .source-name {
+  overflow-wrap: anywhere;
+}
+
+.source-status {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.source-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.source-action {
+  padding: 3px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.source-action:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-cell-hover);
+}
+
+.source-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.source-action.is-danger:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}

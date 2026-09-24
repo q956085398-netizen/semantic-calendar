@@ -241,6 +241,131 @@ describe("数据源状态持久化（SRC-003）", () => {
   });
 });
 
+describe("WebCal 订阅状态与缓存（SC-007 / SRC-003 / SRC-004）", () => {
+  it("setSourceEnabled 切换启用状态并落盘", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+    store.upsertSource(makeSource({ type: "webcal" }));
+
+    expect(store.setSourceEnabled("source-1", false)).toBe(true);
+    await store.save();
+
+    const onDisk = JSON.parse(await readFile(storePath, "utf8"));
+    expect(onDisk.sources[0].enabled).toBe(false);
+  });
+
+  it("未知来源的启用 / 缓存写入被拒绝，而不是新建来源", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+
+    expect(store.setSourceEnabled("missing", false)).toBe(false);
+    expect(
+      store.setSourceCache("missing", { url: "https://example.com/a.ics" }),
+    ).toBe(false);
+    expect(store.listSources()).toEqual([]);
+  });
+
+  it("setSourceCache 整体替换缓存元数据，可清掉过期校验值", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+    store.upsertSource(makeSource({ type: "webcal" }));
+
+    store.setSourceCache("source-1", {
+      url: "https://example.com/a.ics",
+      etag: 'W/"v1"',
+      lastModified: "Wed, 21 Oct 2026 07:28:00 GMT",
+      lastCheckedAt: "2026-10-21T08:00:00.000Z",
+    });
+    store.setSourceCache("source-1", {
+      url: "https://example.com/a.ics",
+      etag: undefined,
+      lastModified: undefined,
+      lastCheckedAt: "2026-10-21T09:00:00.000Z",
+    });
+    await store.save();
+
+    const onDisk = JSON.parse(await readFile(storePath, "utf8"));
+    expect(onDisk.sources[0].webcal).toEqual({
+      url: "https://example.com/a.ics",
+      lastCheckedAt: "2026-10-21T09:00:00.000Z",
+    });
+  });
+
+  it("刷新失败时保留上次成功时间与旧事件（SRC-004）", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+    store.upsertSource(makeSource({ type: "webcal" }));
+    store.upsertEvents("source-1", [makeEvent()]);
+    store.updateSourceStatus("source-1", {
+      lastSyncStatus: "ok",
+      lastSyncAt: "2026-10-21T08:00:00.000Z",
+    });
+    store.updateSourceStatus("source-1", {
+      lastSyncStatus: "error",
+      lastSyncError: "网络请求失败",
+    });
+
+    const [source] = store.listSources();
+    expect(source.lastSyncStatus).toBe("error");
+    expect(source.lastSyncError).toBe("网络请求失败");
+    expect(source.lastSyncAt).toBe("2026-10-21T08:00:00.000Z");
+    expect(store.listEvents("source-1")).toHaveLength(1);
+  });
+});
+
+describe("并发落盘（SC-007：刷新与手动操作可能同时写）", () => {
+  it("重叠的 save 串行写入，最后一次写入反映最新状态", async () => {
+    const writes: string[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const slowFileIO = {
+      async readFile() {
+        return null;
+      },
+      async writeFile(_path: string, contents: string) {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        writes.push(contents);
+        inFlight -= 1;
+      },
+      async renameFile() {},
+    };
+
+    const { store } = await CalendarStore.open(slowFileIO, storePath);
+    store.setSetting("k", 1);
+    const first = store.save();
+    store.setSetting("k", 2);
+    const second = store.save();
+
+    await Promise.all([first, second]);
+
+    expect(maxInFlight).toBe(1);
+    expect(writes).toHaveLength(2);
+    // 第二次 save 的快照在队列内序列化，因此包含最新值。
+    expect(JSON.parse(writes[1]).settings.k).toBe(2);
+  });
+
+  it("一次 save 失败不影响后续 save", async () => {
+    const writes: string[] = [];
+    let failNext = true;
+    const flakyFileIO = {
+      async readFile() {
+        return null;
+      },
+      async writeFile(_path: string, contents: string) {
+        if (failNext) {
+          failNext = false;
+          throw new Error("磁盘不可写");
+        }
+        writes.push(contents);
+      },
+      async renameFile() {},
+    };
+
+    const { store } = await CalendarStore.open(flakyFileIO, storePath);
+    await expect(store.save()).rejects.toThrow("磁盘不可写");
+    await expect(store.save()).resolves.toBeUndefined();
+    expect(writes).toHaveLength(1);
+  });
+});
+
 describe("原始数据与增强数据分离（SEM-004）", () => {
   it("清除增强结果不影响原始事件，可重新匹配", async () => {
     const { store } = await CalendarStore.open(fileIO, storePath);

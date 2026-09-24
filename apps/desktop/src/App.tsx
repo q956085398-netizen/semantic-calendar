@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   addMonths,
   buildMonthGrid,
@@ -17,6 +17,20 @@ import {
   importLocalIcs,
   type LocalIcsImportOutcome,
 } from "./data/import/import-local-ics";
+import { createTauriHttpIO } from "./data/net/tauri-http-io";
+import {
+  addWebcalSubscription,
+  refreshWebcalSource,
+  type WebcalRefreshOutcome,
+} from "./data/webcal/webcal-refresh";
+import {
+  createWebcalScheduler,
+  type WebcalRefreshScheduler,
+} from "./data/webcal/refresh-scheduler";
+import {
+  describeRedactedError,
+  normalizeWebcalUrl,
+} from "./data/webcal/webcal-url";
 import type { CalendarStore } from "./data/store/calendar-store";
 import type { StoreRecoveryReason } from "./data/store/calendar-store";
 import { reEnrichStore } from "./semantic/enrich";
@@ -24,6 +38,7 @@ import { createAppSemanticStack } from "./semantic/app-registry";
 import { AppShell } from "./layout/AppShell";
 import { InspectorPanel } from "./layout/InspectorPanel";
 import { Sidebar } from "./layout/Sidebar";
+import { formatDateTime } from "./format/time";
 import {
   THEME_SETTING_KEY,
   applyTheme,
@@ -41,11 +56,16 @@ const LAST_OPENED_SETTING = "app.lastOpenedAt";
  */
 const semanticStack = createAppSemanticStack();
 
+/** 订阅网络访问（SC-007）：桌面壳由 Rust 侧抓取，webview 不直接联网。 */
+const httpIO = createTauriHttpIO();
+
 const REASON_LABELS: Record<StoreRecoveryReason, string> = {
   "corrupt-json": "文件损坏",
   "invalid-shape": "结构异常",
   "future-version": "来自更新版本的应用",
 };
+
+const PREVIEW_MODE_HINT = "浏览器预览模式：订阅需要桌面环境";
 
 /** 导入结果 → 用户可读状态；只报告数量、位置与结构原因，不外泄事件正文（app-spec §14）。 */
 function formatImportStatus(outcome: LocalIcsImportOutcome): string {
@@ -72,15 +92,45 @@ function formatImportStatus(outcome: LocalIcsImportOutcome): string {
   return `已导入「${name}」：${parts.join("、")}`;
 }
 
-function formatLaunchTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    return iso;
+/** 刷新结果的数量与原因片段；地址细节已在服务层脱敏（§14）。 */
+function outcomeDetail(outcome: WebcalRefreshOutcome): string {
+  switch (outcome.status) {
+    case "updated": {
+      const parts = [`新增 ${outcome.inserted}`];
+      if (outcome.updated > 0) {
+        parts.push(`更新 ${outcome.updated}`);
+      }
+      if (outcome.removed > 0) {
+        parts.push(`移除 ${outcome.removed}`);
+      }
+      if (outcome.skipped > 0) {
+        parts.push(`跳过 ${outcome.skipped} 个无法解析的事件`);
+      }
+      return `：${parts.join("、")}`;
+    }
+    case "not-modified":
+      return "：没有变化，继续使用本地缓存";
+    case "failed":
+      return `：${outcome.error ?? "未知原因"}`;
   }
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+}
+
+function formatRefreshStatus(
+  name: string,
+  outcome: WebcalRefreshOutcome,
+): string {
+  return outcome.status === "failed"
+    ? `「${name}」刷新失败${outcomeDetail(outcome)}`
+    : `已刷新「${name}」${outcomeDetail(outcome)}`;
+}
+
+/** 异常 → 可展示文案：按该订阅的地址脱敏（§14）。 */
+function describeError(error: unknown, url: string): string {
+  const normalized = normalizeWebcalUrl(url);
+  return describeRedactedError(
+    error,
+    normalized.ok ? normalized.url : url.trim(),
+  );
 }
 
 export default function App() {
@@ -94,6 +144,17 @@ export default function App() {
   const [events, setEvents] = useState<EnrichedEvent[]>([]);
   const [importStatus, setImportStatus] = useState<string | undefined>();
   const [importBusy, setImportBusy] = useState(false);
+
+  // 订阅状态（SC-007）：添加 / 刷新的进行中标记与最近一次动作结果。
+  const [subscriptionStatus, setSubscriptionStatus] = useState<
+    string | undefined
+  >();
+  const [subscribeBusy, setSubscribeBusy] = useState(false);
+  /** 正在刷新的来源（含后台刷新）：行状态与按钮都据此显示。 */
+  const [refreshingSourceIds, setRefreshingSourceIds] = useState<
+    readonly string[]
+  >([]);
+  const schedulerRef = useRef<WebcalRefreshScheduler | null>(null);
 
   // 视图月份与选中日期（SC-005 / CAL-002）：today 只作为初始锚点注入，
   // 网格计算保持纯函数（month-grid），不在此读取真实时钟。
@@ -124,8 +185,11 @@ export default function App() {
   );
   const selectedEvents = eventsByDate.get(selectedDateKey) ?? [];
 
-  /** 从本地数据层重建 UI 状态；只显示启用来源的事件（SRC-003）。 */
-  function refreshFromStore(store: CalendarStore) {
+  /**
+   * 从本地数据层重建 UI 状态；只显示启用来源的事件（SRC-003）。
+   * useCallback：供启动 effect 与后台调度长期持有，身份必须稳定。
+   */
+  const refreshFromStore = useCallback((store: CalendarStore) => {
     const nextSources = store.listSources();
     const enabled = new Set(
       nextSources.filter((source) => source.enabled).map((source) => source.id),
@@ -134,7 +198,43 @@ export default function App() {
     setEvents(
       store.listEnrichedEvents().filter((event) => enabled.has(event.sourceId)),
     );
-  }
+  }, []);
+
+  /** 标记 / 取消“刷新中”：手动与后台刷新共用，避免同一来源重复入列。 */
+  const markRefreshing = useCallback((sourceId: string, busy: boolean) => {
+    setRefreshingSourceIds((current) =>
+      busy
+        ? current.includes(sourceId)
+          ? current
+          : [...current, sourceId]
+        : current.filter((id) => id !== sourceId),
+    );
+  }, []);
+
+  /**
+   * 刷新一个订阅并落盘（手动刷新与后台调度共用同一条路径）。
+   * 只有内容真正变化时才重建语义增强，304 与失败不动增强分区。
+   */
+  const refreshSubscription = useCallback(
+    async (
+      store: CalendarStore,
+      sourceId: string,
+    ): Promise<WebcalRefreshOutcome> => {
+      markRefreshing(sourceId, true);
+      try {
+        const outcome = await refreshWebcalSource(store, sourceId, httpIO);
+        if (outcome.status === "updated") {
+          reEnrichStore(store, semanticStack);
+        }
+        await store.save();
+        refreshFromStore(store);
+        return outcome;
+      } finally {
+        markRefreshing(sourceId, false);
+      }
+    },
+    [markRefreshing, refreshFromStore],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -153,6 +253,27 @@ export default function App() {
       // 语义增强（SC-009）：用当前 Matcher 注册表重建后再进入 UI。
       reEnrichStore(store, semanticStack);
       refreshFromStore(store);
+
+      // 低频后台刷新（SC-007 / §12）：只在到达刷新时间时唤醒一次。
+      // 调度器只读来源状态，所有写入仍由 refreshSubscription 负责；
+      // 数据层恢复（隔离后从空快照启动）时同样装配，本次会话新加的订阅
+      // 也能进入调度。
+      const scheduler = createWebcalScheduler({
+        listSources: () => store.listSources(),
+        refresh: async (sourceId) => {
+          await refreshSubscription(store, sourceId);
+        },
+        onError: (error, sourceId) => {
+          // 错误正文可能来自网络栈并带上订阅地址，这里只留来源标识（§14）。
+          console.warn(
+            "[webcal] 后台刷新失败",
+            sourceId,
+            error instanceof Error ? error.name : "unknown",
+          );
+        },
+      });
+      schedulerRef.current = scheduler;
+      scheduler.start();
 
       const savedTheme = normalizeTheme(store.getSetting(THEME_SETTING_KEY));
       applyTheme(savedTheme);
@@ -174,7 +295,7 @@ export default function App() {
       const version = `schema v${store.schemaVersion}`;
       setStoreStatus(
         previous
-          ? `本地数据层就绪（${version}），上次启动 ${formatLaunchTime(previous)}`
+          ? `本地数据层就绪（${version}），上次启动 ${formatDateTime(previous)}`
           : `本地数据层就绪（${version}），首次启动`,
       );
     }
@@ -187,8 +308,100 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      schedulerRef.current?.stop();
+      schedulerRef.current = null;
     };
-  }, []);
+    // 两个回调身份稳定（useCallback），该 effect 实际只在挂载时执行一次。
+  }, [markRefreshing, refreshFromStore, refreshSubscription]);
+
+  /**
+   * 添加订阅（SC-007 / SRC-002）：地址归一化 → 建源 → 立即抓取一次。
+   * 返回是否创建成功，供侧栏决定是否清空输入。
+   */
+  async function handleAddSubscription(url: string): Promise<boolean> {
+    const store = storeRef.current;
+    if (!store) {
+      setSubscriptionStatus(PREVIEW_MODE_HINT);
+      return false;
+    }
+    setSubscribeBusy(true);
+    try {
+      const outcome = await addWebcalSubscription(store, { url }, httpIO);
+      if (outcome.error !== undefined) {
+        setSubscriptionStatus(`添加订阅失败：${outcome.error}`);
+        return false;
+      }
+      if (outcome.refresh?.status === "updated") {
+        reEnrichStore(store, semanticStack);
+      }
+      await store.save();
+      refreshFromStore(store);
+      schedulerRef.current?.reschedule();
+      const name = outcome.source?.name ?? "订阅";
+      const detail =
+        outcome.refresh === undefined ? "" : outcomeDetail(outcome.refresh);
+      setSubscriptionStatus(
+        outcome.refresh?.status === "failed"
+          ? `已订阅「${name}」，但首次抓取失败${detail}`
+          : `已订阅「${name}」${detail}`,
+      );
+      return true;
+    } catch (error) {
+      setSubscriptionStatus(`添加订阅失败：${describeError(error, url)}`);
+      return false;
+    } finally {
+      setSubscribeBusy(false);
+    }
+  }
+
+  /** 手动刷新订阅：不阻塞界面，进行中禁用该行按钮。 */
+  async function handleRefreshSubscription(sourceId: string) {
+    const store = storeRef.current;
+    if (!store) {
+      setSubscriptionStatus(PREVIEW_MODE_HINT);
+      return;
+    }
+    const source = store.getSource(sourceId);
+    const name = source?.name ?? "订阅";
+    try {
+      const outcome = await refreshSubscription(store, sourceId);
+      schedulerRef.current?.reschedule();
+      setSubscriptionStatus(formatRefreshStatus(name, outcome));
+    } catch (error) {
+      setSubscriptionStatus(
+        `刷新失败：${describeError(error, source?.webcal?.url ?? "")}`,
+      );
+    }
+  }
+
+  /** 启用 / 停用来源（SRC-003）：停用后事件立即从月视图消失，数据保留。 */
+  async function handleToggleSource(sourceId: string, enabled: boolean) {
+    const store = storeRef.current;
+    if (!store) {
+      return;
+    }
+    if (!store.setSourceEnabled(sourceId, enabled)) {
+      return;
+    }
+    await store.save();
+    refreshFromStore(store);
+    schedulerRef.current?.reschedule();
+    setSubscriptionStatus(enabled ? "已启用该订阅" : "已停用该订阅");
+  }
+
+  /** 删除订阅：连同其事件与增强结果一起删除（级联）。 */
+  async function handleRemoveSubscription(sourceId: string) {
+    const store = storeRef.current;
+    if (!store) {
+      return;
+    }
+    const name = store.getSource(sourceId)?.name ?? "订阅";
+    store.removeSource(sourceId);
+    await store.save();
+    refreshFromStore(store);
+    schedulerRef.current?.reschedule();
+    setSubscriptionStatus(`已删除「${name}」及其事件`);
+  }
 
   /** 月份步进（主视图与小月历共用），纯计算跨年进位。 */
   function stepMonth(delta: number) {
@@ -281,6 +494,13 @@ export default function App() {
           onImportIcs={handleImportIcs}
           importBusy={importBusy}
           importStatus={importStatus}
+          onAddSubscription={handleAddSubscription}
+          onRefreshSubscription={handleRefreshSubscription}
+          onToggleSource={handleToggleSource}
+          onRemoveSubscription={handleRemoveSubscription}
+          subscribeBusy={subscribeBusy}
+          refreshingSourceIds={refreshingSourceIds}
+          subscriptionStatus={subscriptionStatus}
         />
       }
       inspector={

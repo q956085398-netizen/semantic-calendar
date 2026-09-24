@@ -26,14 +26,22 @@ function asPromise(value: unknown): Promise<unknown> {
 function mockBackend(
   overrides: {
     dataStoreRead?: string | null | Error;
+    webcalFetch?: (args: Record<string, unknown>) => unknown;
   } = {},
 ) {
-  invokeMock.mockImplementation((cmd: string) => {
-    if (cmd === "data_store_read") {
-      return asPromise(overrides.dataStoreRead ?? null);
-    }
-    return Promise.resolve(null);
-  });
+  invokeMock.mockImplementation(
+    (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "data_store_read") {
+        return asPromise(overrides.dataStoreRead ?? null);
+      }
+      if (cmd === "webcal_fetch") {
+        return asPromise(
+          overrides.webcalFetch ? overrides.webcalFetch(args ?? {}) : null,
+        );
+      }
+      return Promise.resolve(null);
+    },
+  );
 }
 
 function writtenSnapshots(): Array<Record<string, unknown>> {
@@ -789,5 +797,271 @@ describe("本地数据层接线", () => {
 
     await waitFor(() => expect(screen.getByText(/仅桌面壳可用/)).toBeTruthy());
     expect(screen.getByRole("main")).toBeTruthy();
+  });
+});
+
+/** SC-007 集成：订阅地址 → Rust 侧抓取 → 落库 → 月视图 + 订阅行状态。 */
+const SUBSCRIBE_URL =
+  "https://calendar.example.com/feed.ics?token=SECRET-TOKEN";
+const SUBSCRIBE_DISPLAY_NAME = "calendar.example.com/feed.ics";
+
+const SUBSCRIBE_ICS = [
+  "BEGIN:VCALENDAR",
+  "VERSION:2.0",
+  "BEGIN:VEVENT",
+  "UID:webcal-evening@example.com",
+  "SUMMARY:订阅例会",
+  "DTSTART:20260923T190000",
+  "END:VEVENT",
+  "END:VCALENDAR",
+  "",
+].join("\r\n");
+
+function webcalOk(
+  body = SUBSCRIBE_ICS,
+  validators: { etag?: string } = {},
+): Record<string, unknown> {
+  return {
+    status: 200,
+    notModified: false,
+    body,
+    etag: validators.etag ?? null,
+    lastModified: null,
+  };
+}
+
+const WEBCAL_NOT_MODIFIED = {
+  status: 304,
+  notModified: true,
+  body: null,
+  etag: null,
+  lastModified: null,
+};
+
+function sidebar(): HTMLElement {
+  return screen.getByRole("complementary", { name: "侧栏" });
+}
+
+/** 订阅行状态文案（SRC-003）；与 App 的全局提示分开断言。 */
+function subscriptionRowStatus(): string {
+  return sidebar().querySelector(".source-status")?.textContent ?? "";
+}
+
+async function subscribeToFeed(url = SUBSCRIBE_URL) {
+  fireEvent.change(within(sidebar()).getByLabelText(/订阅 ICS/), {
+    target: { value: url },
+  });
+  fireEvent.click(within(sidebar()).getByRole("button", { name: "添加" }));
+  await waitFor(() =>
+    expect(within(sidebar()).getByText(SUBSCRIBE_DISPLAY_NAME)).toBeTruthy(),
+  );
+}
+
+describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => {
+  it("添加订阅后事件进入月视图，来源与缓存校验值写入快照", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    await renderReadyApp();
+    mockBackend({
+      webcalFetch: (args) => {
+        calls.push(args);
+        return webcalOk(SUBSCRIBE_ICS, { etag: 'W/"v1"' });
+      },
+    });
+
+    await subscribeToFeed();
+
+    // 抓取走桌面壳命令，首次不带条件校验值。
+    expect(calls).toEqual([
+      { url: SUBSCRIBE_URL, etag: null, lastModified: null },
+    ]);
+
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    await waitFor(() =>
+      expect(
+        within(grid.querySelector('[data-date="2026-09-23"]')!).getByText(
+          "19:00 订阅例会",
+        ),
+      ).toBeTruthy(),
+    );
+
+    const snapshot = writtenSnapshots().at(-1)!;
+    expect(snapshot.sources).toEqual([
+      expect.objectContaining({
+        type: "webcal",
+        name: SUBSCRIBE_DISPLAY_NAME,
+        enabled: true,
+        lastSyncStatus: "ok",
+        webcal: expect.objectContaining({
+          url: SUBSCRIBE_URL,
+          etag: 'W/"v1"',
+        }),
+      }),
+    ]);
+    expect(snapshot.events).toEqual([
+      expect.objectContaining({ uid: "webcal-evening@example.com" }),
+    ]);
+    // 地址只存在于本地缓存字段，不进入展示文案。
+    expect(within(sidebar()).queryByText(/SECRET-TOKEN/)).toBeNull();
+  });
+
+  it("手动刷新带上 ETag，304 时保留缓存并提示无变化", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    await renderReadyApp();
+    mockBackend({
+      webcalFetch: (args) => {
+        calls.push(args);
+        return calls.length === 1
+          ? webcalOk(SUBSCRIBE_ICS, { etag: 'W/"v1"' })
+          : WEBCAL_NOT_MODIFIED;
+      },
+    });
+    await subscribeToFeed();
+
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "刷新" }));
+
+    await waitFor(() =>
+      expect(within(sidebar()).getByText(/没有变化/)).toBeTruthy(),
+    );
+    expect(calls[1]).toEqual({
+      url: SUBSCRIBE_URL,
+      etag: 'W/"v1"',
+      lastModified: null,
+    });
+    expect(writtenSnapshots().at(-1)!.events).toHaveLength(1);
+  });
+
+  it("刷新失败保留旧事件与上次成功时间，错误文案不含 token", async () => {
+    let attempt = 0;
+    await renderReadyApp();
+    mockBackend({
+      webcalFetch: () => {
+        attempt += 1;
+        return attempt === 1
+          ? webcalOk(SUBSCRIBE_ICS)
+          : new Error(`error sending request for url (${SUBSCRIBE_URL})`);
+      },
+    });
+    await subscribeToFeed();
+
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "刷新" }));
+
+    await waitFor(() => expect(subscriptionRowStatus()).toContain("刷新失败"));
+    const status = subscriptionRowStatus();
+    expect(status).not.toContain("SECRET-TOKEN");
+    expect(status).toContain("?…");
+    // 失败原因与上次成功时间同时可见（SRC-003）。
+    expect(status).toContain("上次成功");
+
+    // 事件与上次成功时间都还在（SRC-004）。
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    expect(
+      within(grid.querySelector('[data-date="2026-09-23"]')!).getByText(
+        "19:00 订阅例会",
+      ),
+    ).toBeTruthy();
+
+    const [source] = writtenSnapshots().at(-1)!.sources as Array<
+      Record<string, unknown>
+    >;
+    expect(source.lastSyncStatus).toBe("error");
+    expect(source.lastSyncAt).toBeTruthy();
+  });
+
+  it("停用订阅后事件从月视图消失，数据保留在快照里", async () => {
+    await renderReadyApp();
+    mockBackend({ webcalFetch: () => webcalOk(SUBSCRIBE_ICS) });
+    await subscribeToFeed();
+
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "停用" }));
+
+    await waitFor(() => expect(subscriptionRowStatus()).toContain("已停用"));
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    expect(
+      within(grid.querySelector('[data-date="2026-09-23"]')!).queryByText(
+        /订阅例会/,
+      ),
+    ).toBeNull();
+
+    const snapshot = writtenSnapshots().at(-1)!;
+    expect(snapshot.events).toHaveLength(1);
+    expect(
+      (snapshot.sources as Array<Record<string, unknown>>)[0].enabled,
+    ).toBe(false);
+
+    // 重新启用后事件回到月视图。
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "启用" }));
+    await waitFor(() =>
+      expect(
+        within(grid.querySelector('[data-date="2026-09-23"]')!).getByText(
+          "19:00 订阅例会",
+        ),
+      ).toBeTruthy(),
+    );
+  });
+
+  it("删除订阅时确认后级联删除来源与事件", async () => {
+    await renderReadyApp();
+    mockBackend({ webcalFetch: () => webcalOk(SUBSCRIBE_ICS) });
+    await subscribeToFeed();
+
+    const confirmMock = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirmMock);
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "删除" }));
+    expect(within(sidebar()).getByText(SUBSCRIBE_DISPLAY_NAME)).toBeTruthy();
+
+    confirmMock.mockReturnValue(true);
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "删除" }));
+
+    await waitFor(() =>
+      expect(within(sidebar()).queryByText(SUBSCRIBE_DISPLAY_NAME)).toBeNull(),
+    );
+    const snapshot = writtenSnapshots().at(-1)!;
+    expect(snapshot.sources).toEqual([]);
+    expect(snapshot.events).toEqual([]);
+  });
+
+  it("非法地址不创建来源，并保留输入内容供修正", async () => {
+    await renderReadyApp();
+    mockBackend({ webcalFetch: () => webcalOk() });
+
+    fireEvent.change(within(sidebar()).getByLabelText(/订阅 ICS/), {
+      target: { value: "ftp://example.com/feed.ics" },
+    });
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "添加" }));
+
+    await waitFor(() =>
+      expect(
+        within(sidebar()).getByText(/只支持 http \/ https \/ webcal 地址/),
+      ).toBeTruthy(),
+    );
+    expect(
+      (within(sidebar()).getByLabelText(/订阅 ICS/) as HTMLInputElement).value,
+    ).toBe("ftp://example.com/feed.ics");
+    expect(writtenSnapshots().at(-1)!.sources).toEqual([]);
+    expect(
+      invokeMock.mock.calls.filter(([cmd]) => cmd === "webcal_fetch"),
+    ).toHaveLength(0);
+  });
+
+  it("预览模式下订阅给出降级提示，不发起网络请求", async () => {
+    mockBackend({
+      dataStoreRead: new Error(
+        "window.__TAURI_INTERNALS__ is undefined（浏览器预览）",
+      ),
+    });
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/仅桌面壳可用/)).toBeTruthy());
+
+    fireEvent.change(within(sidebar()).getByLabelText(/订阅 ICS/), {
+      target: { value: SUBSCRIBE_URL },
+    });
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "添加" }));
+
+    await waitFor(() =>
+      expect(within(sidebar()).getByText(/订阅需要桌面环境/)).toBeTruthy(),
+    );
+    expect(
+      invokeMock.mock.calls.filter(([cmd]) => cmd === "webcal_fetch"),
+    ).toHaveLength(0);
   });
 });

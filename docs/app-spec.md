@@ -378,6 +378,8 @@ type EnrichedEvent = NormalizedEvent & {
 
 支持添加 URL、手动刷新与后台低频刷新。
 
+> 当前实现（SC-007）：地址归一化（`webcal://` → `https://`、缺协议补 `https://`、去 fragment）与校验在 `data/webcal/webcal-url.ts`；抓取经 Rust 命令 `webcal_fetch`（条件 GET，带 `If-None-Match` / `If-Modified-Since`，连接超时 10s、总超时 30s、正文上限 20MB）；刷新策略为常规 6 小时、失败后 30 分钟重试，只维护一个指向最近到期时刻的定时器（`data/webcal/refresh-scheduler.ts`），不使用 `setInterval`。
+
 ### SRC-003 数据源状态
 
 至少记录：
@@ -387,9 +389,13 @@ type EnrichedEvent = NormalizedEvent & {
 - 上次错误；
 - 来源类型。
 
+> 当前实现（SC-007）：`CalendarSource` 增加可选 `webcal` 分区（订阅地址、ETag / Last-Modified、`lastCheckedAt`）。`lastSyncAt` 只在成功刷新（含 304）时推进，失败时保留上次成功时间；错误文案落库前脱敏，不写入 URL token（§14）。
+
 ### SRC-004 离线缓存
 
 网络来源不可用时继续显示本地缓存结果。
+
+> 当前实现（SC-007）：抓取失败（网络、超时、HTTP 错误、内容无法解析、空内容）只标记来源状态，不删除该来源已入库的事件；空日历在已有缓存时按失败处理并保留缓存（服务端维护页 / 代理空壳与真正清空的订阅无法区分，P-01 优先保证不丢数据）；304 表示本地缓存仍然有效，事件与增强结果都不变。
 
 ---
 
@@ -632,6 +638,8 @@ v0.1 推荐 SQLite 或等价轻量本地数据库。
 - 可失败重试；
 - 不阻塞 UI；
 - 暴露最近状态。
+
+> 当前实现（SC-007）：WebCal 刷新由单一 `setTimeout` 驱动（应用启动、手动刷新、到达刷新时间三类触发），不使用轮询；网络任务带连接 / 总超时，失败后按 30 分钟重试，全程异步不阻塞 UI，来源状态（上次成功时间 / 错误 / 最近尝试时间）即最近状态。取消目前是“结果丢弃”：应用退出时停止调度器并放弃在途结果，尚未向 Rust 侧发送取消信号，HTTP 请求由 30s 总超时兜底。
 
 ---
 

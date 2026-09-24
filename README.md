@@ -218,7 +218,7 @@ semantic-calendar/
 - [ ] 现代化月视图
 - [ ] 基本日期导航
 - [x] 解析本地 ICS 文件
-- [ ] 订阅 ICS / WebCal 地址
+- [x] 订阅 ICS / WebCal 地址
 - [ ] 日历数据本地保存
 - [ ] 中国法定节假日
 - [ ] 中国传统节日
@@ -351,7 +351,7 @@ npm run format    # Prettier 格式检查
 npm run tauri -- build
 ```
 
-前后端 IPC 由 `data_store_read` / `data_store_write` / `data_store_rename` 三个 Tauri 命令承载（读取快照、原子写入、损坏隔离改名）。
+前后端 IPC 由 `data_store_read` / `data_store_write` / `data_store_rename` 三个数据命令与 `webcal_fetch` 一个网络命令承载（读取快照、原子写入、损坏隔离改名、订阅抓取）。
 
 本地数据层（SC-003）位于 `apps/desktop/src/data/`：
 
@@ -394,4 +394,16 @@ npm run tauri -- build
 - 应用接线 `semantic/app-registry.ts` + `App.tsx`：启动与每次导入后执行匹配；Matcher / Resolver 抛错只降级自身并留一条不含事件正文的控制台告警（app-spec §14），事件不会消失；启动重建是同步 O(事件数 × Matcher 数) 单趟扫描（无后台轮询），耗时基线测量由 SC-020 提供；v0.1 静态注册表尚无领域 Matcher（法定节假日 SC-011、传统节日与节气 SC-012、英超 SC-015 依次加入），链路已真实运行，全部事件按普通事件显示；
 - UI 通用增强显示：月格摘要与 Inspector 事件卡消费 `--event-accent`（语义色左缘条）与语义短标签，值全部来自 Metadata Resolver，UI 组件不含任何球队 / 节日标题判断（验收：UI 不包含领域判断）。
 
-v0.1 已知限制：同一文件改名后再次导入会视为新来源（新增副本），来源删除入口由 SC-018 提供；RRULE 的 BYSETPOS / BYWEEKNO 等高级部分按“降级为单次事件”处理，完整支持留给后续版本；语义色 token 为临时基线，完整语义色体系由 SC-013 定稿。
+WebCal / ICS 订阅（SC-007）位于 `apps/desktop/src/data/webcal/` 与 `apps/desktop/src/data/net/`，把一次性导入扩展为可长期使用的网络来源（SRC-002 / SRC-003 / SRC-004）：
+
+- 网络访问全部走 Rust 侧 `webcal_fetch` 命令（`src-tauri/src/webcal.rs`，reqwest + 系统 TLS）：webview 里的 fetch 受同源策略限制、绝大多数 ICS 服务端不发 CORS 头，且敏感 token 不应进入 webview 网络栈；请求带连接 / 总超时（10s / 30s）与 20MB 正文上限，非 2xx 不读正文、只回状态码；
+- 端口抽象 `data/net/http-io.ts`（条件 GET）+ `tauri-http-io.ts`：刷新逻辑对网络层零依赖，测试用替身即可覆盖全部降级分支；
+- 地址处理 `webcal/webcal-url.ts`：`webcal://` 按 `https://` 处理、缺协议补 `https://`、去 fragment；`sourceId` 由地址散列派生（同一地址重复添加命中同一来源，且 id 不含 token）；展示名与错误文案一律脱敏（`host + path`，查询串省略）；
+- 刷新服务 `webcal/webcal-refresh.ts`：条件 GET（`If-None-Match` / `If-Modified-Since`）→ 304 复用缓存 / 200 解析 → 标准化 → 按（sourceId, UID, RECURRENCE-ID）求差集替换（消失的事件才删除，未变事件保留增强结果）→ 更新来源状态与校验值；服务端不再返回校验值时清掉旧值，避免用过期 ETag 永远拿不到新内容；同一来源的并发刷新合并为一次请求；
+- 失败降级（§13）：网络 / 超时 / HTTP 错误 / 内容无法解析 / 空内容都只标记 `lastSyncStatus: "error"` 与脱敏后的 `lastSyncError`，**不删除已有事件**，`lastSyncAt` 保留上次成功时间；事件级解析错误按 ICS-005 隔离计数；空日历（合法但没有 VEVENT）在已有缓存时同样按失败处理并保留缓存——服务端维护页、中间代理的空壳与真正清空的订阅无法区分，而清空事件的代价高于保留一份可能过期的缓存（P-01 可靠性优先）；来源本就没有事件时，空日历按正常刷新处理；
+- 抓取期间来源被删除时丢弃结果（不留无主事件记录）；
+- 低频后台刷新 `webcal/refresh-scheduler.ts`：常规间隔 6 小时、失败后 30 分钟重试；只维护**一个** `setTimeout` 指向最近到期时刻（不用 `setInterval`，无到期订阅时不持有定时器，空闲零唤醒，§12），触发后串行刷新到期来源并重算下一次；应用启动、手动刷新、到达刷新时间三类触发之外没有轮询；
+- 落盘串行化 `CalendarStore.save()`：低频刷新与手动操作可能同时写同一个临时文件，写入进入队列，快照在队列内序列化（最后一次写入反映最新状态）；
+- UI（`layout/Sidebar.tsx`）：地址输入 + 添加、每行「刷新 / 停用·启用 / 删除」，行状态显示“刷新中… / 上次成功 … / 刷新失败：… / 已停用 / 尚未刷新”（SRC-003）；停用后事件立即从月视图消失但数据保留，删除会确认并级联删除该源事件；导入的本地 ICS 源仍是只读行，来源管理与设置入口由 SC-018 接线。
+
+v0.1 已知限制：同一文件改名后再次导入会视为新来源（新增副本），本地来源的删除入口由 SC-018 提供；WebCal 抓取暂不读取系统代理（reqwest 默认 feature 关闭 `system-proxy`，以避免额外依赖），正文按 UTF-8 宽松解码；RRULE 的 BYSETPOS / BYWEEKNO 等高级部分按“降级为单次事件”处理，完整支持留给后续版本；语义色 token 为临时基线，完整语义色体系由 SC-013 定稿。

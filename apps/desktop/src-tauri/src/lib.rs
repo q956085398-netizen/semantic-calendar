@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 
 use tauri::Manager;
 
+mod webcal;
+
 /// 本地数据快照所在的子目录（位于系统 app data dir 之下）。
 const STORE_DIR_NAME: &str = "store";
 const STORE_FILE_NAME_MAX_LEN: usize = 128;
@@ -85,13 +87,24 @@ fn data_store_rename(
     rename_store_file(&from, &to).map_err(|e| e.to_string())
 }
 
+/// WebCal 订阅抓取（SC-007）：网络访问全部走 Rust，webview 不直接联网。
+#[tauri::command]
+async fn webcal_fetch(
+    url: String,
+    etag: Option<String>,
+    last_modified: Option<String>,
+) -> Result<webcal::WebcalFetchResponse, String> {
+    webcal::fetch(url, etag, last_modified).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             data_store_read,
             data_store_write,
-            data_store_rename
+            data_store_rename,
+            webcal_fetch
         ])
         .run(tauri::generate_context!())
         .expect("error while running Semantic Calendar");
