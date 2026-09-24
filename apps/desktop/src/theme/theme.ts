@@ -22,10 +22,6 @@ export function normalizeTheme(value: unknown): Theme {
   return value === "dark" ? "dark" : "light";
 }
 
-export function toggleTheme(theme: Theme): Theme {
-  return theme === "light" ? "dark" : "light";
-}
-
 /** 应用到文档根元素；测试环境同样可用（jsdom 支持 dataset）。 */
 export function applyTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;

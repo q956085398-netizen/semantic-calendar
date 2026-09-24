@@ -386,7 +386,7 @@ type EnrichedEvent = NormalizedEvent & {
 
 支持添加 URL、手动刷新与后台低频刷新。
 
-> 当前实现（SC-007）：地址归一化（`webcal://` → `https://`、缺协议补 `https://`、去 fragment）与校验在 `data/webcal/webcal-url.ts`；抓取经 Rust 命令 `webcal_fetch`（条件 GET，带 `If-None-Match` / `If-Modified-Since`，连接超时 10s、总超时 30s、正文上限 20MB）；刷新策略为常规 6 小时、失败后 30 分钟重试，只维护一个指向最近到期时刻的定时器（`data/webcal/refresh-scheduler.ts`），不使用 `setInterval`。
+> 当前实现（SC-007）：地址归一化（`webcal://` → `https://`、缺协议补 `https://`、去 fragment）与校验在 `data/webcal/webcal-url.ts`；抓取经 Rust 命令 `webcal_fetch`（条件 GET，带 `If-None-Match` / `If-Modified-Since`，连接超时 10s、总超时 30s、正文上限 20MB）；刷新策略的常规间隔是设置项 `webcal.refreshIntervalMinutes`（SC-018，默认 6 小时），失败后固定 30 分钟重试，只维护一个指向最近到期时刻的定时器（`data/webcal/refresh-scheduler.ts`），不使用 `setInterval`——间隔可调，调度的形状不变。
 
 ### SRC-003 数据源状态
 
@@ -639,6 +639,14 @@ v0.1 设置至少覆盖：
 - 基础语言 / 区域预留。
 
 设置界面保持轻量，不做多层复杂后台。
+
+> 当前实现（SC-018）：设置是一个页面而不是新的首页——它取代月历主区域的位置，顶部有「返回月视图」，侧栏与详情栏留在原处，打开状态不持久化（月历是主界面，P-05）。页面分六节：**外观**（浅色 / 深色分段控件，选中即生效并写入 `app.theme`）、**区域**（预留：只陈述当前固定取值「简体中文 / 周一起始 / 跟随本机时区」，不写入任何设置键——写一个没有读取方的值只会让快照出现假状态）、**数据源**、**关注球队**、**通知**（`notifications.enabled` 与 `notifications.matchReminderMinutes`）、**关闭窗口时**（`app.closeBehavior`）。所有控件即时生效，没有需要重启的选项，因此界面也不写“需要重启”。
+>
+> 数据源一节承担「管理」：内置来源的显示开关（`sources.builtinHidden`，只记被隐藏的 id，缺省全开，将来新增内置来源不需要迁移旧快照）、导入 / 订阅来源的最近刷新状态与删除入口（删除前确认，级联删除该来源的事件）、WebCal 刷新间隔（`webcal.refreshIntervalMinutes`，选项 1 / 3 / 6 / 12 / 24 小时，默认 6 小时；不在选项内的快照值按默认处理，不猜）。
+>
+> 关闭不删数据：内置来源的开关只影响展示——「我的日历」关闭后用户事件不进月视图（月格只留内置语义日期），「中国节假日」关闭后休 / 补语义与假期底色消失，「二十四节气」关闭后传统节日与节气语义消失，「英超赛程」关闭后比赛按普通事件进入月格、详情栏**与提醒计划**（与 SEM-003 同一口径，见 `semantic/app-builtin-sources.ts`）。过滤掉的是视图字段（`semantic` 与展示元数据）而不是数据：识别结果仍写在快照的增强分区里，重新打开立即恢复、不需要重新匹配；连 `semantic` 一起摘是因为提醒计划先看 `semantic.type` 再回落到事件自带 VALARM——只摘展示元数据的话，用户设置过的“比赛提醒”仍会弹，与界面的承诺矛盾。四行开关与 ui-design §4.3 的数据源行同名同序，侧栏与设置页读写同一份设置（一处状态、两个入口）。
+>
+> 刷新间隔由供应商注入调度器（`intervalMs`），改设置后 `reschedule()` 立即按新间隔重排，不需要重建调度器；失败重试间隔固定 30 分钟，与这条设置无关（失败来源需要更快恢复）。关注球队在这一页与侧栏共用同一个选择器组件与同一份状态。完整实现说明见 README「设置页与内置来源开关（SC-018）」。
 
 ---
 

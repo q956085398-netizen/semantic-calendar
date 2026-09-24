@@ -9,22 +9,30 @@
  *
  * 失败来源按更短的间隔重试（§12：可失败重试），而不是等到下一个常规周期。
  * 调度只读来源状态，不写任何数据；写库与落盘仍由刷新服务与调用方负责。
+ *
+ * 常规间隔是用户设置（SC-018 / 键 webcal.refreshIntervalMinutes），以供应商
+ * 形式注入：调度器只在计算时读取，设置改动后 reschedule() 即可生效，
+ * 不需要重建调度器。缺省值仍是 6 小时基线（SC-007 的行为不变）。
  */
 
 import { WEBCAL_SOURCE_TYPE, type CalendarSource } from "../model";
 
-/** 常规刷新间隔：6 小时。 */
+/** 常规刷新间隔的缺省值：6 小时。 */
 export const WEBCAL_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
-/** 上次失败后的重试间隔：30 分钟。 */
+/** 上次失败后的重试间隔：30 分钟，与常规间隔设置无关（失败来源要更快恢复）。 */
 export const WEBCAL_RETRY_INTERVAL_MS = 30 * 60 * 1000;
 
 /** setTimeout 的延迟上限（2^31-1），超出会被截断成立即触发。 */
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
-/** 下一次应刷新的时刻（epoch ms）；不参与调度的来源返回 null。 */
+/**
+ * 下一次应刷新的时刻（epoch ms）；不参与调度的来源返回 null。
+ * intervalMs 为常规间隔（用户设置），失败来源仍按固定重试间隔计算。
+ */
 export function webcalDueAt(
   source: CalendarSource,
   nowMs: number,
+  intervalMs: number = WEBCAL_REFRESH_INTERVAL_MS,
 ): number | null {
   if (
     source.type !== WEBCAL_SOURCE_TYPE ||
@@ -34,9 +42,7 @@ export function webcalDueAt(
     return null;
   }
   const interval =
-    source.lastSyncStatus === "error"
-      ? WEBCAL_RETRY_INTERVAL_MS
-      : WEBCAL_REFRESH_INTERVAL_MS;
+    source.lastSyncStatus === "error" ? WEBCAL_RETRY_INTERVAL_MS : intervalMs;
 
   const lastAttempt = source.webcal.lastCheckedAt ?? source.lastSyncAt;
   if (lastAttempt === undefined) {
@@ -55,10 +61,11 @@ export function webcalDueAt(
 export function dueWebcalSourceIds(
   sources: readonly CalendarSource[],
   nowMs: number,
+  intervalMs?: number,
 ): string[] {
   return sources
     .filter((source) => {
-      const dueAt = webcalDueAt(source, nowMs);
+      const dueAt = webcalDueAt(source, nowMs, intervalMs);
       return dueAt !== null && dueAt <= nowMs;
     })
     .map((source) => source.id);
@@ -68,9 +75,10 @@ export function dueWebcalSourceIds(
 export function nextWebcalRefreshDelay(
   sources: readonly CalendarSource[],
   nowMs: number,
+  intervalMs?: number,
 ): number | null {
   const dueTimes = sources
-    .map((source) => webcalDueAt(source, nowMs))
+    .map((source) => webcalDueAt(source, nowMs, intervalMs))
     .filter((dueAt): dueAt is number => dueAt !== null);
   if (dueTimes.length === 0) {
     return null;
@@ -84,6 +92,11 @@ export interface WebcalSchedulerDeps {
   /** 读取当前来源状态：调度每次重新计算，不缓存快照。 */
   listSources: () => CalendarSource[];
   refresh: (sourceId: string) => Promise<unknown>;
+  /**
+   * 读取常规刷新间隔（用户设置）；缺省用 6 小时基线。
+   * 每次调度都重新读取，因此设置改动后只要 reschedule() 就生效。
+   */
+  intervalMs?: () => number;
   now?: () => number;
   setTimer?: (handler: () => void, delayMs: number) => TimerHandle;
   clearTimer?: (handle: TimerHandle) => void;
@@ -102,6 +115,7 @@ export function createWebcalScheduler(
   deps: WebcalSchedulerDeps,
 ): WebcalRefreshScheduler {
   const now = deps.now ?? (() => Date.now());
+  const intervalMs = deps.intervalMs ?? (() => WEBCAL_REFRESH_INTERVAL_MS);
   const setTimer =
     deps.setTimer ?? ((handler, delayMs) => setTimeout(handler, delayMs));
   const clearTimer = deps.clearTimer ?? ((handle) => clearTimeout(handle));
@@ -118,7 +132,11 @@ export function createWebcalScheduler(
       clearTimer(timer);
       timer = undefined;
     }
-    const delay = nextWebcalRefreshDelay(deps.listSources(), now());
+    const delay = nextWebcalRefreshDelay(
+      deps.listSources(),
+      now(),
+      intervalMs(),
+    );
     if (delay === null) {
       return;
     }
@@ -138,7 +156,11 @@ export function createWebcalScheduler(
     }
     running = true;
     try {
-      for (const sourceId of dueWebcalSourceIds(deps.listSources(), now())) {
+      for (const sourceId of dueWebcalSourceIds(
+        deps.listSources(),
+        now(),
+        intervalMs(),
+      )) {
         if (stopped) {
           return;
         }

@@ -279,10 +279,28 @@ button:focus-visible {
 
 .source-item {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 4px;
   color: var(--text-secondary);
   font-size: 13.5px;
+}
+
+/* 显示开关行（§4 第 2 项 / §4.3）：勾选框 + 识别色块 + 名称。
+   名称在 label 内，因此勾选框的可访问名称就是来源名，状态另起一行说明。 */
+.source-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.source-check {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .source-dot {
@@ -299,7 +317,8 @@ button:focus-visible {
   gap: 10px;
 }
 
-.theme-toggle {
+/* 设置入口（SC-018 / ui-design §4 第 5 项）：打开设置页，打开态由 aria-pressed 表达 */
+.settings-entry {
   align-self: flex-start;
   border: 1px solid var(--border-subtle);
   border-radius: 999px;
@@ -311,28 +330,6 @@ button:focus-visible {
   transition:
     color 120ms ease,
     background 120ms ease;
-}
-
-/* 侧栏设置块（SC-002 关闭行为 / SC-017 通知）：小标题 + 控件 + 状态说明 */
-.sidebar-setting {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* 侧栏宽度固定，分段控件撑满并压缩内边距 */
-.sidebar-setting .segmented {
-  display: flex;
-  width: 100%;
-}
-
-.sidebar-setting .segmented-item {
-  flex: 1;
-  padding: 7px 8px;
-}
-
-.sidebar-setting .store-status {
-  margin-top: 0;
 }
 
 /* 通知（SC-017 / NOTIFY-001–003）：开关 + 提前量 + 权限状态 */
@@ -397,12 +394,12 @@ button:focus-visible {
   background: var(--bg-cell-hover);
 }
 
-.theme-toggle:hover {
+.settings-entry:hover {
   color: var(--text-primary);
   background: var(--bg-cell-hover);
 }
 
-.theme-toggle[aria-pressed="true"] {
+.settings-entry[aria-pressed="true"] {
   color: var(--text-primary);
   border-color: var(--accent);
 }
@@ -1545,13 +1542,9 @@ button:focus-visible {
   cursor: default;
 }
 
-/* 订阅行：名称 / 状态 / 操作三段纵向排列，避免在窄侧栏里挤压 */
-.source-item.is-webcal {
-  align-items: flex-start;
-}
-
-.source-item.is-webcal .source-dot {
-  margin-top: 4px;
+/* 来源行：显示开关一行，状态与操作另起一行，避免在窄侧栏里挤压 */
+.source-toggle .source-name {
+  overflow-wrap: anywhere;
 }
 
 .source-body {
@@ -1562,8 +1555,10 @@ button:focus-visible {
   flex: 1;
 }
 
-.source-item.is-webcal .source-name {
-  overflow-wrap: anywhere;
+/* 侧栏里状态行缩进到名称下方（勾选框 15px + 间距 10px），
+   设置页的来源行是横向布局，不缩进。 */
+.source-item .source-body {
+  padding-left: 25px;
 }
 
 .source-status {
@@ -1605,4 +1600,172 @@ button:focus-visible {
 .source-action.is-danger:hover:not(:disabled) {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+/* ---------------- 设置页（SC-018 / app-spec §9 SETTINGS） ----------------
+   月历主区域里的一个轻量页面：不做多层后台、不做 Dashboard，
+   一节一个主题，控件沿用侧栏已有的形状（分段控件 / 勾选框 / 下拉框）。
+   打开设置页不改变三栏结构——侧栏与详情栏仍在原处。 */
+
+.settings-view {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 4px 24px;
+}
+
+.settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 标题层级低于月视图年月（§5.1：月份标题最高），但明显高于各节小标题 */
+.settings-title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.settings-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-cell);
+  background: var(--bg-cell);
+}
+
+.settings-section .segmented {
+  display: flex;
+  width: 100%;
+}
+
+.settings-section .segmented-item {
+  flex: 1;
+  padding: 7px 8px;
+}
+
+.settings-section .followed-teams {
+  margin: 0;
+}
+
+.settings-subheading {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* 内置来源（SC-018）：说明写在勾选框旁边，关闭后的效果不必再点开看 */
+.builtin-source-list,
+.settings-source-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.builtin-source {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.builtin-source .source-check {
+  margin-top: 2px;
+}
+
+.builtin-source-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.builtin-source .source-name {
+  color: var(--text-primary);
+  font-size: 13.5px;
+}
+
+.builtin-source-description {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* 订阅 / 导入来源行：识别色 + 名称与状态 + 操作 */
+.settings-source-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13.5px;
+}
+
+.settings-source-item .source-dot {
+  margin-top: 5px;
+}
+
+.settings-source-item .source-name {
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* 区域（SC-018 预留）：术语与取值成对，说明跟在取值后面 */
+.region-facts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.region-fact {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.region-fact-label {
+  flex: none;
+  width: 64px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.region-fact-value {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.region-fact-detail {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
 }

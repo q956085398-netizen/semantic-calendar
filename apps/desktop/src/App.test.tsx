@@ -522,8 +522,13 @@ describe("明暗主题（THEME-001 / THEME-002 / THEME-003）", () => {
     await waitFor(() =>
       expect(document.documentElement.dataset.theme).toBe("dark"),
     );
-    const toggle = screen.getByRole("button", { name: "切换浅色主题" });
-    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    // 设置页的选中态就是主题的界面事实（SC-018 起主题控件在这里）。
+    const pane = openSettings();
+    expect(
+      within(pane)
+        .getByRole("button", { name: "深色" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
   });
 
   it("切换主题写入快照设置", async () => {
@@ -532,7 +537,10 @@ describe("明暗主题（THEME-001 / THEME-002 / THEME-003）", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
 
-    fireEvent.click(screen.getByRole("button", { name: "切换深色主题" }));
+    openSettings();
+    fireEvent.click(
+      within(settingsPane()).getByRole("button", { name: "深色" }),
+    );
     expect(document.documentElement.dataset.theme).toBe("dark");
 
     await waitFor(() => {
@@ -544,6 +552,19 @@ describe("明暗主题（THEME-001 / THEME-002 / THEME-003）", () => {
       expect(withTheme).toHaveLength(1);
       expect(withTheme[0].settings).toMatchObject({ "app.theme": "dark" });
     });
+
+    // 重复选中当前主题不重复写快照（二值选择，不是切换开关）。
+    fireEvent.click(
+      within(settingsPane()).getByRole("button", { name: "深色" }),
+    );
+    await Promise.resolve();
+    expect(
+      writtenSnapshots().filter(
+        (snapshot) =>
+          (snapshot.settings as Record<string, unknown>)["app.theme"] !==
+          undefined,
+      ),
+    ).toHaveLength(1);
   });
 
   it("浏览器预览模式下可切换但不持久化", async () => {
@@ -556,7 +577,11 @@ describe("明暗主题（THEME-001 / THEME-002 / THEME-003）", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByText(/仅桌面壳可用/)).toBeTruthy());
 
-    fireEvent.click(screen.getByRole("button", { name: "切换深色主题" }));
+    // 预览模式在设置页里说清“改动不写入本地设置”（§13）。
+    const pane = openSettings();
+    expect(within(pane).getByText(/改动不写入本地设置/)).toBeTruthy();
+
+    fireEvent.click(within(pane).getByRole("button", { name: "深色" }));
     expect(document.documentElement.dataset.theme).toBe("dark");
 
     expect(
@@ -957,6 +982,26 @@ function sidebar(): HTMLElement {
   return screen.getByRole("complementary", { name: "侧栏" });
 }
 
+/** 设置页（SC-018）：v0.1 的偏好设置集中在这里，侧栏只留入口与显示开关。 */
+function settingsPane(): HTMLElement {
+  return screen.getByRole("region", { name: "设置" });
+}
+
+/** 从侧栏打开设置页（ui-design §4 第 5 项）。 */
+function openSettings(): HTMLElement {
+  fireEvent.click(within(sidebar()).getByRole("button", { name: "设置" }));
+  return settingsPane();
+}
+
+/** 返回月视图：月历重新成为主区域。 */
+function closeSettings() {
+  fireEvent.click(
+    within(settingsPane()).getByRole("button", {
+      name: "返回月视图",
+    }),
+  );
+}
+
 /** 订阅行状态文案（SRC-003）；与 App 的全局提示分开断言。 */
 function subscriptionRowStatus(): string {
   return sidebar().querySelector(".source-status")?.textContent ?? "";
@@ -1087,7 +1132,8 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
     mockBackend({ webcalFetch: () => webcalOk(SUBSCRIBE_ICS) });
     await subscribeToFeed();
 
-    fireEvent.click(within(sidebar()).getByRole("button", { name: "停用" }));
+    // 侧栏数据源行承担「显示 / 隐藏」（SC-018 / ui-design §4 第 2 项）。
+    fireEvent.click(within(sidebar()).getByLabelText(SUBSCRIBE_DISPLAY_NAME));
 
     await waitFor(() => expect(subscriptionRowStatus()).toContain("已停用"));
     const grid = screen.getByRole("grid", { name: "2026年9月" });
@@ -1103,8 +1149,8 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
       (snapshot.sources as Array<Record<string, unknown>>)[0].enabled,
     ).toBe(false);
 
-    // 重新启用后事件回到月视图。
-    fireEvent.click(within(sidebar()).getByRole("button", { name: "启用" }));
+    // 重新显示后事件回到月视图。
+    fireEvent.click(within(sidebar()).getByLabelText(SUBSCRIBE_DISPLAY_NAME));
     await waitFor(() =>
       expect(
         within(grid.querySelector('[data-date="2026-09-23"]')!).getByText(
@@ -1119,17 +1165,20 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
     mockBackend({ webcalFetch: () => webcalOk(SUBSCRIBE_ICS) });
     await subscribeToFeed();
 
+    // 删除是需要确认的管理动作，集中在设置页的数据源一节（SC-018）。
+    const pane = openSettings();
     const confirmMock = vi.fn(() => false);
     vi.stubGlobal("confirm", confirmMock);
-    fireEvent.click(within(sidebar()).getByRole("button", { name: "删除" }));
-    expect(within(sidebar()).getByText(SUBSCRIBE_DISPLAY_NAME)).toBeTruthy();
+    fireEvent.click(within(pane).getByRole("button", { name: "删除" }));
+    expect(within(pane).getByText(SUBSCRIBE_DISPLAY_NAME)).toBeTruthy();
 
     confirmMock.mockReturnValue(true);
-    fireEvent.click(within(sidebar()).getByRole("button", { name: "删除" }));
+    fireEvent.click(within(pane).getByRole("button", { name: "删除" }));
 
     await waitFor(() =>
-      expect(within(sidebar()).queryByText(SUBSCRIBE_DISPLAY_NAME)).toBeNull(),
+      expect(within(pane).queryByText(SUBSCRIBE_DISPLAY_NAME)).toBeNull(),
     );
+    expect(within(sidebar()).queryByText(SUBSCRIBE_DISPLAY_NAME)).toBeNull();
     const snapshot = writtenSnapshots().at(-1)!;
     expect(snapshot.sources).toEqual([]);
     expect(snapshot.events).toEqual([]);
@@ -1259,7 +1308,7 @@ describe("关注球队（SC-016 / SPORT-006）", () => {
     await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
 
     expect(within(sidebar()).getByText("未选择")).toBeTruthy();
-    // 只看球队复选框：侧栏还有通知开关等其他复选框（SC-017）。
+    // 只看球队复选框：侧栏数据源行还有内置来源的显示开关（SC-018）。
     const teamBoxes = sidebar().querySelectorAll<HTMLInputElement>(
       ".followed-team-check",
     );
@@ -1499,12 +1548,13 @@ function closeBehaviorInSnapshot(): unknown {
 }
 
 function closeBehaviorButton(name: string): HTMLElement {
-  return within(sidebar()).getByRole("button", { name });
+  return within(settingsPane()).getByRole("button", { name });
 }
 
 describe("窗口行为（SC-002）", () => {
   it("默认隐藏到托盘，并在启动时推给桌面壳", async () => {
     await renderReadyApp();
+    const pane = openSettings();
 
     const option = closeBehaviorButton("隐藏到托盘");
     expect(option.getAttribute("aria-pressed")).toBe("true");
@@ -1512,9 +1562,9 @@ describe("窗口行为（SC-002）", () => {
       "false",
     );
     // 说明文案写清“应用是否还在运行”，不靠颜色单独表达。
-    expect(within(sidebar()).getByText(/继续在系统托盘运行/)).toBeTruthy();
+    expect(within(pane).getByText(/继续在系统托盘运行/)).toBeTruthy();
     // 托盘可用时不应出现降级提示。
-    expect(within(sidebar()).queryByText(/系统托盘不可用/)).toBeNull();
+    expect(within(pane).queryByText(/系统托盘不可用/)).toBeNull();
     expect(pushedCloseBehaviors()).toEqual(["hide-to-tray"]);
   });
 
@@ -1525,6 +1575,7 @@ describe("窗口行为（SC-002）", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
 
+    openSettings();
     expect(closeBehaviorButton("退出应用").getAttribute("aria-pressed")).toBe(
       "true",
     );
@@ -1538,6 +1589,7 @@ describe("窗口行为（SC-002）", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
 
+    openSettings();
     expect(closeBehaviorButton("隐藏到托盘").getAttribute("aria-pressed")).toBe(
       "true",
     );
@@ -1546,6 +1598,7 @@ describe("窗口行为（SC-002）", () => {
 
   it("切换关闭行为写入快照并推送桌面壳", async () => {
     await renderReadyApp();
+    openSettings();
 
     fireEvent.click(closeBehaviorButton("退出应用"));
 
@@ -1565,7 +1618,9 @@ describe("窗口行为（SC-002）", () => {
 
     await waitFor(() =>
       expect(
-        within(sidebar()).getByText(/系统托盘不可用：关闭窗口将直接退出应用/),
+        within(openSettings()).getByText(
+          /系统托盘不可用：关闭窗口将直接退出应用/,
+        ),
       ).toBeTruthy(),
     );
     // 设置值仍是用户选的“隐藏到托盘”，降级只发生在执行侧。
@@ -1583,7 +1638,7 @@ describe("窗口行为（SC-002）", () => {
 
     await waitFor(() =>
       expect(
-        within(sidebar()).getByText(/关闭行为未能应用：未知的关闭行为/),
+        within(openSettings()).getByText(/关闭行为未能应用：未知的关闭行为/),
       ).toBeTruthy(),
     );
 
@@ -1622,9 +1677,10 @@ describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
     chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
     await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
 
-    // 侧栏此刻已经能说明下一条提醒（app-spec §12 可解释状态）。
+    // 设置页此刻已经能说明下一条提醒（app-spec §12 可解释状态）。
+    const pane = openSettings();
     await waitFor(() =>
-      expect(within(sidebar()).getByText(/下一条提醒/)).toBeTruthy(),
+      expect(within(pane).getByText(/下一条提醒/)).toBeTruthy(),
     );
     expect(sentNotifications()).toEqual([]);
 
@@ -1742,13 +1798,14 @@ describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
 
   it("通知开关与比赛提醒提前量写入快照", async () => {
     await renderReadyApp();
+    const pane = openSettings();
 
-    fireEvent.click(within(sidebar()).getByLabelText("日历提醒"));
+    fireEvent.click(within(pane).getByLabelText("日历提醒"));
     await waitFor(() =>
       expect(snapshotSettings()[NOTIFICATIONS_ENABLED_KEY]).toBe(false),
     );
 
-    fireEvent.change(within(sidebar()).getByLabelText("比赛提醒提前量"), {
+    fireEvent.change(within(pane).getByLabelText("比赛提醒提前量"), {
       target: { value: "15" },
     });
     await waitFor(() =>
@@ -1762,11 +1819,13 @@ describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
 
-    expect(within(sidebar()).getByText(/系统通知权限被拒绝/)).toBeTruthy();
+    const pane = openSettings();
+    expect(within(pane).getByText(/系统通知权限被拒绝/)).toBeTruthy();
     expect(
-      within(sidebar()).getByRole("button", { name: "请求系统授权" }),
+      within(pane).getByRole("button", { name: "请求系统授权" }),
     ).toBeTruthy();
-    // 日历本身继续可用：月视图照常渲染。
+    // 日历本身继续可用：返回月视图后网格照常渲染。
+    closeSettings();
     expect(screen.getByRole("grid", { name: "2026年9月" })).toBeTruthy();
   });
 
@@ -1782,7 +1841,7 @@ describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
 
     await advanceTo(2026, 9, 26, 23, 0);
     await waitFor(() =>
-      expect(within(sidebar()).getByText(/系统通知未能弹出/)).toBeTruthy(),
+      expect(within(openSettings()).getByText(/系统通知未能弹出/)).toBeTruthy(),
     );
     expect(sentNotifications()).toHaveLength(1);
 
@@ -1800,7 +1859,354 @@ describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
 
     render(<App />);
     await waitFor(() =>
-      expect(within(sidebar()).getByText(/系统通知需要桌面环境/)).toBeTruthy(),
+      expect(
+        within(openSettings()).getByText(/系统通知需要桌面环境/),
+      ).toBeTruthy(),
     );
+  });
+});
+
+/**
+ * SC-018 集成：设置页把 v0.1 的偏好集中到一处，并保证开关真的改变展示。
+ *
+ * 设置键按字面量写：键名被改名时旧快照会读不出设置（与 SC-016 / SC-017 同一口径）。
+ */
+const BUILTIN_HIDDEN_KEY = "sources.builtinHidden";
+const WEBCAL_INTERVAL_KEY = "webcal.refreshIntervalMinutes";
+
+/**
+ * 侧栏 / 设置页里某个内置来源的显示勾选框（同一份设置的两个入口）。
+ * 设置页的勾选框标签里带着说明文案，因此按子串匹配。
+ */
+function builtinCheckbox(pane: HTMLElement, name: string): HTMLInputElement {
+  return within(pane).getByLabelText(name, {
+    exact: false,
+  }) as HTMLInputElement;
+}
+
+/** 选中日期并返回月格。 */
+function selectDate(dateKey: string): HTMLElement {
+  const grid = screen.getByRole("grid", { name: "2026年9月" });
+  const cell = grid.querySelector(`[data-date="${dateKey}"]`) as HTMLElement;
+  fireEvent.click(cell);
+  return grid;
+}
+
+describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
+  it("设置入口打开设置页：月历暂时让位，返回后回到原来的状态（P-05）", () => {
+    freezeClock();
+    render(<App />);
+
+    const entry = within(sidebar()).getByRole("button", { name: "设置" });
+    expect(entry.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(entry);
+
+    const pane = settingsPane();
+    expect(entry.getAttribute("aria-pressed")).toBe("true");
+    // 月历是主界面：设置页是临时页面，打开时不渲染月视图。
+    expect(screen.queryByRole("grid", { name: "2026年9月" })).toBeNull();
+    // 三栏结构不变：侧栏与详情栏仍在。
+    expect(sidebar()).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "详情栏" })).toBeTruthy();
+    // 只有这几节，没有统计 / 推荐之类的新首页内容。
+    for (const heading of [
+      "外观",
+      "区域",
+      "数据源",
+      "关注球队",
+      "通知",
+      "关闭窗口时",
+    ]) {
+      expect(within(pane).getByRole("heading", { name: heading })).toBeTruthy();
+    }
+
+    closeSettings();
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    expect(
+      grid
+        .querySelector('[data-date="2026-09-23"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+  });
+
+  it("区域一节陈述当前固定取值，且不写入设置键（预留）", async () => {
+    await renderReadyApp();
+    const pane = openSettings();
+
+    expect(within(pane).getByText("简体中文")).toBeTruthy();
+    expect(within(pane).getByText("一周起始")).toBeTruthy();
+    expect(within(pane).getByText("周一")).toBeTruthy();
+    expect(within(pane).getByText(/不写入任何设置键/)).toBeTruthy();
+
+    // 改其他设置时不会顺手写出区域键（预留不等于写一个没人读的值）。
+    fireEvent.click(within(pane).getByRole("button", { name: "深色" }));
+    await waitFor(() => expect(settingInSnapshot("app.theme")).toBe("dark"));
+    expect(
+      Object.keys(snapshotSettings()).filter((key) => key.startsWith("app.")),
+    ).toEqual(expect.arrayContaining(["app.lastOpenedAt", "app.theme"]));
+    expect(
+      Object.keys(snapshotSettings()).filter(
+        (key) => key.startsWith("app.locale") || key.startsWith("app.timezone"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("关闭「中国节假日」：休 / 补语义立即消失，设置写入快照，重开立即恢复", async () => {
+    await renderReadyApp();
+    const grid = selectDate("2026-09-25");
+
+    // 初始：中秋节假期（9 月 25–27 日）在月格与详情栏都有标记。
+    expect(
+      grid
+        .querySelector('[data-date="2026-09-25"]')
+        ?.getAttribute("data-china-day"),
+    ).toBe("rest");
+    expect(document.querySelector(".inspector-china-day")).toBeTruthy();
+
+    const pane = openSettings();
+    fireEvent.click(builtinCheckbox(pane, "中国节假日"));
+    await waitFor(() =>
+      expect(settingInSnapshot(BUILTIN_HIDDEN_KEY)).toEqual(["cn-holiday"]),
+    );
+    closeSettings();
+
+    const gatedGrid = screen.getByRole("grid", { name: "2026年9月" });
+    expect(
+      gatedGrid
+        .querySelector('[data-date="2026-09-25"]')
+        ?.hasAttribute("data-china-day"),
+    ).toBe(false);
+    expect(document.querySelector(".inspector-china-day")).toBeNull();
+
+    // 关闭不删数据：重新打开立即恢复（同一份载荷，不需要重新导入）。
+    const reopened = openSettings();
+    fireEvent.click(builtinCheckbox(reopened, "中国节假日"));
+    await waitFor(() =>
+      expect(settingInSnapshot(BUILTIN_HIDDEN_KEY)).toEqual([]),
+    );
+    closeSettings();
+    expect(
+      screen
+        .getByRole("grid", { name: "2026年9月" })
+        .querySelector('[data-date="2026-09-25"]')
+        ?.getAttribute("data-china-day"),
+    ).toBe("rest");
+  });
+
+  it("关闭「二十四节气」：节日与节气语义从月格与详情栏消失", async () => {
+    await renderReadyApp();
+    selectDate("2026-09-25");
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(within(inspector).getByText("中秋节")).toBeTruthy();
+
+    const pane = openSettings();
+    fireEvent.click(builtinCheckbox(pane, "二十四节气"));
+    await waitFor(() =>
+      expect(settingInSnapshot(BUILTIN_HIDDEN_KEY)).toEqual(["solar-terms"]),
+    );
+    closeSettings();
+
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    expect(
+      grid.querySelector('[data-date="2026-09-25"] .cell-semantic'),
+    ).toBeNull();
+    expect(
+      grid.querySelector('[data-date="2026-09-23"] .cell-solar-term'),
+    ).toBeNull();
+    // 农历不属于这个开关（SC-010 是月格的基线内容）。
+    expect(
+      grid.querySelector('[data-date="2026-09-23"] .cell-lunar')?.textContent,
+    ).toBe("十三");
+
+    const gatedInspector = screen.getByRole("complementary", {
+      name: "详情栏",
+    });
+    expect(gatedInspector.querySelector(".inspector-day-semantics")).toBeNull();
+    expect(within(gatedInspector).getByText("农历八月十五")).toBeTruthy();
+  });
+
+  it("关闭「英超赛程」：比赛回到普通事件显示，识别结果仍在快照里", async () => {
+    await renderReadyApp();
+    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+    selectDate("2026-09-26");
+
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    expect(
+      grid.querySelector('[data-date="2026-09-26"] .match-cell'),
+    ).toBeTruthy();
+
+    const pane = openSettings();
+    fireEvent.click(builtinCheckbox(pane, "英超赛程"));
+    await waitFor(() =>
+      expect(settingInSnapshot(BUILTIN_HIDDEN_KEY)).toEqual(["premier-league"]),
+    );
+    closeSettings();
+
+    // 月格：没有对阵块与联赛视觉，回到普通摘要（SEM-003 同一口径）。
+    const gatedGrid = screen.getByRole("grid", { name: "2026年9月" });
+    const cell = gatedGrid.querySelector(
+      '[data-date="2026-09-26"]',
+    ) as HTMLElement;
+    expect(cell.querySelector(".match-cell")).toBeNull();
+    // 联赛视觉让位（这一天在中秋假期里，主背景回到假期底色）。
+    expect(cell.getAttribute("data-cell-backdrop")).not.toBe("league");
+    expect(
+      within(cell).getByText("23:30 Arsenal vs Manchester City"),
+    ).toBeTruthy();
+
+    // 详情栏：没有比赛详情，事件列在普通事件区。
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(inspector.querySelector(".matchday")).toBeNull();
+    expect(
+      within(inspector).getByText("Arsenal vs Manchester City"),
+    ).toBeTruthy();
+
+    // 识别结果与事件都在数据层：增强分区仍记着这场比赛（P-04 只管显示）。
+    const snapshot = writtenSnapshots().at(-1)!;
+    expect(snapshot.events).toHaveLength(1);
+    expect(
+      Object.values(
+        snapshot.enrichments as Record<string, { semantic?: unknown }>,
+      )[0].semantic,
+    ).toMatchObject({ type: "sport.fixture" });
+  });
+
+  it("关闭「我的日历」：用户事件不进月视图，数据保留在快照里", async () => {
+    await renderReadyApp();
+    chooseImportFile(icsFile(IMPORT_ICS, "team.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
+    selectDate("2026-09-23");
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    expect(within(grid).getByText("19:00 晚间例会")).toBeTruthy();
+
+    const pane = openSettings();
+    fireEvent.click(builtinCheckbox(pane, "我的日历"));
+    await waitFor(() =>
+      expect(settingInSnapshot(BUILTIN_HIDDEN_KEY)).toEqual(["mine"]),
+    );
+    closeSettings();
+
+    const gatedGrid = screen.getByRole("grid", { name: "2026年9月" });
+    expect(within(gatedGrid).queryByText("19:00 晚间例会")).toBeNull();
+    // 内置语义日期不受影响：农历与节气照常显示。
+    expect(
+      gatedGrid.querySelector('[data-date="2026-09-23"] .cell-solar-term')
+        ?.textContent,
+    ).toBe("秋分");
+    // 事件与来源都留在快照里（停用不删除用户数据）。
+    const snapshot = writtenSnapshots().at(-1)!;
+    expect(snapshot.events).toHaveLength(2);
+    expect(snapshot.sources).toHaveLength(1);
+  });
+
+  it("关闭「英超赛程」后比赛不再按比赛提醒（提醒计划读同一份过滤结果）", async () => {
+    // 用户设置过提前量时，比赛提醒来自用户设置而不是 Resolver 建议——
+    // 只过滤展示元数据的话这条提醒仍会弹，与界面上的承诺矛盾。
+    mockBackend({
+      dataStoreRead: seededSnapshot({ [MATCH_REMINDER_KEY]: 60 }),
+    });
+    freezeClock();
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
+
+    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+    const pane = openSettings();
+    await waitFor(() =>
+      expect(within(pane).getByText(/下一条提醒/)).toBeTruthy(),
+    );
+
+    fireEvent.click(builtinCheckbox(pane, "英超赛程"));
+    await waitFor(() =>
+      expect(settingInSnapshot(BUILTIN_HIDDEN_KEY)).toEqual(["premier-league"]),
+    );
+    closeSettings();
+
+    // 比赛 2026-09-26 23:30，提前 60 分钟 —— 关闭来源后到点也不弹。
+    await advanceTo(2026, 9, 26, 22, 30);
+    await advanceTo(2026, 9, 26, 23, 30);
+    expect(sentNotifications()).toEqual([]);
+    // 事件本身还在（关掉的是视图与提醒，不是数据）。
+    expect(writtenSnapshots().at(-1)!.events).toHaveLength(1);
+  });
+
+  it("内置来源开关与刷新间隔从快照恢复，坏值按默认处理", async () => {
+    mockBackend({
+      dataStoreRead: seededSnapshot({
+        [BUILTIN_HIDDEN_KEY]: ["cn-holiday", "not-a-source", 42],
+        [WEBCAL_INTERVAL_KEY]: 120,
+      }),
+    });
+    freezeClock();
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
+
+    expect(builtinCheckbox(sidebar(), "中国节假日").checked).toBe(false);
+    expect(builtinCheckbox(sidebar(), "英超赛程").checked).toBe(true);
+
+    const pane = openSettings();
+    // 表外数字（120 分钟）不猜：回到默认 6 小时。
+    expect(
+      (within(pane).getByLabelText("WebCal 刷新间隔") as HTMLSelectElement)
+        .value,
+    ).toBe("360");
+  });
+
+  it("WebCal 刷新间隔改小后立即按新间隔唤醒（不需要重启）", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    await renderReadyApp();
+    mockBackend({
+      webcalFetch: (args) => {
+        calls.push(args);
+        return webcalOk(SUBSCRIBE_ICS);
+      },
+    });
+    await subscribeToFeed();
+    expect(calls).toHaveLength(1);
+
+    // 默认 6 小时：过去 1 小时不会触发后台刷新。
+    await advanceTo(2026, 9, 23, 13, 0);
+    expect(calls).toHaveLength(1);
+
+    const pane = openSettings();
+    fireEvent.change(within(pane).getByLabelText("WebCal 刷新间隔"), {
+      target: { value: "180" },
+    });
+    await waitFor(() =>
+      expect(settingInSnapshot(WEBCAL_INTERVAL_KEY)).toBe(180),
+    );
+    closeSettings();
+
+    // 距上次检查 2 小时 59 分：还没到 3 小时。
+    await advanceTo(2026, 9, 23, 14, 59);
+    expect(calls).toHaveLength(1);
+    // 到点后按新间隔刷新（改设置不需要重建调度器）。
+    await advanceTo(2026, 9, 23, 15, 1);
+    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(2));
+  });
+
+  it("设置页能管理导入来源：最近刷新状态 + 删除（级联）", async () => {
+    await renderReadyApp();
+    chooseImportFile(icsFile(IMPORT_ICS, "team.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
+
+    const pane = openSettings();
+    // 本地导入来源也在设置页可查，状态与侧栏同一条口径（SRC-003）。
+    expect(within(pane).getByText("team.ics")).toBeTruthy();
+    expect(within(pane).getByText(/上次成功/)).toBeTruthy();
+
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true),
+    );
+    fireEvent.click(within(pane).getByRole("button", { name: "删除" }));
+
+    await waitFor(() =>
+      expect(within(pane).queryByText("team.ics")).toBeNull(),
+    );
+    expect(within(sidebar()).queryByText("team.ics")).toBeNull();
+    expect(writtenSnapshots().at(-1)!.events).toEqual([]);
   });
 });

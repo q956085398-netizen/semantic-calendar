@@ -129,10 +129,36 @@ describe("到期计算（§12 低频刷新）", () => {
     ).toBe(WEBCAL_REFRESH_INTERVAL_MS - 60 * 60 * 1000);
     expect(nextWebcalRefreshDelay([], NOW)).toBeNull();
   });
+
+  it("常规间隔可由用户设置覆盖（SC-018）：同一来源在不同间隔下的到期时刻不同", () => {
+    const hourly = 60 * 60 * 1000;
+    const source = makeWebcalSource({
+      webcal: {
+        url: "https://example.com/a.ics",
+        // 90 分钟前抓过：默认 6 小时间隔下还没到期，1 小时间隔下已到期。
+        lastCheckedAt: "2026-10-01T10:30:00.000Z",
+      },
+    });
+
+    expect(webcalDueAt(source, NOW)).toBe(
+      Date.parse("2026-10-01T10:30:00.000Z") + WEBCAL_REFRESH_INTERVAL_MS,
+    );
+    expect(dueWebcalSourceIds([source], NOW)).toEqual([]);
+    expect(webcalDueAt(source, NOW, hourly)).toBe(NOW - 30 * 60 * 1000);
+    expect(dueWebcalSourceIds([source], NOW, hourly)).toEqual(["webcal:abc"]);
+  });
+
+  it("失败重试间隔与常规间隔设置无关（失败来源仍然 30 分钟重试）", () => {
+    const failing = makeWebcalSource({ lastSyncStatus: "error" });
+
+    expect(webcalDueAt(failing, NOW, 24 * 60 * 60 * 1000)).toBe(
+      Date.parse("2026-10-01T06:00:00.000Z") + WEBCAL_RETRY_INTERVAL_MS,
+    );
+  });
 });
 
 describe("调度器（单个定时器、不重入、可停止）", () => {
-  function createHarness(sources: CalendarSource[]) {
+  function createHarness(sources: CalendarSource[], intervalMs?: () => number) {
     const timers = new Map<number, { handler: () => void; delayMs: number }>();
     const cleared: number[] = [];
     const refreshed: string[] = [];
@@ -149,6 +175,7 @@ describe("调度器（单个定时器、不重入、可停止）", () => {
           source.webcal.lastCheckedAt = new Date(nowMs).toISOString();
         }
       },
+      ...(intervalMs === undefined ? {} : { intervalMs }),
       now: () => nowMs,
       setTimer: (handler, delayMs) => {
         seq += 1;
@@ -364,5 +391,34 @@ describe("调度器（单个定时器、不重入、可停止）", () => {
     expect([...harness.timers.values()][0].delayMs).toBe(
       WEBCAL_REFRESH_INTERVAL_MS - 30 * 60 * 1000,
     );
+  });
+
+  it("刷新间隔设置改动后 reschedule 立即生效（SC-018，不重建调度器）", () => {
+    let intervalMs = WEBCAL_REFRESH_INTERVAL_MS;
+    const harness = createHarness(
+      [
+        makeWebcalSource({
+          webcal: {
+            url: "https://example.com/a.ics",
+            lastCheckedAt: "2026-10-01T11:00:00.000Z",
+          },
+        }),
+      ],
+      () => intervalMs,
+    );
+    harness.scheduler.start();
+    expect([...harness.timers.values()][0].delayMs).toBe(
+      WEBCAL_REFRESH_INTERVAL_MS - 60 * 60 * 1000,
+    );
+
+    // 用户把间隔改成 1 小时：下一次检查应在 12:00，也就是立即到期。
+    intervalMs = 60 * 60 * 1000;
+    harness.scheduler.reschedule();
+
+    expect([...harness.timers.values()][0].delayMs).toBe(0);
+    // 改回更长间隔同样按新值重算。
+    intervalMs = 24 * 60 * 60 * 1000;
+    harness.scheduler.reschedule();
+    expect([...harness.timers.values()][0].delayMs).toBe(23 * 60 * 60 * 1000);
   });
 });

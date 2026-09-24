@@ -25,7 +25,7 @@ const SRC_ROOT = path.resolve(
   "../..",
 );
 
-/** 非 UI 层：数据、解析、标准化、语义与 Provider 自身的实现目录。 */
+/** 非 UI 层：数据、解析、标准化、偏好规则、语义与 Provider 自身的实现目录。 */
 const NON_UI_DIRS = [
   "data",
   "format",
@@ -33,6 +33,10 @@ const NON_UI_DIRS = [
   "normalize",
   "providers",
   "semantic",
+  // settings/ 是偏好规则（取值域与读取边界），不是 UI 组件——组件在 layout/ 与
+  // calendar/ 下。把内置来源开关接到视图的 semantic/app-builtin-sources.ts 会
+  // import 它，因此这里按实际分层排除，而不是让守卫把领域规则当成 UI 扫。
+  "settings",
 ];
 
 function relPath(file: string): string {

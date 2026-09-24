@@ -35,11 +35,31 @@ import type { CalendarStore } from "./data/store/calendar-store";
 import type { StoreRecoveryReason } from "./data/store/calendar-store";
 import { reEnrichStore } from "./semantic/enrich";
 import { createAppSemanticStack } from "./semantic/app-registry";
+import { gateEventsForBuiltinSources } from "./semantic/app-builtin-sources";
 import { lunarLabelsOf } from "./semantic/app-lunar";
-import { chinaDayLabelsOf } from "./semantic/app-china-days";
-import { chinaSemanticLabelsOf } from "./semantic/app-china-festivals";
+import {
+  chinaDayLabelsOf,
+  type ChinaDayLabel,
+} from "./semantic/app-china-days";
+import {
+  chinaSemanticLabelsOf,
+  type ChinaDaySemanticLabel,
+} from "./semantic/app-china-festivals";
 import { semanticTypeDefaults } from "./semantic/metadata-resolver";
 import { reminderLabel } from "./format/reminder";
+import {
+  BUILTIN_SOURCES_SETTING_KEY,
+  isBuiltinSourceEnabled,
+  readHiddenBuiltinSourceIds,
+  toggleBuiltinSource,
+  type BuiltinSourceId,
+} from "./settings/builtin-sources";
+import {
+  DEFAULT_WEBCAL_INTERVAL_MINUTES,
+  WEBCAL_INTERVAL_SETTING_KEY,
+  normalizeWebcalIntervalMinutes,
+  webcalIntervalMs,
+} from "./settings/webcal-interval";
 import {
   FOLLOWED_TEAMS_SETTING_KEY,
   listFollowableTeams,
@@ -84,7 +104,12 @@ import {
 } from "./notifications/notification-status";
 import { AppShell } from "./layout/AppShell";
 import { InspectorPanel } from "./layout/InspectorPanel";
+import { SettingsView } from "./layout/SettingsView";
 import { Sidebar } from "./layout/Sidebar";
+import {
+  PREVIEW_IMPORT_HINT,
+  PREVIEW_SUBSCRIBE_HINT,
+} from "./layout/preview-mode";
 import { formatDateTime } from "./format/time";
 import {
   CLOSE_BEHAVIOR_SETTING_KEY,
@@ -98,7 +123,6 @@ import {
   THEME_SETTING_KEY,
   applyTheme,
   normalizeTheme,
-  toggleTheme,
   type Theme,
 } from "./theme/theme";
 
@@ -145,10 +169,15 @@ const REASON_LABELS: Record<StoreRecoveryReason, string> = {
   "future-version": "来自更新版本的应用",
 };
 
-const PREVIEW_MODE_HINT = "浏览器预览模式：订阅需要桌面环境";
-
 /** 托盘不可用时的降级说明：桌面壳会把“隐藏到托盘”变成直接退出。 */
 const TRAY_UNAVAILABLE_HINT = "系统托盘不可用：关闭窗口将直接退出应用";
+
+/**
+ * 关闭内置来源时的空载荷（SC-018）：与真实载荷同形，UI 不必判空——
+ * 月格与详情栏拿到的永远是一份 Map，只是里面没有条目。
+ */
+const EMPTY_CHINA_DAYS = new Map<string, ChinaDayLabel>();
+const EMPTY_CHINA_SEMANTICS = new Map<string, ChinaDaySemanticLabel>();
 
 /** 导入结果 → 用户可读状态；只报告数量、位置与结构原因，不外泄事件正文（app-spec §14）。 */
 function formatImportStatus(outcome: LocalIcsImportOutcome): string {
@@ -226,6 +255,10 @@ export default function App() {
   const [storeStatus, setStoreStatus] = useState("正在初始化本地数据层…");
   const storeRef = useRef<CalendarStore | null>(null);
   const [today] = useState(() => new Date());
+  /** 没有桌面壳（浏览器预览）：设置可改但写不进快照，提示必须说清楚。 */
+  const [previewMode, setPreviewMode] = useState(false);
+  /** 设置页是否打开（SC-018）：纯 UI 状态，不持久化——月历是主界面（P-05）。 */
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // 窗口行为（SC-002）：关闭窗口是隐藏到托盘还是退出。权威来源是快照设置，
   // 这里只是 UI 镜像；真正执行的是桌面壳。
@@ -241,6 +274,16 @@ export default function App() {
   const [events, setEvents] = useState<EnrichedEvent[]>([]);
   const [importStatus, setImportStatus] = useState<string | undefined>();
   const [importBusy, setImportBusy] = useState(false);
+
+  // 内置来源显示开关（SC-018）：存“被隐藏的 id”，缺省全开。
+  const [hiddenBuiltinSourceIds, setHiddenBuiltinSourceIds] = useState<
+    readonly BuiltinSourceId[]
+  >([]);
+  /** WebCal 常规刷新间隔（SC-018 / §12）：UI 状态 + 调度器读取的 ref。 */
+  const [webcalIntervalMinutes, setWebcalIntervalMinutes] = useState(
+    DEFAULT_WEBCAL_INTERVAL_MINUTES,
+  );
+  const webcalIntervalRef = useRef(DEFAULT_WEBCAL_INTERVAL_MINUTES);
 
   // 关注球队（SC-016 / SPORT-006）：设置里的稳定球队 id 列表。
   const [followedTeamIds, setFollowedTeamIds] = useState<readonly string[]>([]);
@@ -292,6 +335,17 @@ export default function App() {
     [view, todayKey],
   );
   /**
+   * 可见事件（SC-018）：再经内置来源开关过滤——「我的日历」关掉就没有用户
+   * 事件进入展示，「英超赛程」关掉则比赛回到普通事件（semantic/app-builtin-sources）。
+   * 三个消费者共用这一份：月格分桶、详情栏与提醒计划，因此界面上的说法与
+   * 真正会发生的事不会矛盾。
+   */
+  const visibleEvents = useMemo(
+    () => gateEventsForBuiltinSources(events, hiddenBuiltinSourceIds),
+    [events, hiddenBuiltinSourceIds],
+  );
+
+  /**
    * 可见 occurrence（SC-008）：按当前网格范围展开重复规则并完成时区
    * 规范化，再进入日期分桶。原始事件列表不由此改动。
    */
@@ -299,8 +353,8 @@ export default function App() {
     const first = grid.weeks[0][0].dateKey;
     const lastWeek = grid.weeks[grid.weeks.length - 1];
     const last = lastWeek[lastWeek.length - 1].dateKey;
-    return expandEventOccurrences(events, { from: first, to: last });
-  }, [events, grid]);
+    return expandEventOccurrences(visibleEvents, { from: first, to: last });
+  }, [visibleEvents, grid]);
   const eventsByDate = useMemo(
     () => bucketEventsByDateKey(visibleOccurrences),
     [visibleOccurrences],
@@ -334,14 +388,33 @@ export default function App() {
   );
 
   /**
-   * 提醒计划（SC-017 / NOTIFY-002–004）：与月格同源的事件集合，窗口是
+   * 内置来源开关的直接效果（SC-018）：关闭的来源取空载荷，月格与详情栏不必
+   * 知道开关存在。原始事件与日级数据仍按网格照常算出（不写回存储），
+   * 重新打开立即恢复显示。
+   */
+  const visibleChinaDayByDate = isBuiltinSourceEnabled(
+    hiddenBuiltinSourceIds,
+    "cn-holiday",
+  )
+    ? chinaDayByDate
+    : EMPTY_CHINA_DAYS;
+  const visibleChinaSemanticByDate = isBuiltinSourceEnabled(
+    hiddenBuiltinSourceIds,
+    "solar-terms",
+  )
+    ? chinaSemanticByDate
+    : EMPTY_CHINA_SEMANTICS;
+
+  /**
+   * 提醒计划（SC-017 / NOTIFY-002–004）：与月格同源的事件集合（含 SC-018
+   * 的内置来源开关结果——“英超赛程”关掉后比赛不再按比赛提醒），窗口是
    * “当前日期起 30 天”。计划只在调度需要时（启动、数据变化、跨天、到点）
    * 才算一次，不随渲染重算；窗口每次都读实时时钟，因此常驻数天的会话不会
    * 一直用启动那天的窗口。已处理的提醒（fired 日志）在这里就被排除，
    * 刷新 / 重启后不会重复弹同一条。
    */
   const reminderInputRef = useRef({
-    events,
+    events: visibleEvents,
     notificationsEnabled,
     matchReminder,
   });
@@ -364,9 +437,13 @@ export default function App() {
 
   /** 事件或设置变化 → 让调度器按最新输入重排（启动时的首次排程同此路径）。 */
   useEffect(() => {
-    reminderInputRef.current = { events, notificationsEnabled, matchReminder };
+    reminderInputRef.current = {
+      events: visibleEvents,
+      notificationsEnabled,
+      matchReminder,
+    };
     reminderSchedulerRef.current?.reschedule();
-  }, [events, notificationsEnabled, matchReminder]);
+  }, [visibleEvents, notificationsEnabled, matchReminder]);
 
   /**
    * 从本地数据层重建 UI 状态；只显示启用来源的事件（SRC-003）。
@@ -514,6 +591,7 @@ export default function App() {
       if (cancelled) return;
 
       if (!opened) {
+        setPreviewMode(true);
         setStoreStatus("浏览器预览模式：本地数据层仅桌面壳可用");
         // 没有桌面壳就没有系统通知：状态直接说明，而不是停在“正在读取”（§13）。
         setNotificationPermission("unsupported");
@@ -529,12 +607,20 @@ export default function App() {
       // 低频后台刷新（SC-007 / §12）：只在到达刷新时间时唤醒一次。
       // 调度器只读来源状态，所有写入仍由 refreshSubscription 负责；
       // 数据层恢复（隔离后从空快照启动）时同样装配，本次会话新加的订阅
-      // 也能进入调度。
+      // 也能进入调度。刷新间隔是用户设置（SC-018），调度器按 ref 读取，
+      // 因此改设置只需要 reschedule()。
+      const savedWebcalInterval = normalizeWebcalIntervalMinutes(
+        store.getSetting(WEBCAL_INTERVAL_SETTING_KEY),
+      );
+      setWebcalIntervalMinutes(savedWebcalInterval);
+      webcalIntervalRef.current = savedWebcalInterval;
+
       const scheduler = createWebcalScheduler({
         listSources: () => store.listSources(),
         refresh: async (sourceId) => {
           await refreshSubscription(store, sourceId);
         },
+        intervalMs: () => webcalIntervalMs(webcalIntervalRef.current),
         onError: (error, sourceId) => {
           // 错误正文可能来自网络栈并带上订阅地址，这里只留来源标识（§14）。
           console.warn(
@@ -563,6 +649,13 @@ export default function App() {
       // 关注球队（SC-016）：坏值在读取边界丢弃，不猜成某支球队。
       setFollowedTeamIds(
         readFollowedTeamIds(store.getSetting(FOLLOWED_TEAMS_SETTING_KEY)),
+      );
+
+      // 内置来源显示开关（SC-018）：只记被隐藏的 id，坏值丢弃即“显示”。
+      setHiddenBuiltinSourceIds(
+        readHiddenBuiltinSourceIds(
+          store.getSetting(BUILTIN_SOURCES_SETTING_KEY),
+        ),
       );
 
       // 通知（SC-017）：设置与去重日志都从快照恢复，坏值回落到默认。
@@ -669,7 +762,7 @@ export default function App() {
   async function handleAddSubscription(url: string): Promise<boolean> {
     const store = storeRef.current;
     if (!store) {
-      setSubscriptionStatus(PREVIEW_MODE_HINT);
+      setSubscriptionStatus(PREVIEW_SUBSCRIBE_HINT);
       return false;
     }
     setSubscribeBusy(true);
@@ -706,7 +799,7 @@ export default function App() {
   async function handleRefreshSubscription(sourceId: string) {
     const store = storeRef.current;
     if (!store) {
-      setSubscriptionStatus(PREVIEW_MODE_HINT);
+      setSubscriptionStatus(PREVIEW_SUBSCRIBE_HINT);
       return;
     }
     const source = store.getSource(sourceId);
@@ -728,22 +821,25 @@ export default function App() {
     if (!store) {
       return;
     }
+    const name = store.getSource(sourceId)?.name ?? "该来源";
     if (!store.setSourceEnabled(sourceId, enabled)) {
       return;
     }
     await store.save();
     refreshFromStore(store);
     schedulerRef.current?.reschedule();
-    setSubscriptionStatus(enabled ? "已启用该订阅" : "已停用该订阅");
+    setSubscriptionStatus(
+      enabled ? `已显示「${name}」` : `已隐藏「${name}」（事件保留）`,
+    );
   }
 
-  /** 删除订阅：连同其事件与增强结果一起删除（级联）。 */
-  async function handleRemoveSubscription(sourceId: string) {
+  /** 删除来源：连同其事件与增强结果一起删除（级联，本地导入与订阅同一条路径）。 */
+  async function handleRemoveSource(sourceId: string) {
     const store = storeRef.current;
     if (!store) {
       return;
     }
-    const name = store.getSource(sourceId)?.name ?? "订阅";
+    const name = store.getSource(sourceId)?.name ?? "来源";
     store.removeSource(sourceId);
     await store.save();
     refreshFromStore(store);
@@ -781,11 +877,44 @@ export default function App() {
     selectDate(shiftDateKey(selectedDateKey, days));
   }
 
-  async function handleToggleTheme() {
-    const next = toggleTheme(theme);
+  /**
+   * 主题（SC-018 搬进设置页）：选中即生效并落盘。
+   * 选中的就是当前值时不重复写快照（控件是二值选择，不是切换开关）。
+   */
+  async function handleChangeTheme(next: Theme) {
+    if (next === theme) {
+      return;
+    }
     setTheme(next);
     applyTheme(next);
     await persistSetting(THEME_SETTING_KEY, next);
+  }
+
+  /**
+   * 内置来源显示开关（SC-018）：状态立即生效（展示层按开关取载荷与事件），
+   * 再落盘。关闭不删数据——打开即恢复原样。
+   */
+  async function handleToggleBuiltinSource(
+    id: BuiltinSourceId,
+    enabled: boolean,
+  ) {
+    const next = toggleBuiltinSource(hiddenBuiltinSourceIds, id, enabled);
+    setHiddenBuiltinSourceIds(next);
+    await persistSetting(BUILTIN_SOURCES_SETTING_KEY, next);
+    // 英超开关会改变提醒计划的输入，立即按最新事件重排（§12 无轮询）。
+    reminderSchedulerRef.current?.reschedule();
+  }
+
+  /**
+   * WebCal 刷新间隔（SC-018 / §12）：写设置 + 让调度器按新间隔重排，
+   * 因此“即时生效”而不是等下一次启动。
+   */
+  async function handleChangeWebcalInterval(minutes: number) {
+    const next = normalizeWebcalIntervalMinutes(minutes);
+    setWebcalIntervalMinutes(next);
+    webcalIntervalRef.current = next;
+    await persistSetting(WEBCAL_INTERVAL_SETTING_KEY, next);
+    schedulerRef.current?.reschedule();
   }
 
   /**
@@ -840,7 +969,7 @@ export default function App() {
   async function handleImportIcs(file: File) {
     const store = storeRef.current;
     if (!store) {
-      setImportStatus("浏览器预览模式：导入需要桌面环境");
+      setImportStatus(PREVIEW_IMPORT_HINT);
       return;
     }
     setImportBusy(true);
@@ -863,12 +992,42 @@ export default function App() {
     }
   }
 
+  /**
+   * 通知设置与权限状态（SC-017）：设置页与调度链路共用同一份载荷，
+   * 界面上的说法与真正会发生的事不会矛盾。
+   */
+  const notificationProps = {
+    enabled: notificationsEnabled,
+    onToggleEnabled: handleToggleNotifications,
+    matchReminder,
+    onChangeMatchReminder: handleChangeMatchReminder,
+    ...(MATCH_REMINDER_DEFAULT_LABEL === undefined
+      ? {}
+      : { matchReminderDefaultLabel: MATCH_REMINDER_DEFAULT_LABEL }),
+    permission: notificationPermission,
+    status: describeNotificationStatus({
+      enabled: notificationsEnabled,
+      permission: notificationPermission,
+      pendingCount: reminderSummary.pending,
+      next: reminderSummary.next,
+      nowMs: Date.now(),
+      ...(notificationProblem === undefined
+        ? {}
+        : { problem: notificationProblem }),
+    }),
+    canRequestPermission: canRequestNotificationPermission(
+      notificationPermission,
+      notificationsEnabled,
+    ),
+    onRequestPermission: () => {
+      void requestNotificationPermission();
+    },
+  };
+
   return (
     <AppShell
       sidebar={
         <Sidebar
-          theme={theme}
-          onToggleTheme={handleToggleTheme}
           storeStatus={storeStatus}
           miniCalendar={
             <MiniMonth
@@ -885,43 +1044,16 @@ export default function App() {
           onAddSubscription={handleAddSubscription}
           onRefreshSubscription={handleRefreshSubscription}
           onToggleSource={handleToggleSource}
-          onRemoveSubscription={handleRemoveSubscription}
           subscribeBusy={subscribeBusy}
           refreshingSourceIds={refreshingSourceIds}
           subscriptionStatus={subscriptionStatus}
+          hiddenBuiltinSourceIds={hiddenBuiltinSourceIds}
+          onToggleBuiltinSource={handleToggleBuiltinSource}
           followableTeams={followableTeams}
           followedTeamIds={followedTeamIds}
           onToggleFollowedTeam={handleToggleFollowedTeam}
-          closeBehavior={closeBehavior}
-          onChangeCloseBehavior={handleChangeCloseBehavior}
-          closeBehaviorStatus={closeBehaviorStatus}
-          notifications={{
-            enabled: notificationsEnabled,
-            onToggleEnabled: handleToggleNotifications,
-            matchReminder,
-            onChangeMatchReminder: handleChangeMatchReminder,
-            ...(MATCH_REMINDER_DEFAULT_LABEL === undefined
-              ? {}
-              : { matchReminderDefaultLabel: MATCH_REMINDER_DEFAULT_LABEL }),
-            permission: notificationPermission,
-            status: describeNotificationStatus({
-              enabled: notificationsEnabled,
-              permission: notificationPermission,
-              pendingCount: reminderSummary.pending,
-              next: reminderSummary.next,
-              nowMs: Date.now(),
-              ...(notificationProblem === undefined
-                ? {}
-                : { problem: notificationProblem }),
-            }),
-            canRequestPermission: canRequestNotificationPermission(
-              notificationPermission,
-              notificationsEnabled,
-            ),
-            onRequestPermission: () => {
-              void requestNotificationPermission();
-            },
-          }}
+          settingsOpen={settingsOpen}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
       }
       inspector={
@@ -929,25 +1061,54 @@ export default function App() {
           dateKey={selectedDateKey}
           events={selectedEvents}
           lunar={lunarByDate.get(selectedDateKey)}
-          chinaDay={chinaDayByDate.get(selectedDateKey)}
-          chinaSemantic={chinaSemanticByDate.get(selectedDateKey)}
+          chinaDay={visibleChinaDayByDate.get(selectedDateKey)}
+          chinaSemantic={visibleChinaSemanticByDate.get(selectedDateKey)}
           followedTeamIds={followedTeamIds}
           matchReminder={matchReminder}
         />
       }
     >
-      <MonthView
-        grid={grid}
-        selectedDateKey={selectedDateKey}
-        onSelectDate={selectDate}
-        onStepMonth={stepMonth}
-        onGoToToday={goToToday}
-        onStepSelection={stepSelection}
-        eventsByDate={eventsByDate}
-        lunarByDate={lunarByDate}
-        chinaDayByDate={chinaDayByDate}
-        chinaSemanticByDate={chinaSemanticByDate}
-      />
+      {settingsOpen ? (
+        <SettingsView
+          onClose={() => setSettingsOpen(false)}
+          theme={theme}
+          onChangeTheme={handleChangeTheme}
+          dataSources={{
+            hiddenBuiltinSourceIds,
+            onToggleBuiltinSource: handleToggleBuiltinSource,
+            sources,
+            refreshingSourceIds,
+            onRefreshSource: handleRefreshSubscription,
+            onRemoveSource: handleRemoveSource,
+            webcalIntervalMinutes,
+            onChangeWebcalInterval: handleChangeWebcalInterval,
+            ...(subscriptionStatus === undefined
+              ? {}
+              : { sourceStatus: subscriptionStatus }),
+          }}
+          previewMode={previewMode}
+          followableTeams={followableTeams}
+          followedTeamIds={followedTeamIds}
+          onToggleFollowedTeam={handleToggleFollowedTeam}
+          notifications={notificationProps}
+          closeBehavior={closeBehavior}
+          onChangeCloseBehavior={handleChangeCloseBehavior}
+          closeBehaviorStatus={closeBehaviorStatus}
+        />
+      ) : (
+        <MonthView
+          grid={grid}
+          selectedDateKey={selectedDateKey}
+          onSelectDate={selectDate}
+          onStepMonth={stepMonth}
+          onGoToToday={goToToday}
+          onStepSelection={stepSelection}
+          eventsByDate={eventsByDate}
+          lunarByDate={lunarByDate}
+          chinaDayByDate={visibleChinaDayByDate}
+          chinaSemanticByDate={visibleChinaSemanticByDate}
+        />
+      )}
     </AppShell>
   );
 }

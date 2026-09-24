@@ -1,10 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import {
-  THEME_SETTING_KEY,
-  applyTheme,
-  normalizeTheme,
-  toggleTheme,
-} from "./theme";
+import { THEME_SETTING_KEY, applyTheme, normalizeTheme } from "./theme";
 
 /**
  * 当前 Node 运行时的 localStorage 全局指向无有效文件的
@@ -48,13 +43,6 @@ describe("normalizeTheme", () => {
     expect(normalizeTheme(null)).toBe("light");
     expect(normalizeTheme("blue")).toBe("light");
     expect(normalizeTheme(1)).toBe("light");
-  });
-});
-
-describe("toggleTheme", () => {
-  it("在明暗之间切换", () => {
-    expect(toggleTheme("light")).toBe("dark");
-    expect(toggleTheme("dark")).toBe("light");
   });
 });
 
