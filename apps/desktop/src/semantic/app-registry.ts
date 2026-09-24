@@ -11,20 +11,21 @@ import {
 } from "./metadata-resolver";
 import type { SemanticStack } from "./enrich";
 import { footballCatalog } from "../providers/football/football-catalog";
+import { createFootballMatcher } from "../providers/football/football-matcher";
 import { createFootballMetadataResolver } from "../providers/football/football-metadata-resolver";
 
 /**
  * 应用级静态注册（SC-009 / SEM-001）。
  *
- * Matcher 集合在装配期固定、顺序由引擎确定，运行期不增删。
- * 具体领域 Matcher 由后续 Ticket 加入：
- * - 法定节假日 / 补班：SC-011
- * - 传统节日与二十四节气：SC-012
- * - 英超比赛标题识别：SC-015
- * 集合为空时所有事件按普通事件显示（SEM-003），链路照常执行。
+ * Matcher 集合在装配期固定、顺序由引擎确定（priority 升序、同级按 id 字典序），
+ * 运行期不增删。优先级区间约定见 football-matcher.ts：按日期判定的语义
+ * （法定节假日 SC-011、传统节日与节气 SC-012）用 0–99，标题型语义用 100 起。
+ * 尚未注册的领域让事件按普通事件显示（SEM-003），链路照常执行。
  */
 
-const APP_MATCHERS: readonly EventMatcher[] = [];
+const APP_MATCHERS: readonly EventMatcher[] = [
+  createFootballMatcher(footballCatalog),
+];
 
 /**
  * 元数据解析链：自定义 Provider（SC-014+）注册在内置默认值之前。

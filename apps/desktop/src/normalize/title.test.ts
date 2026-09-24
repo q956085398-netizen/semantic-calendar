@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeEventTitle } from "./title";
+import { normalizeEventTitle, titleKey } from "./title";
 
 /**
  * SC-008 / app-spec §7.3：标题规范化是 Matcher 的输入，
@@ -41,5 +41,16 @@ describe("normalizeEventTitle", () => {
   it("空标题与纯空白标题规范化为空串", () => {
     expect(normalizeEventTitle("")).toBe("");
     expect(normalizeEventTitle("  \u3000 ")).toBe("");
+  });
+});
+
+describe("titleKey", () => {
+  it("规范化后压小写：写法差异（大小写 / 全角 / 多余空格）归一到同一个键", () => {
+    expect(titleKey("MAN CITY")).toBe("man city");
+    expect(titleKey("  Ａｒｓｅｎａｌ  ")).toBe("arsenal");
+    expect(titleKey("Manchester  City")).toBe("manchester city");
+    // 中文不受小写影响，原样保留。
+    expect(titleKey("阿森纳")).toBe("阿森纳");
+    expect(titleKey("   ")).toBe("");
   });
 });

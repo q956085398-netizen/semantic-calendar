@@ -1,4 +1,4 @@
-import { normalizeEventTitle } from "../../normalize/title";
+import { titleKey } from "../../normalize/title";
 import {
   COMPETITIONS,
   SEASONS,
@@ -30,17 +30,39 @@ export interface FootballCatalog {
   latestSeason(): SeasonRoster | undefined;
   /** 某赛季参赛球队，按名单顺序解析为球队对象；未登记赛季返回空数组。 */
   rosterOf(seasonId: string): TeamMetadata[];
+  /**
+   * 该联赛最新一季同时收录了这些球队的名单；没有这样的名单返回 undefined。
+   * Matcher（SC-015）用它把“两队同属这个联赛”变成可查的事实。
+   */
+  newestRosterContaining(
+    competitionId: string,
+    teamIds: readonly string[],
+  ): SeasonRoster | undefined;
+  /**
+   * 识别词表：指向球队的写法快照（别名 + 中英文规范名，已规范化）。
+   * Matcher（SC-015）拿它在标题里扫描球队提及；与 teamByAlias 同源，
+   * 这里给出的是完整列表，teamByAlias 只回答“某个写法属于谁”。
+   */
+  readonly teamAliasEntries: readonly TeamAliasEntry[];
+  /** 识别词表：指向联赛的写法快照（别名 + 短标签 + 中英文名）。 */
+  readonly competitionAliasEntries: readonly CompetitionAliasEntry[];
+}
+
+/** 词表条目：写法 → 身份。text 已规范化（小写、半角、空白折叠）。 */
+export interface TeamAliasEntry {
+  text: string;
+  teamId: string;
+}
+
+export interface CompetitionAliasEntry {
+  text: string;
+  competitionId: string;
 }
 
 export interface FootballCatalogData {
   competitions: readonly CompetitionMetadata[];
   teams: readonly TeamMetadata[];
   seasons: readonly SeasonRoster[];
-}
-
-/** 别名索引键：与 Matcher 使用同一套标题规范化，再压成小写。 */
-function aliasKey(text: string): string {
-  return normalizeEventTitle(text).toLowerCase();
 }
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
@@ -57,7 +79,22 @@ export function createFootballCatalog(
     "联赛 id",
   );
   const seasonById = indexBy(seasons, (season) => season.id, "赛季 id");
-  const aliasIndex = buildAliasIndex(teams);
+  const teamAliases = buildAliasIndex(teams, {
+    idOf: (team) => team.id,
+    canonicalOf: (team) => [team.name, team.nameZh],
+    aliasesOf: (team) => team.aliases,
+    label: "球队",
+  });
+  const competitionAliases = buildAliasIndex(competitions, {
+    idOf: (competition) => competition.id,
+    canonicalOf: (competition) => [
+      competition.label,
+      competition.name,
+      competition.nameEn,
+    ],
+    aliasesOf: (competition) => competition.aliases,
+    label: "联赛",
+  });
   const codeOwners = new Map<string, string>();
   for (const team of teams) {
     const owner = codeOwners.get(team.code);
@@ -130,20 +167,40 @@ export function createFootballCatalog(
     seasons,
     teamById: (id) => teamById.get(id),
     teamByAlias: (text) => {
-      const key = aliasKey(text);
-      return key === "" ? undefined : aliasIndex.get(key);
+      const key = titleKey(text);
+      return key === "" ? undefined : teamAliases.byKey.get(key);
     },
     competitionById: (id) => competitionById.get(id),
-    // 赛季 ID 以年份开头，字符串比较即可选出最新条目，
-    // 不依赖数据文件里的书写顺序。
-    latestSeason: () =>
-      seasons.reduce<SeasonRoster | undefined>(
-        (latest, season) =>
-          latest === undefined || season.id > latest.id ? season : latest,
-        undefined,
-      ),
+    teamAliasEntries: teamAliases.entries.map((entry) => ({
+      text: entry.text,
+      teamId: entry.owner.id,
+    })),
+    competitionAliasEntries: competitionAliases.entries.map((entry) => ({
+      text: entry.text,
+      competitionId: entry.owner.id,
+    })),
+    latestSeason: () => newestSeason(seasons),
     rosterOf,
+    newestRosterContaining: (competitionId, teamIds) =>
+      newestSeason(
+        seasons.filter(
+          (season) =>
+            season.competitionId === competitionId &&
+            teamIds.every((teamId) => season.teamIds.includes(teamId)),
+        ),
+      ),
   };
+}
+
+/** 赛季 ID 以年份开头，字符串比较即可选出最新条目，不依赖数据文件里的书写顺序。 */
+function newestSeason(
+  seasons: readonly SeasonRoster[],
+): SeasonRoster | undefined {
+  return seasons.reduce<SeasonRoster | undefined>(
+    (latest, season) =>
+      latest === undefined || season.id > latest.id ? season : latest,
+    undefined,
+  );
 }
 
 function indexBy<T>(
@@ -162,48 +219,72 @@ function indexBy<T>(
   return index;
 }
 
+interface AliasIndex<T> {
+  byKey: Map<string, T>;
+  entries: readonly { text: string; owner: T }[];
+}
+
 /**
- * 别名索引：跨球队唯一即“可确定归属”。
+ * 别名索引：跨条目唯一即“可确定归属”。
  *
  * 别名必须以规范化形态书写（小写、半角、无多余空格），装配期直接校验；
- * 中英文规范名由 name / nameZh 自动进入索引，不必重复列出，
+ * 规范名（球队中英文名、联赛短标签与中英文名）自动进入索引，不必重复列出，
  * 且规范名本身不要求小写（它是展示名）。
+ *
+ * 索引与条目列表同源返回：Matcher（SC-015）需要拿词表在标题里扫描写法，
+ * 若让它自己从数据推导，就会多出一套“什么算别名”的规则，迟早与这里漂移。
  */
-function buildAliasIndex(
-  teams: readonly TeamMetadata[],
-): Map<string, TeamMetadata> {
-  const index = new Map<string, TeamMetadata>();
-  for (const team of teams) {
+function buildAliasIndex<T>(
+  items: readonly T[],
+  options: {
+    idOf: (item: T) => string;
+    canonicalOf: (item: T) => readonly string[];
+    aliasesOf: (item: T) => readonly string[];
+    /** 错误文案里的条目类型（“球队” / “联赛”）。 */
+    label: string;
+  },
+): AliasIndex<T> {
+  const { idOf, canonicalOf, aliasesOf, label } = options;
+  const byKey = new Map<string, T>();
+  const entries: { text: string; owner: T }[] = [];
+
+  for (const item of items) {
+    const id = idOf(item);
     const ownKeys = new Set<string>();
-    for (const alias of team.aliases) {
-      const key = aliasKey(alias);
+    for (const alias of aliasesOf(item)) {
+      const key = titleKey(alias);
       if (key === "") {
-        throw new Error(`球队 ${team.id} 存在空别名`);
+        throw new Error(`${label} ${id} 存在空别名`);
       }
       if (key !== alias) {
         throw new Error(
-          `球队 ${team.id} 的别名未规范化：${alias}（应写作 ${key}）`,
+          `${label} ${id} 的别名未规范化：${alias}（应写作 ${key}）`,
         );
       }
       if (ownKeys.has(key)) {
-        throw new Error(`球队 ${team.id} 别名重复：${alias}`);
+        throw new Error(`${label} ${id} 别名重复：${alias}`);
       }
       ownKeys.add(key);
     }
-    ownKeys.add(aliasKey(team.name));
-    ownKeys.add(aliasKey(team.nameZh));
+    for (const canonical of canonicalOf(item)) {
+      const key = titleKey(canonical);
+      if (key !== "") {
+        ownKeys.add(key);
+      }
+    }
 
     for (const key of ownKeys) {
-      const owner = index.get(key);
-      if (owner !== undefined && owner.id !== team.id) {
+      const owner = byKey.get(key);
+      if (owner !== undefined && idOf(owner) !== id) {
         throw new Error(
-          `别名冲突：${key}（${owner.id} 与 ${team.id}）——有歧义的简称不要收录`,
+          `别名冲突：${key}（${idOf(owner)} 与 ${id}）——有歧义的简称不要收录`,
         );
       }
-      index.set(key, team);
+      byKey.set(key, item);
+      entries.push({ text: key, owner: item });
     }
   }
-  return index;
+  return { byKey, entries };
 }
 
 /** 应用级默认目录：数据来自 teams.ts / competitions.ts。 */

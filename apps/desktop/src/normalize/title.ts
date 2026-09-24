@@ -15,3 +15,13 @@ export function normalizeEventTitle(title: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/**
+ * 标题比较键：规范化后再压小写，作为“同一个写法”的判定口径。
+ *
+ * 词表（FootballCatalog 的别名索引）与 Matcher（SC-015）都用它，
+ * 避免“什么算同一个写法”出现两套规则而悄悄漂移。
+ */
+export function titleKey(title: string): string {
+  return normalizeEventTitle(title).toLowerCase();
+}

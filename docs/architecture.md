@@ -128,6 +128,8 @@ Matcher 输出语义，不直接决定 UI 长什么样。
 }
 ```
 
+> 当前实现（SC-009 / SC-015）：领域 Matcher 放在 `apps/desktop/src/providers/football/`，与球队 / 联赛数据同目录，而不是本节建议的 `matchers/football/`——识别所需的词表（别名、规范名、赛季名单）就是 Provider 的数据，拆成两个目录会让“改数据”和“改识别”分家。Matcher 只输出语义与 `entities` 顺序（第 0 个为主队，即上文示例里的 `entities` 顺序含义），不接触展示；优先级约定为 0–99 给按日期判定的语义、100 起给按标题判定的语义。
+
 ---
 
 ## 5. Metadata Resolver

@@ -391,7 +391,7 @@ npm run tauri -- build
 - Matcher Engine `semantic/matcher-engine.ts`：`EventMatcher`（id / priority / match）静态注册，执行顺序完全确定（priority 升序、同级按 id 字典序，SEM-001）；`MatchResult` 含 semantic / matcherId / confidence / reason（SEM-002），matcherId 由引擎盖戳、实现方无法冒名；单个 Matcher 抛错只降级自身，事件继续后续判定，绝不消失（app-spec §6）；
 - Metadata Resolver `semantic/metadata-resolver.ts`：组合器按注册顺序取第一个非 null，可整体替换（换图标包 / 主题 / 语言不动识别逻辑）；内置类型级默认值给出语义色 token、中文短标签与默认提醒策略（SC-017 消费）；`displayMetadataOf` 是 UI 读取边界，对磁盘 JSON 防御性收窄；
 - 增强管线 `semantic/enrich.ts`：`reEnrichStore` 是唯一重建入口——清空增强分区后用当前 Matcher 集合重跑（SEM-004：Matcher 更新后语义随之重算，无需重新导入源数据）；未命中不写记录、读取侧自动按普通事件显示（SEM-003）；只写 enrichments 分区，原始事件分区分毫不动；
-- 应用接线 `semantic/app-registry.ts` + `App.tsx`：启动与每次导入后执行匹配；Matcher / Resolver 抛错只降级自身并留一条不含事件正文的控制台告警（app-spec §14），事件不会消失；启动重建是同步 O(事件数 × Matcher 数) 单趟扫描（无后台轮询），耗时基线测量由 SC-020 提供；v0.1 静态注册表尚无领域 Matcher（法定节假日 SC-011、传统节日与节气 SC-012、英超 SC-015 依次加入），链路已真实运行，全部事件按普通事件显示；
+- 应用接线 `semantic/app-registry.ts` + `App.tsx`：启动与每次导入后执行匹配；Matcher / Resolver 抛错只降级自身并留一条不含事件正文的控制台告警（app-spec §14），事件不会消失；启动重建是同步 O(事件数 × Matcher 数) 单趟扫描（无后台轮询），耗时基线测量由 SC-020 提供；静态注册表当前含英超比赛标题 Matcher（SC-015），法定节假日 SC-011、传统节日与节气 SC-012 依次加入，未注册的语义按普通事件显示（SEM-003）；
 - UI 通用增强显示：月格摘要与 Inspector 事件卡消费 `--event-accent`（语义色左缘条）与语义短标签，值全部来自 Metadata Resolver，UI 组件不含任何球队 / 节日标题判断（验收：UI 不包含领域判断）。
 
 WebCal / ICS 订阅（SC-007）位于 `apps/desktop/src/data/webcal/` 与 `apps/desktop/src/data/net/`，把一次性导入扩展为可长期使用的网络来源（SRC-002 / SRC-003 / SRC-004）：
@@ -412,7 +412,7 @@ v0.1 已知限制：同一文件改名后再次导入会视为新来源（新增
 
 - 球队字典 `teams.ts`：20 支球队的稳定 ID（`arsenal` / `manchester-city`…）、中英文名、常见别名、3 字母代码、近似球队色与 `crestRef` 逻辑引用；有歧义的简称（裸 `city` / `united` 之类）刻意不收录——宁可不识别，也不误识别（P-03）；
 - 联赛与赛季 `competitions.ts`：联赛 ID / 中文短标签（“英超”）/ 视觉基线色 / Logo 逻辑引用，以及赛季参赛名单（`SeasonRoster`）。名单是独立数据条目，新赛季只需追加一条，Matcher（SC-015）、Resolver 与 UI 都不用改；
-- 目录装配 `football-catalog.ts`：装配期即校验坏数据——球队 id / 代码重复、别名跨队冲突或未规范化、赛季引用未知球队、颜色非法，都会在启动装配阶段直接抛错，而不是让 UI 在运行期渲染出半支球队。查询接口 `teamById` / `teamByAlias` / `competitionById` / `rosterOf` / `latestSeason`；别名匹配复用 SC-008 的标题规范化再压小写，所以 `MAN CITY`、`Ａｒｓｅｎａｌ`、`阿森纳` 都能命中；
+- 目录装配 `football-catalog.ts`：装配期即校验坏数据——球队 id / 代码重复、别名跨队冲突或未规范化、赛季引用未知球队、颜色非法，都会在启动装配阶段直接抛错，而不是让 UI 在运行期渲染出半支球队。查询接口 `teamById` / `teamByAlias` / `competitionById` / `rosterOf` / `latestSeason` / `newestRosterContaining`（两队同属某季名单的查询，SC-015 用），以及识别词表 `teamAliasEntries` / `competitionAliasEntries`（别名 + 规范名，SC-015 的 Matcher 扫描标题用，与 `teamByAlias` 同源）；别名匹配复用 SC-008 的标题比较键（`titleKey`），所以 `MAN CITY`、`Ａｒｓｅｎａｌ`、`阿森纳` 都能命中；
 - 队徽与联赛 Logo `crests.ts`：仓库不携带任何图片二进制（开发原则 §10 版权边界），元数据只保存逻辑引用；`resolveTeamCrest` / `resolveCompetitionLogo` 在资源包缺失、未收录该引用、甚至资源包自身抛错时都确定性降级为 fallback（球队 3 字母代码 / 联赛短标签 + 主题色），因此 Logo 缺失不会破坏 UI；
 - Metadata Resolver `football-metadata-resolver.ts`：消费 `sport.fixture` 语义（`subtype` 为联赛 ID，`entities` 中 `type === "team"` 为参赛球队），产出联赛短标签与语义色、Logo 引用与双方展示载荷 `fixture`（中英文名、代码、队色、队徽引用；数组顺序即主客队顺序，由 SC-015 决定）。已注册进应用解析链并排在内置默认值之前，因此自带类型级默认值（语义色 + 赛前 30 分钟提醒），联赛自己的色值与短标签覆盖默认值——色值只有 `competitions.ts` 一处。联赛未登记、或可解析球队不足两支时返回 null，按普通增强事件显示（SEM-003）——“队标 VS 队标”少一侧不成立，个别球队缺元数据只跳过该队；
 - 读取边界 `displayMetadataOf` 同步收窄嵌套的 `fixture` 载荷：磁盘 JSON 被改写时逐字段校验、畸形字段丢弃，两侧凑不齐时整块丢弃，UI 拿不到半张卡片；
@@ -420,4 +420,15 @@ v0.1 已知限制：同一文件改名后再次导入会视为新来源（新增
 
 SC-014 的数据边界：赛季名单是数据维护动作——当前登记的是 2025/26 已确认名单，`latestSeason()` 表示“已登记名单里最新的一季”，不等于“今天正在进行的一季”，2026/27 名单确认后追加条目即可；球队色是用于低透明度背景的近似值；队徽与联赛 Logo 资源不随仓库分发（版权），默认全部走 fallback，资源包接入与许可审查由 SC-022 处理。
 
-SC-014 之后仍未接线：比赛标题 Matcher（SC-015，本轮用测试 Matcher 驱动过真实链路）、比赛月格与 Matchday Inspector（SC-016）、关注球队与设置（SC-016 / SC-018）。
+英超比赛标题 Matcher（SC-015）位于 `apps/desktop/src/providers/football/football-matcher.ts`，把标题文本变成 `sport.fixture` 语义（SPORT-002 / SPORT-003）：
+
+- 词表来自 SC-014 目录（`teamAliasEntries` / `competitionAliasEntries`：别名 + 规范名，装配期已校验唯一与规范化），Matcher 里不硬编码任何球队名；扫描是单趟非重叠、长写法优先（`Tottenham Hotspur vs Arsenal` 不会被 `tottenham` 抢先而数成三支球队），拉丁写法要求词边界（`Arsenals` / `xArsenal` 不算命中），中英混排（`Arsenal对曼城`）不受边界规则影响；标题 → 比较键的规则与词表同源（`normalize/title.ts` 的 `titleKey`）；
+- 判定链：恰好两支可确定归属的球队 → 两队之间是已知对阵分隔符（`vs` / `vs.` / `v` / `v.` / `versus` / `-` / `–` / `—` / `@` / `对`）→ 标题除“两队 + 分隔符 + 联赛名 + 装饰”外没有别的单词 → 联赛可确定（标题写明已登记联赛，或两队同属某个已登记赛季名单，查询走目录的 `newestRosterContaining`）。任一步不成立就返回 null，事件按普通事件显示（SEM-003）；
+- 不误伤（SPORT-002 验收）：第三条规定“两侧必须是球队名本身”。只靠“两个词表里的球队 + 分隔符”会把一次展览（`Kensington Palace - Chelsea Flower Show`）或一趟火车（`Brighton - Leeds train`）判成比赛——它们的两侧是包含球队名的短语。允许的装饰只有 `标签: ` 前缀（`Premier League: ` / `Matchday 12: ` / `英超：`）与联赛名本身；括号不构成豁免（括号里的词同样要能被解释），代价是标题带自由文本时会漏判（`… - Matchday 12`、`(Emirates Stadium)`）——刻意取舍，P-03。多于两支球队、同一支球队出现两次、比分、没有分隔符、对手不在字典里（`Arsenal vs Barcelona`）同样不增强；
+- 主客队（SPORT-003）：`A @ B` 表示 A 客场作战（B 为主队），`A vs B` / `A - B` 按赛程列表惯例左侧为主队；顺序落在 `entities` 上（第 0 个主队），即 SC-014 Resolver 渲染 `fixture.teams` 的顺序；
+- 可解释性：`reason` 写清依据（如「vs」左侧为主队；按 2025/26 名单推断联赛，引号里是标题里实际出现的分隔符），`confidence` 取两项证据里较弱的一项——联赛明示 1 / 名单推断 0.8，方向明示 `@` 1 / 赛程惯例 0.9，供 SC-019 做可解释状态；
+- 接线：`semantic/app-registry.ts` 静态注册（priority 100，约定 0–99 留给按日期判定的语义），启动与每次导入后随 `reEnrichStore` 重跑；`semantic/app-registry.test.ts` 断言应用真正装配出来的那一套（Matcher 掉出注册表时不会静默退回普通事件），`ui-boundary.test.ts` 同时保证识别逻辑不进 UI。
+
+SC-015 的边界：v0.1 只登记英超，因此“两队都在英超名单内”即认定为英超比赛——两支英超球队的杯赛（如足总杯）在 v0.1 也会标为英超；多联赛支持是 SPORT-001 的扩展点（登记新联赛与名单后判定链自动适用，标题写明联赛名时优先采信标题）。3 字母代码（`ARS` / `MCI`）刻意不进词表：`EVE` / `SUN` / `NEW` 这类代码在普通标题里会误命中（P-03）。
+
+SC-015 之后仍未接线：比赛月格与 Matchday Inspector（SC-016）、关注球队与设置（SC-016 / SC-018）。

@@ -103,6 +103,70 @@ describe("英超元数据目录：查询（SC-014 / SPORT-001）", () => {
   });
 });
 
+describe("英超元数据目录：识别词表（SC-015 扫描标题用）", () => {
+  it("球队词表包含规范名与别名，全部是已规范化的写法", () => {
+    const entries = footballCatalog.teamAliasEntries;
+    expect(entries).toContainEqual({
+      text: "man city",
+      teamId: "manchester-city",
+    });
+    expect(entries).toContainEqual({
+      text: "manchester city",
+      teamId: "manchester-city",
+    });
+    expect(entries).toContainEqual({ text: "阿森纳", teamId: "arsenal" });
+    // 规范名（中英文）自动进入词表，不必重复写进 aliases。
+    expect(entries).toContainEqual({
+      text: "tottenham hotspur",
+      teamId: "tottenham-hotspur",
+    });
+    expect(entries).toContainEqual({
+      text: "热刺",
+      teamId: "tottenham-hotspur",
+    });
+    // 词表与 teamByAlias 同源：任何一条写法都能查回球队。
+    for (const entry of entries) {
+      expect(footballCatalog.teamByAlias(entry.text)?.id).toBe(entry.teamId);
+    }
+  });
+
+  it("联赛词表包含短标签、中英文名与别名", () => {
+    const entries = footballCatalog.competitionAliasEntries;
+    expect(entries).toContainEqual({
+      text: "英超",
+      competitionId: "premier-league",
+    });
+    expect(entries).toContainEqual({
+      text: "premier league",
+      competitionId: "premier-league",
+    });
+    expect(entries).toContainEqual({
+      text: "epl",
+      competitionId: "premier-league",
+    });
+  });
+
+  it("联赛别名按同一套装配期规则校验（未规范化 / 跨联赛冲突被拒绝）", () => {
+    expect(() =>
+      createFootballCatalog(
+        dataWith({
+          competitions: [{ ...COMPETITIONS[0], aliases: ["Premier League"] }],
+        }),
+      ),
+    ).toThrow(/联赛 premier-league 的别名未规范化/);
+    expect(() =>
+      createFootballCatalog(
+        dataWith({
+          competitions: [
+            { ...COMPETITIONS[0], id: "league-a", aliases: ["shared cup"] },
+            { ...COMPETITIONS[0], id: "league-b", aliases: ["shared cup"] },
+          ],
+        }),
+      ),
+    ).toThrow(/别名冲突：shared cup/);
+  });
+});
+
 describe("英超元数据目录：赛季名单", () => {
   it("rosterOf 按名单顺序解析球队对象", () => {
     const roster = footballCatalog.rosterOf("2025-26");
@@ -131,6 +195,48 @@ describe("英超元数据目录：赛季名单", () => {
     ]);
     // 旧赛季仍可查询，历史名单不被覆盖。
     expect(catalog.rosterOf("2025-26")).toHaveLength(20);
+  });
+
+  it("newestRosterContaining：两队同属某季才返回名单，供 SC-015 认定联赛", () => {
+    expect(
+      footballCatalog.newestRosterContaining("premier-league", [
+        "arsenal",
+        "manchester-city",
+      ])?.id,
+    ).toBe("2025-26");
+    // 只认得一侧、或联赛未登记：拿不到证据，返回 undefined（不猜）。
+    expect(
+      footballCatalog.newestRosterContaining("premier-league", [
+        "arsenal",
+        "ghost-fc",
+      ]),
+    ).toBeUndefined();
+    expect(
+      footballCatalog.newestRosterContaining("champions-league", [
+        "arsenal",
+        "manchester-city",
+      ]),
+    ).toBeUndefined();
+    // 多个赛季都收录时取最新一季（不依赖书写顺序）。
+    const catalog = createFootballCatalog(
+      dataWith({
+        seasons: [
+          {
+            id: "2024-25",
+            competitionId: "premier-league",
+            label: "2024/25",
+            teamIds: ["arsenal", "manchester-city"],
+          },
+          ...SEASONS,
+        ],
+      }),
+    );
+    expect(
+      catalog.newestRosterContaining("premier-league", [
+        "arsenal",
+        "manchester-city",
+      ])?.id,
+    ).toBe("2025-26");
   });
 
   it("latestSeason 不依赖数据文件书写顺序", () => {

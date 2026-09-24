@@ -23,6 +23,11 @@ export interface CompetitionMetadata {
   /** 英文名。 */
   nameEn: string;
   /**
+   * 别名（常见缩写等），书写规则与球队别名一致：必须已规范化为小写。
+   * 短标签与中英文名由目录自动进入词表，不必在这里重复。
+   */
+  aliases: readonly string[];
+  /**
    * 语义色 token：Resolver 输出的 accent 就取自这里（默认值是通用
    * “体育赛事”色，联赛可以有自己的强调色），由主题层最终解释。
    */
@@ -49,6 +54,8 @@ export const COMPETITIONS: readonly CompetitionMetadata[] = [
     label: "英超",
     name: "英格兰足球超级联赛",
     nameEn: "Premier League",
+    // 只收无歧义的写法：裸 "pl" 之类会在普通标题里误命中，不收录（P-03）。
+    aliases: ["english premier league", "epl"],
     accent: "var(--semantic-sport)",
     colors: { primary: "#37003C", secondary: "#00FF87" },
     logoRef: "logo.competition.premier-league",

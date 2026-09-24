@@ -8,10 +8,7 @@ import { importLocalIcs } from "../../data/import/import-local-ics";
 import { CalendarStore } from "../../data/store/calendar-store";
 import { NodeFileIO } from "../../data/store/node-file-io";
 import { reEnrichStore } from "../../semantic/enrich";
-import {
-  createMatcherEngine,
-  type EventMatcher,
-} from "../../semantic/matcher-engine";
+import { createMatcherEngine } from "../../semantic/matcher-engine";
 import {
   createBuiltinTypeMetadataResolver,
   createMetadataResolver,
@@ -20,6 +17,7 @@ import {
 import { resolveTeamCrest } from "./crests";
 import { COMPETITIONS, SEASONS } from "./competitions";
 import { createFootballCatalog, footballCatalog } from "./football-catalog";
+import { createFootballMatcher } from "./football-matcher";
 import { createFootballMetadataResolver } from "./football-metadata-resolver";
 import { TEAMS } from "./teams";
 
@@ -338,31 +336,13 @@ describe("集成：ICS 导入 → Matcher 识别 → 元数据解析 → 队徽 
       ].join("\r\n"),
     });
 
-    // SC-015 尚未实现：这里用同一 shape 的测试 Matcher 驱动真实管线，
-    // 证明元数据层在真实数据上可用（球队 ID 与别名查询都来自字典）。
-    const matcher: EventMatcher = {
-      id: "football-test-matcher",
-      priority: 10,
-      match: (event) => {
-        const [home, away] = event.normalizedTitle.split(" vs ");
-        const homeTeam = footballCatalog.teamByAlias(home ?? "");
-        const awayTeam = footballCatalog.teamByAlias(away ?? "");
-        if (!homeTeam || !awayTeam) {
-          return null;
-        }
-        return {
-          type: "sport.fixture",
-          subtype: "premier-league",
-          entities: [
-            { type: "team", id: homeTeam.id },
-            { type: "team", id: awayTeam.id },
-          ],
-        };
-      },
-    };
+    // SC-015 的 Matcher 驱动真实管线：标题识别 → 语义 → 元数据。
+    const engine = createMatcherEngine([
+      createFootballMatcher(footballCatalog),
+    ]);
 
     reEnrichStore(store, {
-      engine: createMatcherEngine([matcher]),
+      engine,
       resolver: createMetadataResolver([
         createFootballMetadataResolver(footballCatalog),
         createBuiltinTypeMetadataResolver(),
