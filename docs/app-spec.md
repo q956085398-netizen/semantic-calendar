@@ -221,7 +221,7 @@ v0.1：
 - 节气；
 - 足球比赛。
 
-> 当前实现（SC-009 / SC-011）：引擎的输入是事件（`NormalizedEvent`），因此只有“事件语义”走这里——足球比赛标题识别（SC-015）注册为 `priority` 100 起的 Matcher。日期本身的属性（法定节假日 SC-011、传统节日与节气 SC-012）装不进事件引擎：同一天可以有任意多事件，也可以一个都没有，而“这一天在放假”与有没有事件无关。这类**日级语义**与农历一样以日期键为入口（SC-011 为 `providers/china/holidays.ts` + `semantic/app-china-days.ts`），`priority` 0–99 区间保留给按日期判定的事件语义。两条路径都遵守同一条边界：识别归 Provider / Matcher，展示元数据归 Resolver，UI 不判断。
+> 当前实现（SC-009 / SC-011 / SC-012）：引擎的输入是事件（`NormalizedEvent`），因此只有“事件语义”走这里——足球比赛标题识别（SC-015）注册为 `priority` 100 起的 Matcher。日期本身的属性（法定节假日 SC-011、传统节日与节气 SC-012）装不进事件引擎：同一天可以有任意多事件，也可以一个都没有，而“这一天在放假”与有没有事件无关。这类**日级语义**与农历一样以日期键为入口（SC-011 为 `providers/china/holidays.ts` + `semantic/app-china-days.ts`，SC-012 为 `providers/china/festivals.ts` / `solar-terms.ts` + `semantic/app-china-festivals.ts`），`priority` 0–99 区间保留给按日期判定的事件语义。两条路径都遵守同一条边界：识别归 Provider / Matcher，展示元数据归 Resolver，UI 不判断。
 
 ### 7.5 Metadata Resolver
 
@@ -234,6 +234,8 @@ v0.1：
 - 默认提醒策略。
 
 > 当前实现（SC-009 / SC-014）：组合器按注册顺序取第一个非 null 结果。核心只定义展示契约（`accent` / `label` / `iconRef` / `reminder` / `fixture`），内容全部来自 Provider——足球赛事的 `fixture` 载荷（联赛 + 双方展示信息 + 队徽引用）由 `providers/football/` 提供，UI 只读取收窄后的载荷，不做任何球队判断。
+>
+> 日级语义不走这条链（见 §7.4）：休假 / 补班、传统节日与节气的资源引用随日级载荷给出（`backgroundRef`），由 `semantic/day-backdrop.ts` 解析；`iconRef` 因此仍然留给「挂在事件上的语义」，当前没有 Provider 填充。
 
 ### 7.6 UI
 
@@ -480,9 +482,17 @@ Matcher 必须可独立注册并有确定优先级。
 
 首批至少支持常见传统节日，如春节、中秋等。
 
+实现口径（SC-012）：节日表 `providers/china/festivals.ts` 只登记日期无争议的节日——春节、元宵节、龙抬头、清明节、端午节、七夕、中元节、中秋节、重阳节、腊八节、除夕。判定规则只有三种历法事实，不抄日期表：农历固定月日；农历年的最后一天（除夕：腊月 29 还是 30 天由年数据决定，不写死廿九 / 三十）；节气日（清明节＝清明，与 CN-006 共用同一张表）。闰月不算节日（闰五月初五不是端午）。小年（北方廿三 / 南方廿四）与寒食（清明前一二日）的日期随地区与流派变化，不登记、也不猜一个（P-03）。
+
+同日多条语义是刻意的：清明节当天既是传统节日，又是节气，还可能是法定节假日（SC-011），三条都成立；月格只画一个主背景（§16.1 的优先级由 SC-013 落实）。节日名占月格里农历那一行（ui-design 参考图：特殊日期用语义内容取代农历简写），详情栏是名称 + 英文名 + 一句释义；文本规则在 `providers/china/festival-labels.ts`，UI 接线在 `semantic/app-china-festivals.ts`。
+
 ### CN-006 二十四节气
 
 显示节气名称与对应日期。
+
+实现口径（SC-012）：日期表 `providers/china/solar-terms-data.ts` 由 `tools/derive-solar-terms.mjs` 从香港天文台「公曆與農曆日期對照表」年表的「節氣」列推导（与农历表 lunar-data.ts 同一批文件、同一来源口径），覆盖公历 1901–2100：每个公历年 24 个日期，节气与月份的对应是固定的（小寒 / 大寒在一月……冬至在十二月），因此只存日、不存月。节气日期没有可用的简单公式，只有天文数据；表外年份安静地不显示，不推算（P-03）。可更新策略：表只由推导工具生成，范围扩展或数据修正时重跑工具并补官方样例（与 CN-007 的节假日数据同一条口径：数据可追溯、不手改）。
+
+查询在 `providers/china/solar-terms.ts`（节气名与序号），文本与背景引用在 `solar-term-labels.ts`：月格右上角是节气名小标签，详情栏是名称 + 英文名 + 序号（「第 19 个节气」）+ 一句释义（ui-design §9.2）。专属背景是逻辑引用（`bg.solar-term.cold-dew`），仓库不分发图片二进制，由资源包经 `semantic/day-backdrop.ts` 解析，取不到就是没有背景——节气名与释义照常显示；资源接入与许可审查归 SC-022。UI 接线在 `semantic/app-china-festivals.ts`。
 
 ### CN-007 年份数据
 

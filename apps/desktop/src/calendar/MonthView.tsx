@@ -14,6 +14,7 @@ import { displayMetadataOf } from "../semantic/metadata-resolver";
 import type { MarkAssetSource } from "../semantic/marks";
 import type { LunarLabel } from "../semantic/app-lunar";
 import type { ChinaDayLabel } from "../semantic/app-china-days";
+import type { ChinaDaySemanticLabel } from "../semantic/app-china-festivals";
 
 /**
  * 月视图（CAL-001 / CAL-002）：6×7 网格、月份导航、日期选择。
@@ -29,6 +30,9 @@ import type { ChinaDayLabel } from "../semantic/app-china-days";
  *   相邻格共享同一个区段 id 就说明它们属于同一次连休（CN-004）。这里只挂
  *   data 属性，让「连续区段」在 DOM 里可识别；连续背景、裁切的「休」「补」
  *   大字与多语义冲突规则由 SC-013 消费同一份载荷实现；
+ * - 传统节日与节气（SC-012）按 ui-design 参考图分两处：节日名占农历那一行
+ *   （特殊日期的语义内容取代农历简写），节气名做右上角小标签；专属背景
+ *   由 SC-013 消费载荷里的背景引用渲染，本组件只给出引用本身；
  * - v0.1 只提供月视图，周 / 日入口保留占位但不激活。
  */
 
@@ -49,6 +53,16 @@ const MAX_CELL_EVENTS_WITH_FIXTURES = 2;
 /** 单格最多展示的比赛场数，其余折叠为计数（一天多场时格子仍保持简洁）。 */
 const MAX_CELL_FIXTURES = 2;
 
+/**
+ * 语义色 token → 格内 CSS 变量；载荷缺色时返回 undefined，
+ * 样式回落到主题前景色（不在 UI 里猜一个颜色）。
+ */
+function accentStyle(accent: string | undefined): CSSProperties | undefined {
+  return accent === undefined
+    ? undefined
+    : ({ "--day-accent": accent } as CSSProperties);
+}
+
 interface MonthViewProps {
   grid: MonthGrid;
   selectedDateKey: string;
@@ -64,6 +78,8 @@ interface MonthViewProps {
   lunarByDate?: Map<string, LunarLabel>;
   /** 按日期键分桶的休假 / 补班载荷（SC-011；非假期与未登记年份缺省）。 */
   chinaDayByDate?: Map<string, ChinaDayLabel>;
+  /** 按日期键分桶的传统节日 / 节气载荷（SC-012；普通日期缺省）。 */
+  chinaSemanticByDate?: Map<string, ChinaDaySemanticLabel>;
   /** 队徽 / 联赛 Logo 资源包（SC-022 接入；默认不携带图片）。 */
   assets?: MarkAssetSource;
 }
@@ -78,6 +94,7 @@ export function MonthView({
   eventsByDate,
   lunarByDate,
   chinaDayByDate,
+  chinaSemanticByDate,
   assets,
 }: MonthViewProps) {
   const title = `${grid.year}年${grid.month}月`;
@@ -187,6 +204,16 @@ export function MonthView({
               const isSelected = cell.dateKey === selectedDateKey;
               const lunar = lunarByDate?.get(cell.dateKey);
               const chinaDay = chinaDayByDate?.get(cell.dateKey);
+              const semantic = chinaSemanticByDate?.get(cell.dateKey);
+              // 节日名占农历那一行，节气名进角落标签（ui-design 参考图的
+              // 两处位置）。类别是封闭的两值联合：没有落位规则的类别不会
+              // 被静默塞进某一行——将来新增语义时，这里是必须改的一处。
+              const festival = semantic?.entries.find(
+                (entry) => entry.kind === "festival",
+              );
+              const solarTerm = semantic?.entries.find(
+                (entry) => entry.kind === "solar-term",
+              );
               return (
                 <div
                   key={cell.dateKey}
@@ -198,6 +225,10 @@ export function MonthView({
                   // 区段 id 让相邻格能被识别为同一次连休（CN-004 / §7.1）。
                   data-china-day={chinaDay?.kind}
                   data-china-run={chinaDay?.run?.id}
+                  // 节日 / 节气标记（SC-012）：主语义类别与专属背景引用，
+                  // 供 SC-013 决定主背景（§16.1 一个格子一个主背景）。
+                  data-china-semantic={semantic?.entries[0]?.kind}
+                  data-china-backdrop={semantic?.entries[0]?.backgroundRef}
                   aria-current={cell.isToday ? "date" : undefined}
                   aria-selected={isSelected}
                   tabIndex={cell.dateKey === tabbableDateKey ? 0 : -1}
@@ -212,8 +243,25 @@ export function MonthView({
                   onClick={() => selectDate(cell.dateKey)}
                   onKeyDown={handleKeyDown}
                 >
+                  {solarTerm && (
+                    <span
+                      className="cell-solar-term"
+                      style={accentStyle(solarTerm.accent)}
+                    >
+                      {solarTerm.name}
+                    </span>
+                  )}
                   <span className="cell-day">{cell.day}</span>
-                  {lunar && <span className="cell-lunar">{lunar.cell}</span>}
+                  {festival ? (
+                    <span
+                      className="cell-semantic"
+                      style={accentStyle(festival.accent)}
+                    >
+                      {festival.name}
+                    </span>
+                  ) : (
+                    lunar && <span className="cell-lunar">{lunar.cell}</span>
+                  )}
                   <CellContent
                     events={eventsByDate.get(cell.dateKey)}
                     assets={assets}

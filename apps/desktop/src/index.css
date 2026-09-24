@@ -620,6 +620,41 @@ button:focus-visible {
   color: var(--text-outside);
 }
 
+/* ---------------- 传统节日与节气（SC-012 / ui-design §9） ---------------- */
+
+/* 节日名占农历那一行（参考图：特殊日期用语义内容取代农历简写），
+   层级与农历相同：比日期数字小、比事件摘要克制；语义色由载荷给定，
+   缺色时回落主题前景色（不在 UI 里猜颜色）。 */
+.cell-semantic {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--day-accent, var(--text-secondary));
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+/* 节气名做右上角小标签（参考图：10 月 8 日「寒露」、10 月 23 日「霜降」）：
+   绝对定位不参与流式排版，长名也不会挤压日期数字。 */
+.cell-solar-term {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  max-width: calc(100% - 40px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--day-accent, var(--text-secondary));
+  font-size: 10.5px;
+  line-height: 1.2;
+}
+
+.month-cell.is-outside .cell-semantic,
+.month-cell.is-outside .cell-solar-term {
+  color: var(--text-outside);
+}
+
 .month-cell.is-outside {
   background: color-mix(in srgb, var(--bg-cell) 55%, transparent);
 }
@@ -811,6 +846,57 @@ button:focus-visible {
   margin: 0;
   color: var(--text-secondary);
   font-size: 15px;
+}
+
+/* ---------------- 传统节日 / 节气详情（SC-012 / ui-design §9.2） ---------------- */
+
+/* 语义块是详情栏的主角（§16.1 主背景优先级 1），因此排在状态语义之前。
+   背景图（§9 的月亮 / 露水 / 霜）与浅深主题的沉浸处理归 SC-013，
+   这里只给文字层与语义色（--day-accent 由载荷注入，缺色用前景色兜底）。 */
+.inspector-day-semantics {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 14px 0 2px;
+}
+
+.inspector-day-semantic {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 12px;
+  border-left: 3px solid
+    color-mix(in srgb, var(--day-accent, currentColor) 60%, transparent);
+}
+
+.inspector-day-semantic-name {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.inspector-day-semantic-name-en {
+  margin: 0;
+  color: var(--day-accent, var(--text-muted));
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.inspector-day-semantic-note {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+/* 一句释义：不放大段知识文本（§9.2 不做百科页面） */
+.inspector-day-semantic-gloss {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 /* 法定节假日行（SC-011 / ui-design §11.1 状态类型「节假日」）：

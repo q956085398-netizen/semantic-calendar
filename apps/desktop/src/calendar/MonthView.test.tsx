@@ -479,3 +479,131 @@ describe("月格休假 / 补班挂钩（SC-011 / CN-002–004）", () => {
     expect(cell.querySelector(".cell-day")?.textContent).toBe("2");
   });
 });
+
+/**
+ * SC-012：月格里的传统节日与节气（CN-005–006 / ui-design §9）。
+ * 组件只渲染注入的载荷：节日名占农历那一行（参考图：10 月 6 日写「中秋节」），
+ * 节气名做右上角小标签（参考图：10 月 8 日「寒露」），语义标记与背景引用
+ * 挂成 data 属性——专属背景的渲染与多语义冲突规则属 SC-013。
+ */
+describe("月格节日 / 节气（SC-012 / CN-005–006）", () => {
+  const MID_AUTUMN = {
+    kind: "festival" as const,
+    id: "mid-autumn-festival",
+    name: "中秋节",
+    nameEn: "Mid-Autumn Festival",
+    gloss: "八月十五，赏月团圆，食月饼。",
+    accent: "var(--semantic-festival)",
+    backgroundRef: "bg.festival.mid-autumn-festival",
+  };
+  const COLD_DEW = {
+    kind: "solar-term" as const,
+    id: "cold-dew",
+    name: "寒露",
+    nameEn: "Cold Dew",
+    gloss: "露气寒冷，将凝结也。",
+    note: "第 19 个节气",
+    accent: "var(--semantic-solar-term)",
+    backgroundRef: "bg.solar-term.cold-dew",
+  };
+  const QINGMING_FESTIVAL = {
+    kind: "festival" as const,
+    id: "qingming-festival",
+    name: "清明节",
+    nameEn: "Qingming Festival",
+    gloss: "扫墓祭祖，踏青郊游。",
+    accent: "var(--semantic-festival)",
+    backgroundRef: "bg.festival.qingming-festival",
+  };
+  const QINGMING_TERM = {
+    ...COLD_DEW,
+    id: "pure-brightness",
+    name: "清明",
+    note: "第 7 个节气",
+    backgroundRef: "bg.solar-term.pure-brightness",
+  };
+
+  const SEMANTIC = new Map([
+    ["2026-10-06", { entries: [MID_AUTUMN] }],
+    ["2026-10-08", { entries: [COLD_DEW] }],
+    ["2026-09-28", { entries: [MID_AUTUMN] }],
+    ["2026-04-05", { entries: [QINGMING_FESTIVAL, QINGMING_TERM] }],
+  ]);
+  const LUNAR = new Map([
+    ["2026-10-06", { cell: "廿五", detail: "农历八月廿五" }],
+    ["2026-10-08", { cell: "十六", detail: "农历八月十六" }],
+  ]);
+
+  function renderWithSemantic(year = 2026, month = 10) {
+    const grid = buildMonthGrid({ year, month, today: "2026-10-01" });
+    render(
+      <MonthView
+        grid={grid}
+        selectedDateKey="2026-10-01"
+        onSelectDate={() => {}}
+        onStepMonth={() => {}}
+        onGoToToday={() => {}}
+        onStepSelection={() => {}}
+        eventsByDate={new Map()}
+        lunarByDate={LUNAR}
+        chinaSemanticByDate={SEMANTIC}
+      />,
+    );
+    return screen.getByRole("grid", { name: `${year}年${month}月` });
+  }
+
+  it("节日名占农历那一行，语义色来自载荷", () => {
+    const cell = cellOf(renderWithSemantic(), "2026-10-06");
+    const semantic = cell.querySelector(".cell-semantic") as HTMLElement;
+
+    expect(semantic.textContent).toBe("中秋节");
+    expect(semantic.style.getPropertyValue("--day-accent")).toBe(
+      "var(--semantic-festival)",
+    );
+    // 参考图：特殊日期用语义内容取代农历简写，不并列两行。
+    expect(cell.querySelector(".cell-lunar")).toBeNull();
+  });
+
+  it("节气做右上角标签，农历行保留", () => {
+    const cell = cellOf(renderWithSemantic(), "2026-10-08");
+    const term = cell.querySelector(".cell-solar-term") as HTMLElement;
+
+    expect(term.textContent).toBe("寒露");
+    expect(term.style.getPropertyValue("--day-accent")).toBe(
+      "var(--semantic-solar-term)",
+    );
+    expect(cell.querySelector(".cell-lunar")?.textContent).toBe("十六");
+    // 节气标签与日期数字并列在格内，不互相取代。
+    expect(cell.querySelector(".cell-day")?.textContent).toBe("8");
+  });
+
+  it("同日两条语义时节日在前，格子挂主语义的标记与背景引用（§16.1）", () => {
+    // 清明节：同一天既是传统节日也是节气（2026-04-05），需要渲染 4 月的网格。
+    const cell = cellOf(renderWithSemantic(2026, 4), "2026-04-05");
+
+    expect(cell.getAttribute("data-china-semantic")).toBe("festival");
+    expect(cell.getAttribute("data-china-backdrop")).toBe(
+      "bg.festival.qingming-festival",
+    );
+    expect(cell.querySelector(".cell-semantic")?.textContent).toBe("清明节");
+    expect(cell.querySelector(".cell-solar-term")?.textContent).toBe("清明");
+  });
+
+  it("跨月格同样渲染语义（弱化由样式负责，组件不做月份判断）", () => {
+    const cell = cellOf(renderWithSemantic(), "2026-09-28");
+
+    expect(cell.getAttribute("data-outside")).toBe("true");
+    expect(cell.querySelector(".cell-semantic")?.textContent).toBe("中秋节");
+  });
+
+  it("载荷缺省时不渲染语义元素，日期数字照常", () => {
+    const grid = renderOctober(new Map());
+    const cell = cellOf(grid, "2026-10-06");
+
+    expect(cell.querySelector(".cell-semantic")).toBeNull();
+    expect(cell.querySelector(".cell-solar-term")).toBeNull();
+    expect(cell.hasAttribute("data-china-semantic")).toBe(false);
+    expect(cell.hasAttribute("data-china-backdrop")).toBe(false);
+    expect(cell.querySelector(".cell-day")?.textContent).toBe("6");
+  });
+});

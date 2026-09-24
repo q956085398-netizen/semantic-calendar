@@ -37,6 +37,7 @@ import { reEnrichStore } from "./semantic/enrich";
 import { createAppSemanticStack } from "./semantic/app-registry";
 import { lunarLabelsOf } from "./semantic/app-lunar";
 import { chinaDayLabelsOf } from "./semantic/app-china-days";
+import { chinaSemanticLabelsOf } from "./semantic/app-china-festivals";
 import {
   FOLLOWED_TEAMS_SETTING_KEY,
   listFollowableTeams,
@@ -238,6 +239,16 @@ export default function App() {
    */
   const chinaDayByDate = useMemo(
     () => chinaDayLabelsOf(grid.weeks.flat()),
+    [grid],
+  );
+
+  /**
+   * 传统节日 / 节气载荷（SC-012 / CN-005–006）：同样随网格重算，
+   * 普通日期不进 Map。月格用节日名与节气角标，详情栏用名称、英文名、
+   * 判定依据与释义；专属背景引用随载荷一起给出，由 SC-013 渲染。
+   */
+  const chinaSemanticByDate = useMemo(
+    () => chinaSemanticLabelsOf(grid.weeks.flat()),
     [grid],
   );
 
@@ -642,6 +653,7 @@ export default function App() {
           events={selectedEvents}
           lunar={lunarByDate.get(selectedDateKey)}
           chinaDay={chinaDayByDate.get(selectedDateKey)}
+          chinaSemantic={chinaSemanticByDate.get(selectedDateKey)}
           followedTeamIds={followedTeamIds}
         />
       }
@@ -656,6 +668,7 @@ export default function App() {
         eventsByDate={eventsByDate}
         lunarByDate={lunarByDate}
         chinaDayByDate={chinaDayByDate}
+        chinaSemanticByDate={chinaSemanticByDate}
       />
     </AppShell>
   );

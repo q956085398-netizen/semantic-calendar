@@ -250,3 +250,179 @@ describe("详情栏休假 / 补班行（SC-011 / CN-002–004）", () => {
     expect(screen.getByText("10月18日")).toBeTruthy();
   });
 });
+
+/**
+ * SC-012：详情栏的传统节日 / 节气块（CN-005–006 / ui-design §9.2、§11.1）。
+ * 语义类型、名称、英文名、序号与释义全部来自注入载荷，
+ * 组件只负责排版与「哪一条是主语义」（载荷顺序，§16.1）。
+ */
+describe("详情栏节日 / 节气块（SC-012 / CN-005–006）", () => {
+  const COLD_DEW = {
+    kind: "solar-term" as const,
+    id: "cold-dew",
+    name: "寒露",
+    nameEn: "Cold Dew",
+    gloss: "露气寒冷，将凝结也。",
+    note: "第 19 个节气",
+    accent: "var(--semantic-solar-term)",
+    backgroundRef: "bg.solar-term.cold-dew",
+  };
+  const MID_AUTUMN = {
+    kind: "festival" as const,
+    id: "mid-autumn-festival",
+    name: "中秋节",
+    nameEn: "Mid-Autumn Festival",
+    gloss: "八月十五，赏月团圆，食月饼。",
+    accent: "var(--semantic-festival)",
+    backgroundRef: "bg.festival.mid-autumn-festival",
+  };
+
+  it("节气块：星期行带 SOLAR TERM，块内是名称、英文名、序号与一句释义", () => {
+    render(
+      <InspectorPanel
+        dateKey="2026-10-08"
+        events={[]}
+        lunar={{ cell: "十六", detail: "农历八月十六" }}
+        chinaSemantic={{ entries: [COLD_DEW] }}
+      />,
+    );
+
+    expect(screen.getByText("THURSDAY · SOLAR TERM")).toBeTruthy();
+    const block = document.querySelector(
+      ".inspector-day-semantic",
+    ) as HTMLElement;
+    expect(block.getAttribute("data-china-semantic")).toBe("solar-term");
+    expect(block.getAttribute("data-china-backdrop")).toBe(
+      "bg.solar-term.cold-dew",
+    );
+    expect(block.style.getPropertyValue("--day-accent")).toBe(
+      "var(--semantic-solar-term)",
+    );
+    expect(within(block).getByText("寒露")).toBeTruthy();
+    expect(within(block).getByText("Cold Dew")).toBeTruthy();
+    expect(within(block).getByText("第 19 个节气")).toBeTruthy();
+    expect(within(block).getByText("露气寒冷，将凝结也。")).toBeTruthy();
+    // 农历行与语义块并存（§9.2 的详情栏同时给农历与节气）。
+    expect(screen.getByText("农历八月十六")).toBeTruthy();
+  });
+
+  it("节日块：星期行带 FESTIVAL，没有序号行", () => {
+    render(
+      <InspectorPanel
+        dateKey="2026-09-25"
+        events={[]}
+        chinaSemantic={{ entries: [MID_AUTUMN] }}
+      />,
+    );
+
+    expect(screen.getByText("FRIDAY · FESTIVAL")).toBeTruthy();
+    const block = document.querySelector(
+      ".inspector-day-semantic",
+    ) as HTMLElement;
+    expect(within(block).getByText("中秋节")).toBeTruthy();
+    expect(within(block).queryByText(/个节气/)).toBeNull();
+    expect(block.querySelector(".inspector-day-semantic-note")).toBeNull();
+  });
+
+  it("同日两条语义时逐条列出，星期行用第一条（§16.1 主背景优先级）", () => {
+    const qingmingTerm = {
+      ...COLD_DEW,
+      id: "pure-brightness",
+      name: "清明",
+      nameEn: "Pure Brightness",
+      note: "第 7 个节气",
+      backgroundRef: "bg.solar-term.pure-brightness",
+    };
+    render(
+      <InspectorPanel
+        dateKey="2026-04-05"
+        events={[]}
+        chinaSemantic={{
+          entries: [
+            {
+              ...MID_AUTUMN,
+              id: "qingming-festival",
+              name: "清明节",
+              nameEn: "Qingming Festival",
+              gloss: "扫墓祭祖，踏青郊游。",
+              backgroundRef: "bg.festival.qingming-festival",
+            },
+            qingmingTerm,
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("SUNDAY · FESTIVAL")).toBeTruthy();
+    const kinds = [...document.querySelectorAll(".inspector-day-semantic")].map(
+      (block) => block.getAttribute("data-china-semantic"),
+    );
+    expect(kinds).toEqual(["festival", "solar-term"]);
+    expect(screen.getByText("清明节")).toBeTruthy();
+    expect(screen.getByText("清明")).toBeTruthy();
+  });
+
+  it("比赛日与节气同日时两个标签都在，语义块排在比赛详情之前（§16）", () => {
+    const fixtureEvent: EnrichedEvent = {
+      ...MATCH,
+      metadata: {
+        ...MATCH.metadata,
+        fixture: {
+          competition: {
+            id: "premier-league",
+            label: "英超",
+            nameZh: "英格兰足球超级联赛",
+            nameEn: "Premier League",
+            colors: { primary: "#37003C", secondary: "#00FF87" },
+          },
+          teams: [
+            {
+              id: "arsenal",
+              nameZh: "阿森纳",
+              nameEn: "Arsenal",
+              code: "ARS",
+              colors: { primary: "#EF0107", secondary: "#FFFFFF" },
+            },
+            {
+              id: "manchester-city",
+              nameZh: "曼城",
+              nameEn: "Manchester City",
+              code: "MCI",
+              colors: { primary: "#6CABDD", secondary: "#1C2C5B" },
+            },
+          ],
+        },
+      },
+    };
+    render(
+      <InspectorPanel
+        dateKey="2026-10-08"
+        events={[fixtureEvent]}
+        chinaSemantic={{ entries: [COLD_DEW] }}
+      />,
+    );
+
+    expect(document.querySelector(".inspector-weekday")?.textContent).toBe(
+      "THURSDAY · SOLAR TERM · MATCHDAY",
+    );
+    // 语义块（§16.1 主背景语义）在比赛详情之前，两条状态语义都保留。
+    const semantics = document.querySelector(".inspector-day-semantics");
+    const matchday = document.querySelector(".matchday");
+    if (semantics === null || matchday === null) {
+      throw new Error("语义块与比赛详情都应渲染");
+    }
+    expect(
+      semantics.compareDocumentPosition(matchday) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("普通日期不显示语义块，星期行也没有多余标签", () => {
+    render(<InspectorPanel dateKey="2026-10-14" events={[PLAIN]} />);
+
+    expect(document.querySelector(".inspector-day-semantics")).toBeNull();
+    expect(document.querySelector(".inspector-weekday")?.textContent).toBe(
+      "WEDNESDAY",
+    );
+  });
+});

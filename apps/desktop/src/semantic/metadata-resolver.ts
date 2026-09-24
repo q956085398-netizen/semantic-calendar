@@ -85,8 +85,10 @@ export interface EventDisplayMetadata {
   /** 语义类型的本地化短标签；具体节日 / 球队名称由 SC-012 / SC-014 提供。 */
   label?: string;
   /**
-   * 图标资源引用；节日 / 节气 Provider（SC-012）填充。
-   * 足球赛事的联赛 Logo 走 fixture.competition.logoRef，不在这里重复。
+   * 图标资源引用：给「挂在事件上的语义」用，当前没有 Provider 填充
+   * （足球赛事的联赛 Logo 走 fixture.competition.logoRef，不在这里重复）。
+   * 日级语义（传统节日 / 节气 SC-012）不挂事件，因此它们的背景引用走日级载荷
+   * ——semantic/app-china-festivals.ts 的 backgroundRef 与 semantic/day-backdrop.ts。
    */
   iconRef?: string;
   reminder?: ReminderPolicy;

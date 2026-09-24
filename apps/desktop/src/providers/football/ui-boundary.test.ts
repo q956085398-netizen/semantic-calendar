@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { COMPETITIONS } from "./competitions";
 import { footballCatalog } from "./football-catalog";
+import { FESTIVALS } from "../china/festivals";
+import { SOLAR_TERMS } from "../china/solar-terms";
 
 /**
  * 边界守卫（SC-014 验收：“球队元数据不硬编码在 UI”）。
@@ -112,6 +114,20 @@ describe("UI 不承载领域知识（SC-014 验收 / app-spec §7.6）", () => {
       .filter((source) => /from\s+"[^"]*providers\//.test(source.lower))
       .map((source) => source.file);
     expect(offenders).toEqual([]);
+  });
+
+  it("节日 / 节气名称与 id 不出现在 UI 源码中（SC-012 验收：Provider 不决定 UI）", () => {
+    // 与球队名同一条规则：日期格里的「中秋节」「寒露」只能来自
+    // app-china-festivals 的展示载荷，不能写进组件。
+    const needles = [
+      ...FESTIVALS.flatMap((festival) => [
+        festival.id,
+        festival.name,
+        festival.nameEn,
+      ]),
+      ...SOLAR_TERMS.flatMap((term) => [term.id, term.name, term.nameEn]),
+    ];
+    expect(findOffenders(sources, needles)).toEqual([]);
   });
 });
 

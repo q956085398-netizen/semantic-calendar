@@ -1,2 +1,5 @@
 dist
 src-tauri/target
+
+# 生成的数据表：一行一年，便于整年对照（见 tools/derive-solar-terms.mjs 头部说明）
+src/providers/china/solar-terms-data.ts

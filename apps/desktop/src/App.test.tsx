@@ -193,14 +193,30 @@ describe("三栏布局与月视图（SC-004 / CAL-001 / CAL-004）", () => {
     expect(screen.getByRole("main")).toBeTruthy();
   });
 
-  it("详情栏展示今天的极简日期详情（§12）", () => {
+  it("详情栏展示今天的日期详情（§12）", () => {
     freezeClock();
     render(<App />);
 
     const inspector = screen.getByRole("complementary", { name: "详情栏" });
-    expect(within(inspector).getByText("WEDNESDAY")).toBeTruthy();
+    // 2026-09-23 是秋分：星期行带语义类型（SC-012 / §9.2），日期行照常克制。
+    expect(within(inspector).getByText("WEDNESDAY · SOLAR TERM")).toBeTruthy();
     expect(within(inspector).getByText("9月23日")).toBeTruthy();
     expect(within(inspector).getByText("2026")).toBeTruthy();
+  });
+
+  it("普通日期没有节日 / 节气语义（SC-012）", () => {
+    freezeClock();
+    render(<App />);
+
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    fireEvent.click(grid.querySelector('[data-date="2026-09-24"]')!);
+
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(within(inspector).getByText("THURSDAY")).toBeTruthy();
+    expect(inspector.querySelector(".inspector-day-semantics")).toBeNull();
+    // 普通日期的月格也不挂语义标记。
+    const cell = grid.querySelector('[data-date="2026-09-24"]');
+    expect(cell?.hasAttribute("data-china-semantic")).toBe(false);
   });
 });
 
@@ -309,8 +325,54 @@ describe("月份导航与日期选择（SC-005 / CAL-002 / CAL-003）", () => {
     expect(selected?.hasAttribute("data-outside")).toBe(false);
 
     const inspector = screen.getByRole("complementary", { name: "详情栏" });
-    expect(within(inspector).getByText("THURSDAY")).toBeTruthy();
+    // 2026-10-08 是寒露：星期行带 SOLAR TERM（SC-012）。
+    expect(within(inspector).getByText("THURSDAY · SOLAR TERM")).toBeTruthy();
     expect(within(inspector).getByText("10月8日")).toBeTruthy();
+  });
+
+  it("节日与节气在月格与详情栏里显示（SC-012 / CN-005–006）", () => {
+    freezeClock();
+    render(<App />);
+    const main = screen.getByRole("main");
+    const grid = within(main).getByRole("grid", { name: "2026年9月" });
+
+    // 中秋节（2026-09-25）：月格里节日名占农历那一行，格子带语义标记。
+    const midAutumn = grid.querySelector('[data-date="2026-09-25"]');
+    expect(midAutumn?.querySelector(".cell-semantic")?.textContent).toBe(
+      "中秋节",
+    );
+    expect(midAutumn?.getAttribute("data-china-semantic")).toBe("festival");
+    expect(midAutumn?.getAttribute("data-china-backdrop")).toBe(
+      "bg.festival.mid-autumn-festival",
+    );
+    // 节日名取代农历简写（参考图：10 月 6 日只写「中秋节」）。
+    expect(midAutumn?.querySelector(".cell-lunar")).toBeNull();
+
+    // 节气（2026-09-23 秋分）：右上角标签 + 农历简写并存。
+    const autumnEquinox = grid.querySelector('[data-date="2026-09-23"]');
+    expect(autumnEquinox?.querySelector(".cell-solar-term")?.textContent).toBe(
+      "秋分",
+    );
+    expect(autumnEquinox?.querySelector(".cell-lunar")?.textContent).toBe(
+      "十三",
+    );
+
+    // 详情栏：名称、英文名、序号与一句释义。
+    fireEvent.click(midAutumn!);
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(within(inspector).getByText("FRIDAY · FESTIVAL")).toBeTruthy();
+    expect(within(inspector).getByText("中秋节")).toBeTruthy();
+    expect(within(inspector).getByText("Mid-Autumn Festival")).toBeTruthy();
+    expect(
+      within(inspector).getByText("八月十五，赏月团圆，食月饼。"),
+    ).toBeTruthy();
+
+    // 秋分当天：节气块带序号，且农历行与语义块并存。
+    fireEvent.click(autumnEquinox!);
+    expect(within(inspector).getByText("WEDNESDAY · SOLAR TERM")).toBeTruthy();
+    expect(within(inspector).getByText("秋分")).toBeTruthy();
+    expect(within(inspector).getByText("第 18 个节气")).toBeTruthy();
+    expect(within(inspector).getByText("农历八月十三")).toBeTruthy();
   });
 
   it("方向键移动选择，焦点跟随，跨月自动导航（roving tabindex）", async () => {
