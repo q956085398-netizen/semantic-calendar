@@ -36,6 +36,7 @@ import type { StoreRecoveryReason } from "./data/store/calendar-store";
 import { reEnrichStore } from "./semantic/enrich";
 import { createAppSemanticStack } from "./semantic/app-registry";
 import { lunarLabelsOf } from "./semantic/app-lunar";
+import { chinaDayLabelsOf } from "./semantic/app-china-days";
 import {
   FOLLOWED_TEAMS_SETTING_KEY,
   listFollowableTeams,
@@ -229,6 +230,16 @@ export default function App() {
    * 与事件一样按日期键注入月视图，组件不做换算（业务规则不进 UI）。
    */
   const lunarByDate = useMemo(() => lunarLabelsOf(grid.weeks.flat()), [grid]);
+
+  /**
+   * 休假 / 补班载荷（SC-011 / CN-002–004）：与农历同一条路径，随网格重算；
+   * 未登记安排的日期不进 Map。月格据此识别连休区段（相邻格共享区段 id），
+   * 详情栏消费选中日期的文字层；连续背景与大字视觉由 SC-013 完成。
+   */
+  const chinaDayByDate = useMemo(
+    () => chinaDayLabelsOf(grid.weeks.flat()),
+    [grid],
+  );
 
   /**
    * 从本地数据层重建 UI 状态；只显示启用来源的事件（SRC-003）。
@@ -630,6 +641,7 @@ export default function App() {
           dateKey={selectedDateKey}
           events={selectedEvents}
           lunar={lunarByDate.get(selectedDateKey)}
+          chinaDay={chinaDayByDate.get(selectedDateKey)}
           followedTeamIds={followedTeamIds}
         />
       }
@@ -643,6 +655,7 @@ export default function App() {
         onStepSelection={stepSelection}
         eventsByDate={eventsByDate}
         lunarByDate={lunarByDate}
+        chinaDayByDate={chinaDayByDate}
       />
     </AppShell>
   );

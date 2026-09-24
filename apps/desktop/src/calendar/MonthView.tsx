@@ -13,6 +13,7 @@ import { CompetitionBackdrop } from "../display/CompetitionBackdrop";
 import { displayMetadataOf } from "../semantic/metadata-resolver";
 import type { MarkAssetSource } from "../semantic/marks";
 import type { LunarLabel } from "../semantic/app-lunar";
+import type { ChinaDayLabel } from "../semantic/app-china-days";
 
 /**
  * 月视图（CAL-001 / CAL-002）：6×7 网格、月份导航、日期选择。
@@ -24,7 +25,10 @@ import type { LunarLabel } from "../semantic/app-lunar";
  * - 事件摘要按日期键注入（SC-006），只做排版不做业务判断；
  * - 比赛事件渲染为“队标 VS 队标”（SC-016 / §10.2），其余事件按普通摘要渲染；
  * - 农历简写（SC-010 / §5.2）与事件摘要一样按日期键注入，只排版不换算；
- * - 语义视觉（休 / 补 / 节气 / 节日背景）由 SC-013 填充；
+ * - 休假 / 补班（SC-011）同样按日期键注入：格子带上类别与连休区段 id，
+ *   相邻格共享同一个区段 id 就说明它们属于同一次连休（CN-004）。这里只挂
+ *   data 属性，让「连续区段」在 DOM 里可识别；连续背景、裁切的「休」「补」
+ *   大字与多语义冲突规则由 SC-013 消费同一份载荷实现；
  * - v0.1 只提供月视图，周 / 日入口保留占位但不激活。
  */
 
@@ -58,6 +62,8 @@ interface MonthViewProps {
   eventsByDate: Map<string, EnrichedEvent[]>;
   /** 按日期键分桶的农历简写（SC-010；范围外的日期缺省，不显示该行）。 */
   lunarByDate?: Map<string, LunarLabel>;
+  /** 按日期键分桶的休假 / 补班载荷（SC-011；非假期与未登记年份缺省）。 */
+  chinaDayByDate?: Map<string, ChinaDayLabel>;
   /** 队徽 / 联赛 Logo 资源包（SC-022 接入；默认不携带图片）。 */
   assets?: MarkAssetSource;
 }
@@ -71,6 +77,7 @@ export function MonthView({
   onStepSelection,
   eventsByDate,
   lunarByDate,
+  chinaDayByDate,
   assets,
 }: MonthViewProps) {
   const title = `${grid.year}年${grid.month}月`;
@@ -179,6 +186,7 @@ export function MonthView({
             {week.map((cell) => {
               const isSelected = cell.dateKey === selectedDateKey;
               const lunar = lunarByDate?.get(cell.dateKey);
+              const chinaDay = chinaDayByDate?.get(cell.dateKey);
               return (
                 <div
                   key={cell.dateKey}
@@ -186,6 +194,10 @@ export function MonthView({
                   data-date={cell.dateKey}
                   data-outside={cell.inMonth ? undefined : "true"}
                   data-today={cell.isToday ? "true" : undefined}
+                  // 休假 / 补班标记（SC-011）：类别给 SC-013 选语义色与大字，
+                  // 区段 id 让相邻格能被识别为同一次连休（CN-004 / §7.1）。
+                  data-china-day={chinaDay?.kind}
+                  data-china-run={chinaDay?.run?.id}
                   aria-current={cell.isToday ? "date" : undefined}
                   aria-selected={isSelected}
                   tabIndex={cell.dateKey === tabbableDateKey ? 0 : -1}

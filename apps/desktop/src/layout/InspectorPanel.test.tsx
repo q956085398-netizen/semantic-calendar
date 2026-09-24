@@ -168,9 +168,9 @@ describe("详情栏农历行（SC-010 / CN-001）", () => {
     const lunar = screen.getByText("农历九月初九");
     expect(lunar.className).toBe("inspector-lunar");
     expect(lunar.previousElementSibling?.textContent).toBe("2026");
-    expect(lunar.previousElementSibling?.previousElementSibling?.textContent).toBe(
-      "10月18日",
-    );
+    expect(
+      lunar.previousElementSibling?.previousElementSibling?.textContent,
+    ).toBe("10月18日");
   });
 
   it("无农历载荷时不显示该行（范围外不猜）", () => {
@@ -180,5 +180,73 @@ describe("详情栏农历行（SC-010 / CN-001）", () => {
     // 其余日期详情不受影响。
     expect(screen.getByText("10月18日")).toBeTruthy();
     expect(screen.getByText("2026")).toBeTruthy();
+  });
+});
+
+/**
+ * SC-011：详情栏休假 / 补班行（ui-design §11.1 状态类型「节假日」）。
+ * 大字、假期名与连休位置都由应用层载荷注入，组件不判断日期；
+ * 月格的休假视觉（连续背景、裁切大字）属 SC-013，这里只验证文字层。
+ */
+describe("详情栏休假 / 补班行（SC-011 / CN-002–004）", () => {
+  it("放假日显示大字、假期名与连休位置", () => {
+    render(
+      <InspectorPanel
+        dateKey="2026-10-03"
+        events={[]}
+        lunar={{ cell: "廿二", detail: "农历八月廿二" }}
+        chinaDay={{
+          kind: "rest",
+          glyph: "休",
+          accent: "var(--semantic-holiday)",
+          label: "国庆节假期",
+          position: "第 3 天 / 共 7 天",
+          run: { id: "2026-10-01", index: 2, length: 7 },
+        }}
+      />,
+    );
+
+    const row = document.querySelector(".inspector-china-day") as HTMLElement;
+    expect(row.getAttribute("data-china-day")).toBe("rest");
+    // 语义色来自载荷注入的 CSS 变量（UI 不接触具体色值）。
+    expect(row.style.getPropertyValue("--china-day-accent")).toBe(
+      "var(--semantic-holiday)",
+    );
+    expect(within(row).getByText("休")).toBeTruthy();
+    expect(within(row).getByText("国庆节假期")).toBeTruthy();
+    expect(within(row).getByText("第 3 天 / 共 7 天")).toBeTruthy();
+    // 位于农历行之后：日期 → 农历 → 休 / 补。
+    expect(row.previousElementSibling?.className).toBe("inspector-lunar");
+  });
+
+  it("补班日与休假是不同的语义标记，且不写连休位置", () => {
+    render(
+      <InspectorPanel
+        dateKey="2026-10-10"
+        events={[]}
+        chinaDay={{
+          kind: "makeup",
+          glyph: "补",
+          accent: "var(--semantic-makeup-workday)",
+          label: "国庆节补班日",
+        }}
+      />,
+    );
+
+    const row = document.querySelector(".inspector-china-day") as HTMLElement;
+    expect(row.getAttribute("data-china-day")).toBe("makeup");
+    expect(row.style.getPropertyValue("--china-day-accent")).toBe(
+      "var(--semantic-makeup-workday)",
+    );
+    expect(within(row).getByText("补")).toBeTruthy();
+    expect(within(row).getByText("国庆节补班日")).toBeTruthy();
+    expect(within(row).queryByText(/共 \d+ 天/)).toBeNull();
+  });
+
+  it("不是假期时不显示该行（不猜假期）", () => {
+    render(<InspectorPanel dateKey="2026-10-18" events={[PLAIN]} />);
+
+    expect(document.querySelector(".inspector-china-day")).toBeNull();
+    expect(screen.getByText("10月18日")).toBeTruthy();
   });
 });

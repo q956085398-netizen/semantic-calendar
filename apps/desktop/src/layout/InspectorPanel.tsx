@@ -5,6 +5,7 @@ import { eventTimeLabel, splitFixtureEvents } from "../calendar/event-display";
 import { displayMetadataOf } from "../semantic/metadata-resolver";
 import type { MarkAssetSource } from "../semantic/marks";
 import type { LunarLabel } from "../semantic/app-lunar";
+import type { ChinaDayLabel } from "../semantic/app-china-days";
 import { MatchdayInspector } from "./MatchdayInspector";
 
 /**
@@ -14,10 +15,13 @@ import { MatchdayInspector } from "./MatchdayInspector";
  * SC-006 起列出当日普通事件——只在确实存在时展示（§12.2 不做固定安排填充）；
  * SC-009 起增强事件带语义色与短标签（Metadata Resolver 输出，无领域判断）；
  * SC-010 起日期下补一行农历（§9.2「农历八月廿七」），范围外不显示；
+ * SC-011 起放假 / 补班日补一行语义（§11.1 状态类型「节假日」）：大字 + 假期名
+ *   与连休位置，文本全部来自 app-china-days 的展示载荷；
  * SC-016 起当日有比赛时以比赛为视觉中心（§13）：星期行追加 MATCHDAY，
  * 对阵双方 / 队徽 / 联赛 / 开赛 / 场地 / 提醒由 MatchdayInspector 渲染，
  * 当日其余事件仍作为状态语义列在下方。
- * 语义详情（休 / 补 / 节气 / 节日）由 SC-013 补充，普通日期保持极简留白。
+ * 月格的休假 / 补班视觉（连续背景、裁切的大字）与多语义冲突规则由 SC-013 实现，
+ * 本组件只呈现文字层。
  */
 
 interface InspectorPanelProps {
@@ -27,6 +31,8 @@ interface InspectorPanelProps {
   events: EnrichedEvent[];
   /** 选中日期的农历展示载荷（SC-010）；范围外缺省，不显示该行。 */
   lunar?: LunarLabel;
+  /** 选中日期的休假 / 补班载荷（SC-011）；不是假期就缺省，不显示该行。 */
+  chinaDay?: ChinaDayLabel;
   /** 用户关注的球队 id（SC-016）；只在比赛详情里做标记。 */
   followedTeamIds?: readonly string[];
   /** 队徽 / 联赛 Logo 资源包（SC-022 接入；默认不携带图片）。 */
@@ -37,6 +43,7 @@ export function InspectorPanel({
   dateKey,
   events,
   lunar,
+  chinaDay,
   followedTeamIds = [],
   assets,
 }: InspectorPanelProps) {
@@ -62,6 +69,28 @@ export function InspectorPanel({
       <p className="inspector-date">{monthDay}</p>
       <p className="inspector-year">{year}</p>
       {lunar && <p className="inspector-lunar">{lunar.detail}</p>}
+      {/* 休假 / 补班（SC-011 / §11.1）：大字承担语义，颜色只作类别强调 */}
+      {chinaDay && (
+        <p
+          className="inspector-china-day"
+          data-china-day={chinaDay.kind}
+          style={
+            chinaDay.accent
+              ? ({ "--china-day-accent": chinaDay.accent } as CSSProperties)
+              : undefined
+          }
+        >
+          <span className="inspector-china-day-glyph" aria-hidden="true">
+            {chinaDay.glyph}
+          </span>
+          <span className="inspector-china-day-label">{chinaDay.label}</span>
+          {chinaDay.position && (
+            <span className="inspector-china-day-position">
+              {chinaDay.position}
+            </span>
+          )}
+        </p>
+      )}
 
       {fixtures.map(({ event, fixture }) => (
         <MatchdayInspector

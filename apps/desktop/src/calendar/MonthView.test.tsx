@@ -386,3 +386,96 @@ describe("月格农历简写（SC-010 / CN-001）", () => {
     expect(cell.textContent).toContain("每周站会");
   });
 });
+
+/**
+ * SC-011：月格的休假 / 补班挂钩（CN-004 / ui-design §7.1）。
+ * 组件只把注入的载荷挂成 data 属性：类别（休 / 补）与连休区段 id。
+ * 连续背景与裁切的大字属 SC-013，这里验证「连续区段在 DOM 里可识别」。
+ */
+describe("月格休假 / 补班挂钩（SC-011 / CN-002–004）", () => {
+  const CHINA_DAYS = new Map([
+    [
+      "2026-10-01",
+      {
+        kind: "rest" as const,
+        glyph: "休",
+        accent: "var(--semantic-holiday)",
+        label: "国庆节假期",
+        position: "第 1 天 / 共 7 天",
+        run: { id: "2026-10-01", index: 0, length: 7 },
+      },
+    ],
+    [
+      "2026-10-03",
+      {
+        kind: "rest" as const,
+        glyph: "休",
+        accent: "var(--semantic-holiday)",
+        label: "国庆节假期",
+        position: "第 3 天 / 共 7 天",
+        run: { id: "2026-10-01", index: 2, length: 7 },
+      },
+    ],
+    [
+      "2026-10-10",
+      {
+        kind: "makeup" as const,
+        glyph: "补",
+        accent: "var(--semantic-makeup-workday)",
+        label: "国庆节补班日",
+      },
+    ],
+  ]);
+
+  function renderWithChinaDays() {
+    const grid = buildMonthGrid({ year: 2026, month: 10, today: "2026-10-01" });
+    render(
+      <MonthView
+        grid={grid}
+        selectedDateKey="2026-10-01"
+        onSelectDate={() => {}}
+        onStepMonth={() => {}}
+        onGoToToday={() => {}}
+        onStepSelection={() => {}}
+        eventsByDate={new Map()}
+        chinaDayByDate={CHINA_DAYS}
+      />,
+    );
+    return screen.getByRole("grid", { name: "2026年10月" });
+  }
+
+  it("放假日挂上类别与连休区段 id，相邻格共享同一个 id", () => {
+    const grid = renderWithChinaDays();
+
+    expect(cellOf(grid, "2026-10-01").getAttribute("data-china-day")).toBe(
+      "rest",
+    );
+    expect(cellOf(grid, "2026-10-01").getAttribute("data-china-run")).toBe(
+      "2026-10-01",
+    );
+    expect(cellOf(grid, "2026-10-03").getAttribute("data-china-run")).toBe(
+      "2026-10-01",
+    );
+    expect(cellOf(grid, "2026-10-03").getAttribute("data-china-day")).toBe(
+      "rest",
+    );
+  });
+
+  it("补班日与休假是不同的类别标记，且不带连休区段", () => {
+    const grid = renderWithChinaDays();
+    const cell = cellOf(grid, "2026-10-10");
+
+    expect(cell.getAttribute("data-china-day")).toBe("makeup");
+    expect(cell.hasAttribute("data-china-run")).toBe(false);
+  });
+
+  it("普通日期不挂休假 / 补班标记（不猜假期）", () => {
+    const grid = renderWithChinaDays();
+    const cell = cellOf(grid, "2026-10-02");
+
+    expect(cell.hasAttribute("data-china-day")).toBe(false);
+    expect(cell.hasAttribute("data-china-run")).toBe(false);
+    // 日期数字与普通结构不受影响。
+    expect(cell.querySelector(".cell-day")?.textContent).toBe("2");
+  });
+});

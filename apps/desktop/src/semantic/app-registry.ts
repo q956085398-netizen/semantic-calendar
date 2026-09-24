@@ -18,9 +18,13 @@ import { createFootballMetadataResolver } from "../providers/football/football-m
  * 应用级静态注册（SC-009 / SEM-001）。
  *
  * Matcher 集合在装配期固定、顺序由引擎确定（priority 升序、同级按 id 字典序），
- * 运行期不增删。优先级区间约定见 football-matcher.ts：按日期判定的语义
- * （法定节假日 SC-011、传统节日与节气 SC-012）用 0–99，标题型语义用 100 起。
- * 尚未注册的领域让事件按普通事件显示（SEM-003），链路照常执行。
+ * 运行期不增删。优先级区间约定见 football-matcher.ts：0–99 留给按日期判定的
+ * 事件语义，标题型语义用 100 起。
+ *
+ * 日级语义不走这里：法定节假日（SC-011）与节气 / 传统节日（SC-012）是日期
+ * 本身的属性，不是某条事件的属性（同一天可以有任意多事件，也可以一个都没有），
+ * 而引擎的输入是事件。它们与农历一样以日期键为入口
+ * （semantic/app-china-days.ts），未注册的语义照常按普通事件显示（SEM-003）。
  */
 
 const APP_MATCHERS: readonly EventMatcher[] = [

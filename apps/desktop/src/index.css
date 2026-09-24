@@ -813,6 +813,45 @@ button:focus-visible {
   font-size: 15px;
 }
 
+/* 法定节假日行（SC-011 / ui-design §11.1 状态类型「节假日」）：
+   大字承担语义（§7.2 / §8.2），颜色只作类别强调，文字本身也能读。
+   --china-day-accent 由载荷注入（类型级默认值，§20）；取不到时用前景色兜底，
+   不会出现「有字但看不见」的状态。 */
+.inspector-china-day {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 10px 0 0;
+  font-size: 15px;
+}
+
+.inspector-china-day-glyph {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: color-mix(
+    in srgb,
+    var(--china-day-accent, currentColor) 16%,
+    transparent
+  );
+  color: var(--china-day-accent, currentColor);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.inspector-china-day-label {
+  color: var(--text-primary);
+}
+
+.inspector-china-day-position {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 /* 超大极淡日期数字背景，与“休 / 补”大字同一设计语言 */
 .inspector-watermark {
   position: absolute;

@@ -4,6 +4,7 @@ import {
   createBuiltinTypeMetadataResolver,
   createMetadataResolver,
   displayMetadataOf,
+  semanticTypeDefaults,
   sportFixtureMetadataDefaults,
   type MetadataResolver,
 } from "./metadata-resolver";
@@ -71,6 +72,31 @@ describe("内置类型级 Resolver（app-spec §7.5）", () => {
     expect(sportFixtureMetadataDefaults().label).toBe("体育赛事");
     expect(resolver.resolve(semantic("sport.fixture"), EVENT)?.label).toBe(
       "体育赛事",
+    );
+  });
+
+  it("日级语义（休假 / 补班）取同一份类型级默认值（SC-011）", () => {
+    // 日级语义不走事件解析链，但语义色只有一处：取值必须与内置 Resolver 一致。
+    expect(semanticTypeDefaults("holiday")).toEqual(
+      resolver.resolve(semantic("holiday"), EVENT),
+    );
+    expect(semanticTypeDefaults("makeup-workday")?.accent).toBe(
+      "var(--semantic-makeup-workday)",
+    );
+    expect(semanticTypeDefaults("solar-term")?.accent).toBe(
+      "var(--semantic-solar-term)",
+    );
+
+    // 普通事件没有类型级默认值。
+    expect(semanticTypeDefaults("calendar.event")).toBeNull();
+
+    // 同样是新对象：调用方改写不影响下一次取值。
+    const defaults = semanticTypeDefaults("holiday");
+    if (defaults) {
+      defaults.accent = "被改写";
+    }
+    expect(semanticTypeDefaults("holiday")?.accent).toBe(
+      "var(--semantic-holiday)",
     );
   });
 });

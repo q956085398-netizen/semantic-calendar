@@ -38,8 +38,9 @@ export const FOOTBALL_MATCHER_ID = "football.fixture-title";
 
 /**
  * 优先级：数值越小越先执行（引擎按 priority 升序、同级按 id 字典序）。
- * 约定 0–99 留给按日期判定的语义（法定节假日 SC-011、节气 SC-012），
- * 100 起为按标题判定的语义——日期证据比标题猜测更硬，先执行。
+ * 约定 0–99 留给按日期判定的事件语义，100 起为按标题判定的语义——日期证据
+ * 比标题猜测更硬，先执行。（日级语义如法定节假日、节气不经事件引擎，
+ * 见 semantic/app-registry.ts。）
  */
 export const FOOTBALL_MATCHER_PRIORITY = 100;
 

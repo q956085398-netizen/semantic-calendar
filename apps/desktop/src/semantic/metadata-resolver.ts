@@ -207,6 +207,22 @@ export function sportFixtureMetadataDefaults(): EventDisplayMetadata {
   };
 }
 
+/**
+ * 任意类型的类型级默认元数据副本；未登记的类型返回 null。
+ *
+ * 日级语义（SC-011 的休假 / 补班，SC-012 的节日 / 节气）没有事件可以挂，
+ * 因此不走解析链，但语义色仍然只有这里一处——展示层（含日级载荷）都从这里取，
+ * 日级展示不会长出第二套色板。同样每次返回全新对象。
+ */
+export function semanticTypeDefaults(
+  type: SemanticEventType,
+): EventDisplayMetadata | null {
+  const defaults = TYPE_DEFAULTS[type];
+  return defaults
+    ? { ...defaults, reminder: cloneReminder(defaults.reminder) }
+    : null;
+}
+
 function cloneReminder(policy: ReminderPolicy): ReminderPolicy {
   return policy.kind === "minutes-before-start"
     ? { kind: "minutes-before-start", minutes: policy.minutes }
@@ -222,10 +238,7 @@ export function createBuiltinTypeMetadataResolver(): MetadataResolver {
   return {
     id: "builtin.semantic-type",
     resolve(semantic) {
-      const defaults = TYPE_DEFAULTS[semantic.type];
-      return defaults
-        ? { ...defaults, reminder: cloneReminder(defaults.reminder) }
-        : null;
+      return semanticTypeDefaults(semantic.type);
     },
   };
 }

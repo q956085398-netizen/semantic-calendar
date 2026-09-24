@@ -1294,6 +1294,82 @@ describe("月格与详情栏的农历（SC-010 / CN-001）", () => {
   });
 });
 
+describe("详情栏的休假 / 补班语义（SC-011 / CN-002–004）", () => {
+  it("选中放假日显示大字、假期名与连休位置", () => {
+    freezeClock();
+    render(<App />);
+
+    // 2026 年中秋节：9 月 25 日至 27 日（国办发明电〔2025〕7号）。
+    fireEvent.click(
+      screen
+        .getByRole("grid", { name: "2026年9月" })
+        .querySelector('[data-date="2026-09-25"]') as HTMLElement,
+    );
+
+    const row = document.querySelector(".inspector-china-day") as HTMLElement;
+    expect(row.getAttribute("data-china-day")).toBe("rest");
+    expect(row.textContent).toContain("休");
+    expect(row.textContent).toContain("中秋节假期");
+    expect(row.textContent).toContain("第 1 天 / 共 3 天");
+  });
+
+  it("选中补班日显示补班语义，与休假的标记不同", () => {
+    freezeClock();
+    render(<App />);
+
+    // 2026 年国庆节前的补班日：9 月 20 日（周日）上班。
+    fireEvent.click(
+      screen
+        .getByRole("grid", { name: "2026年9月" })
+        .querySelector('[data-date="2026-09-20"]') as HTMLElement,
+    );
+
+    const row = document.querySelector(".inspector-china-day") as HTMLElement;
+    expect(row.getAttribute("data-china-day")).toBe("makeup");
+    expect(row.textContent).toContain("补");
+    expect(row.textContent).toContain("国庆节补班日");
+    expect(row.textContent).not.toContain("共 3 天");
+  });
+
+  it("普通日期不显示该行", () => {
+    freezeClock();
+    render(<App />);
+
+    fireEvent.click(
+      screen
+        .getByRole("grid", { name: "2026年9月" })
+        .querySelector('[data-date="2026-09-23"]') as HTMLElement,
+    );
+
+    expect(document.querySelector(".inspector-china-day")).toBeNull();
+  });
+
+  it("月格挂上休假 / 补班标记，连休在 DOM 里就是连续区段（CN-004）", () => {
+    freezeClock();
+    render(<App />);
+
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const cellOf = (dateKey: string) =>
+      grid.querySelector(`[data-date="${dateKey}"]`) as HTMLElement;
+
+    // 中秋 9 月 25 日至 27 日：三天共享同一个区段 id。
+    expect(cellOf("2026-09-25").getAttribute("data-china-day")).toBe("rest");
+    expect(cellOf("2026-09-26").getAttribute("data-china-run")).toBe(
+      "2026-09-25",
+    );
+    expect(cellOf("2026-09-27").getAttribute("data-china-run")).toBe(
+      "2026-09-25",
+    );
+
+    // 补班日（9 月 20 日）是另一种类别，没有区段。
+    expect(cellOf("2026-09-20").getAttribute("data-china-day")).toBe("makeup");
+    expect(cellOf("2026-09-20").hasAttribute("data-china-run")).toBe(false);
+
+    // 普通日期不挂标记。
+    expect(cellOf("2026-09-23").hasAttribute("data-china-day")).toBe(false);
+  });
+});
+
 const CLOSE_BEHAVIOR_KEY = "app.closeBehavior";
 
 /** 推给桌面壳的关闭行为序列（Rust 侧才是执行者）。 */
