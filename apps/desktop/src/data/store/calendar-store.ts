@@ -1,4 +1,5 @@
 import {
+  asNormalizedEvent,
   eventKey,
   eventKeyPrefix,
   identityOfEvent,
@@ -222,8 +223,8 @@ export class CalendarStore {
   }
 
   /**
-   * 读取模型：原始事件 + 增强结果连接为 EnrichedEvent。
-   * 事件尚未经过 SC-008 标准化时，normalizedTitle 回退为原标题。
+   * 读取模型：原始事件 + 增强结果连接为 EnrichedEvent
+   * （normalizedTitle 回退口径见 asNormalizedEvent）。
    */
   listEnrichedEvents(sourceId?: string): EnrichedEvent[] {
     return [...this.events.values()]
@@ -237,8 +238,7 @@ export class CalendarStore {
           eventKey(identityOfEvent(event)),
         );
         return {
-          ...clone(event),
-          normalizedTitle: event.normalizedTitle ?? event.title,
+          ...asNormalizedEvent(clone(event)),
           semantic: enrichment?.semantic,
           metadata: enrichment?.metadata,
         };

@@ -79,6 +79,14 @@ export interface NormalizedEvent extends RawCalendarEvent {
 export type StoredEvent = RawCalendarEvent &
   Partial<Pick<NormalizedEvent, "normalizedTitle" | "timezone">>;
 
+/**
+ * 读取视图：入库事件可能尚未标准化，标题回退为原标题。
+ * Matcher（SC-009）与 UI 读取共用该口径。
+ */
+export function asNormalizedEvent(event: StoredEvent): NormalizedEvent {
+  return { ...event, normalizedTitle: event.normalizedTitle ?? event.title };
+}
+
 export type SemanticEventType =
   | "calendar.event"
   | "holiday"

@@ -684,6 +684,49 @@ describe("重复事件月格展开（SC-008 / ICS-004）", () => {
   });
 });
 
+describe("语义增强接线（SC-009 / SEM-003）", () => {
+  it("导入后执行匹配：当前注册表无领域 Matcher，全部回退普通显示", async () => {
+    await renderReadyApp();
+    chooseImportFile(icsFile(IMPORT_ICS));
+    await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
+
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    // 月格摘要无任何语义标记：引擎已执行，未命中不写增强（SEM-003）。
+    expect(grid.querySelectorAll(".cell-event.is-semantic")).toHaveLength(0);
+    expect(grid.querySelectorAll("[data-semantic-type]")).toHaveLength(0);
+    // 普通事件照常渲染，不会因为匹配为空而消失。
+    expect(
+      within(grid.querySelector('[data-date="2026-09-23"]')!).getByText(
+        "19:00 晚间例会",
+      ),
+    ).toBeTruthy();
+
+    // 快照里增强分区为空：原始事件分区不受影响。
+    const lastSnapshot = writtenSnapshots().at(-1)!;
+    expect(lastSnapshot.enrichments).toEqual({});
+    expect(lastSnapshot.events).toHaveLength(2);
+  });
+
+  it("点击日期后详情栏同样按普通事件显示，无语义标签", async () => {
+    await renderReadyApp();
+    chooseImportFile(icsFile(IMPORT_ICS));
+    await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
+
+    fireEvent.click(
+      screen
+        .getByRole("grid", { name: "2026年9月" })
+        .querySelector('[data-date="2026-09-24"]') as HTMLElement,
+    );
+
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(
+      inspector.querySelectorAll(".inspector-event.is-semantic"),
+    ).toHaveLength(0);
+    expect(within(inspector).queryByText("法定节假日")).toBeNull();
+    expect(within(inspector).getByText("全天出行")).toBeTruthy();
+  });
+});
+
 describe("本地数据层接线", () => {
   it("首次启动时创建快照并记录启动时间", async () => {
     freezeClock();

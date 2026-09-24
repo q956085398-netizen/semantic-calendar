@@ -34,6 +34,14 @@
   --inspector-width: 288px;
   --pane-gap: 10px;
   --radius-cell: 12px;
+
+  /* 语义 accent（SC-009 / §7.5）：由 Metadata Resolver 引用，
+     UI 组件不接触具体色值；语义色体系由 SC-013 细化 */
+  --semantic-holiday: var(--source-holiday);
+  --semantic-makeup-workday: #4d7ea8;
+  --semantic-festival: #b9803c;
+  --semantic-solar-term: var(--source-solar);
+  --semantic-sport: var(--source-sport);
 }
 
 :root[data-theme="dark"] {
@@ -50,6 +58,10 @@
   --border-subtle: #2a323d;
   --accent: #f0795e;
   --focus-ring: #7fa8c9;
+
+  /* 深色下提高两个字面色值的可读性；token 引用型自动跟随 */
+  --semantic-makeup-workday: #7aa7cf;
+  --semantic-festival: #d0a05a;
 }
 
 * {
@@ -607,6 +619,13 @@ button:focus-visible {
   line-height: 1.35;
 }
 
+/* 语义增强（SC-009）：accent 来自 Metadata Resolver 注入的
+   --event-accent，月格本身不做任何领域判断 */
+.cell-event.is-semantic {
+  border-left-color: var(--event-accent, var(--accent));
+  color: var(--text-primary);
+}
+
 .month-cell.is-outside .cell-event {
   color: var(--text-outside);
 }
@@ -692,6 +711,27 @@ button:focus-visible {
   border: 1px solid var(--border-subtle);
   border-radius: 10px;
   background: var(--bg-cell);
+}
+
+/* 语义增强（SC-009）：左缘 accent 条 + 语义短标签 */
+.inspector-event.is-semantic {
+  border-left: 3px solid var(--event-accent, var(--accent));
+}
+
+.inspector-event-badge {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 1px 7px;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--event-accent, var(--accent)) 45%,
+      var(--border-subtle)
+    );
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .inspector-event-time {

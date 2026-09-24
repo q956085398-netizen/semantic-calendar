@@ -19,6 +19,8 @@ import {
 } from "./data/import/import-local-ics";
 import type { CalendarStore } from "./data/store/calendar-store";
 import type { StoreRecoveryReason } from "./data/store/calendar-store";
+import { reEnrichStore } from "./semantic/enrich";
+import { createAppSemanticStack } from "./semantic/app-registry";
 import { AppShell } from "./layout/AppShell";
 import { InspectorPanel } from "./layout/InspectorPanel";
 import { Sidebar } from "./layout/Sidebar";
@@ -31,6 +33,13 @@ import {
 } from "./theme/theme";
 
 const LAST_OPENED_SETTING = "app.lastOpenedAt";
+
+/**
+ * 语义栈（SC-009）：静态注册的 Matcher + Metadata Resolver。
+ * 每次启动用当前注册表整体重建增强结果（SEM-004），Matcher 升级后
+ * 语义随之更新，无需重新导入源数据。
+ */
+const semanticStack = createAppSemanticStack();
 
 const REASON_LABELS: Record<StoreRecoveryReason, string> = {
   "corrupt-json": "文件损坏",
@@ -141,6 +150,8 @@ export default function App() {
 
       const { store, recovery } = opened;
       storeRef.current = store;
+      // 语义增强（SC-009）：用当前 Matcher 注册表重建后再进入 UI。
+      reEnrichStore(store, semanticStack);
       refreshFromStore(store);
 
       const savedTheme = normalizeTheme(store.getSetting(THEME_SETTING_KEY));
@@ -222,7 +233,7 @@ export default function App() {
   }
 
   /**
-   * 导入本地 ICS（SC-006 / SRC-001）：文件选择 → 解析 → 落库 → 刷新。
+   * 导入本地 ICS（SC-006 / SRC-001）：文件选择 → 解析 → 落库 → 匹配 → 刷新。
    * 解析错误按事件隔离后聚合反馈（ICS-005），异常也不中断月视图。
    */
   async function handleImportIcs(file: File) {
@@ -238,6 +249,7 @@ export default function App() {
         fileName: file.name,
         contents,
       });
+      reEnrichStore(store, semanticStack);
       await store.save();
       refreshFromStore(store);
       setImportStatus(formatImportStatus(outcome));

@@ -386,4 +386,12 @@ npm run tauri -- build
 - RRULE 解析 `normalize/rrule.ts`：DAILY / WEEKLY / MONTHLY / YEARLY 与 INTERVAL / COUNT / UNTIL / BYDAY（含 ±序数）/ BYMONTHDAY；含 BYSETPOS 等无法精确兑现部分的规则返回 undefined，降级为单次事件（P-01：宁可不展开也不展示错误的重复）；
 - Occurrence 展开 `normalize/occurrences.ts`：读取路径按月视图窗口展开——墙钟空间生成保证“每天几点”跨夏令时不漂移、TZID 实例换算为 UTC 瞬时、EXDATE 排除（墙钟 / UTC / 日期三形态匹配）、RECURRENCE-ID 例外替换与 STATUS:CANCELLED 取消、生成实例带稳定 occurrenceId（同一 occurrence 不重复，ICS-001）；迭代上限防御病态规则（app-spec §15）。
 
-v0.1 已知限制：同一文件改名后再次导入会视为新来源（新增副本），来源删除入口由 SC-018 提供；RRULE 的 BYSETPOS / BYWEEKNO 等高级部分按“降级为单次事件”处理，完整支持留给后续版本。
+语义框架（SC-009）位于 `apps/desktop/src/semantic/`，完成“识别是什么”与“怎么展示”的分层（app-spec §7.4 / §7.5）：
+
+- Matcher Engine `semantic/matcher-engine.ts`：`EventMatcher`（id / priority / match）静态注册，执行顺序完全确定（priority 升序、同级按 id 字典序，SEM-001）；`MatchResult` 含 semantic / matcherId / confidence / reason（SEM-002），matcherId 由引擎盖戳、实现方无法冒名；单个 Matcher 抛错只降级自身，事件继续后续判定，绝不消失（app-spec §6）；
+- Metadata Resolver `semantic/metadata-resolver.ts`：组合器按注册顺序取第一个非 null，可整体替换（换图标包 / 主题 / 语言不动识别逻辑）；内置类型级默认值给出语义色 token、中文短标签与默认提醒策略（SC-017 消费）；`displayMetadataOf` 是 UI 读取边界，对磁盘 JSON 防御性收窄；
+- 增强管线 `semantic/enrich.ts`：`reEnrichStore` 是唯一重建入口——清空增强分区后用当前 Matcher 集合重跑（SEM-004：Matcher 更新后语义随之重算，无需重新导入源数据）；未命中不写记录、读取侧自动按普通事件显示（SEM-003）；只写 enrichments 分区，原始事件分区分毫不动；
+- 应用接线 `semantic/app-registry.ts` + `App.tsx`：启动与每次导入后执行匹配；Matcher / Resolver 抛错只降级自身并留一条不含事件正文的控制台告警（app-spec §14），事件不会消失；启动重建是同步 O(事件数 × Matcher 数) 单趟扫描（无后台轮询），耗时基线测量由 SC-020 提供；v0.1 静态注册表尚无领域 Matcher（法定节假日 SC-011、传统节日与节气 SC-012、英超 SC-015 依次加入），链路已真实运行，全部事件按普通事件显示；
+- UI 通用增强显示：月格摘要与 Inspector 事件卡消费 `--event-accent`（语义色左缘条）与语义短标签，值全部来自 Metadata Resolver，UI 组件不含任何球队 / 节日标题判断（验收：UI 不包含领域判断）。
+
+v0.1 已知限制：同一文件改名后再次导入会视为新来源（新增副本），来源删除入口由 SC-018 提供；RRULE 的 BYSETPOS / BYWEEKNO 等高级部分按“降级为单次事件”处理，完整支持留给后续版本；语义色 token 为临时基线，完整语义色体系由 SC-013 定稿。

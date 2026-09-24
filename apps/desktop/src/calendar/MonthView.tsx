@@ -1,7 +1,14 @@
-import { useEffect, useMemo, useRef, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  type CSSProperties,
+  type KeyboardEvent,
+} from "react";
 import { eventKey, identityOfEvent, type EnrichedEvent } from "../data/model";
 import { WEEKDAY_LABELS, type MonthGrid } from "./month-grid";
 import { eventTimeLabel } from "./event-display";
+import { displayMetadataOf } from "../semantic/metadata-resolver";
 
 /**
  * 月视图（CAL-001 / CAL-002）：6×7 网格、月份导航、日期选择。
@@ -186,7 +193,11 @@ export function MonthView({
   );
 }
 
-/** 单格事件摘要：时间前缀 + 标题，超出上限折叠为计数。 */
+/**
+ * 单格事件摘要：时间前缀 + 标题，超出上限折叠为计数。
+ * 语义增强（SC-009）只消费 Metadata Resolver 的输出：accent 与
+ * data-semantic-type 都是通用管道，组件不含任何球队 / 节日判断。
+ */
 function CellEvents({ events }: { events: EnrichedEvent[] | undefined }) {
   if (!events || events.length === 0) {
     return null;
@@ -197,10 +208,17 @@ function CellEvents({ events }: { events: EnrichedEvent[] | undefined }) {
     <div className="cell-events">
       {visible.map((event) => {
         const time = eventTimeLabel(event);
+        const accent = displayMetadataOf(event)?.accent;
         return (
           <span
             key={eventKey(identityOfEvent(event))}
-            className="cell-event"
+            className={accent ? "cell-event is-semantic" : "cell-event"}
+            data-semantic-type={event.semantic?.type}
+            style={
+              accent
+                ? ({ "--event-accent": accent } as CSSProperties)
+                : undefined
+            }
             title={event.title}
           >
             {time ? `${time} ` : ""}
