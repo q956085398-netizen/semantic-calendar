@@ -292,6 +292,21 @@ button:focus-visible {
     background 120ms ease;
 }
 
+/* 窗口行为（SC-002）：侧栏宽度固定，分段控件撑满并压缩内边距 */
+.shell-behavior .segmented {
+  display: flex;
+  width: 100%;
+}
+
+.shell-behavior .segmented-item {
+  flex: 1;
+  padding: 7px 8px;
+}
+
+.shell-behavior .store-status {
+  margin-top: 8px;
+}
+
 .theme-toggle:hover {
   color: var(--text-primary);
   background: var(--bg-cell-hover);

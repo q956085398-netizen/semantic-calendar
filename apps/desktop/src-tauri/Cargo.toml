@@ -14,7 +14,11 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-tauri = { version = "2", features = [] }
+# tray-icon（SC-002）：系统托盘需要 tauri 的 tray-icon feature，图标直接复用
+# bundle 里的应用图标，不额外引入图片依赖。
+tauri = { version = "2", features = ["tray-icon"] }
+# 单实例（SC-002）：第二次启动不再起新进程，而是恢复已有窗口。
+tauri-plugin-single-instance = "2"
 # WebCal 订阅抓取（SC-007）：默认 feature 会启用 rustls + aws-lc-rs（需要
 # cmake/nasm 工具链），这里改为系统 TLS（Windows 走 schannel），避免额外
 # C 构建依赖。默认 feature 中的 charset / http2 / system-proxy 暂不需要。

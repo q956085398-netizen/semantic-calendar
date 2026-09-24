@@ -47,6 +47,14 @@ import { InspectorPanel } from "./layout/InspectorPanel";
 import { Sidebar } from "./layout/Sidebar";
 import { formatDateTime } from "./format/time";
 import {
+  CLOSE_BEHAVIOR_SETTING_KEY,
+  DEFAULT_CLOSE_BEHAVIOR,
+  normalizeCloseBehavior,
+  type CloseBehavior,
+} from "./shell/close-behavior";
+import { createTauriShellBridge } from "./shell/shell-bridge";
+import { isTauriIpcUnavailable } from "./ipc/tauri-ipc";
+import {
   THEME_SETTING_KEY,
   applyTheme,
   normalizeTheme,
@@ -66,6 +74,9 @@ const semanticStack = createAppSemanticStack();
 /** 订阅网络访问（SC-007）：桌面壳由 Rust 侧抓取，webview 不直接联网。 */
 const httpIO = createTauriHttpIO();
 
+/** 桌面壳（SC-002）：关闭行为由 Rust 侧执行，前端只推送设置值。 */
+const shellBridge = createTauriShellBridge();
+
 /**
  * 可关注球队（SC-016）：静态元数据，启动装配一次即可。
  * 侧栏只渲染这份展示载荷，不做任何球队名匹配。
@@ -79,6 +90,9 @@ const REASON_LABELS: Record<StoreRecoveryReason, string> = {
 };
 
 const PREVIEW_MODE_HINT = "浏览器预览模式：订阅需要桌面环境";
+
+/** 托盘不可用时的降级说明：桌面壳会把“隐藏到托盘”变成直接退出。 */
+const TRAY_UNAVAILABLE_HINT = "系统托盘不可用：关闭窗口将直接退出应用";
 
 /** 导入结果 → 用户可读状态；只报告数量、位置与结构原因，不外泄事件正文（app-spec §14）。 */
 function formatImportStatus(outcome: LocalIcsImportOutcome): string {
@@ -151,6 +165,15 @@ export default function App() {
   const [storeStatus, setStoreStatus] = useState("正在初始化本地数据层…");
   const storeRef = useRef<CalendarStore | null>(null);
   const [today] = useState(() => new Date());
+
+  // 窗口行为（SC-002）：关闭窗口是隐藏到托盘还是退出。权威来源是快照设置，
+  // 这里只是 UI 镜像；真正执行的是桌面壳。
+  const [closeBehavior, setCloseBehavior] = useState<CloseBehavior>(
+    DEFAULT_CLOSE_BEHAVIOR,
+  );
+  const [closeBehaviorStatus, setCloseBehaviorStatus] = useState<
+    string | undefined
+  >();
 
   // 数据源与事件（SC-006）：从本地数据层读出，导入后刷新。
   const [sources, setSources] = useState<CalendarSource[]>([]);
@@ -234,6 +257,43 @@ export default function App() {
   }, []);
 
   /**
+   * 把关闭行为推给桌面壳（启动与切换共用）。
+   *
+   * 两种“说的和做的不一致”都要让用户看到（§13）：推送失败，或桌面壳
+   * 报告托盘不可用——此时“隐藏到托盘”已被降级成退出。状态文案只陈述
+   * 桌面壳报告的事实，不从返回值差异反推原因。浏览器预览模式没有桌面壳，
+   * 静默跳过：设置仍可切换，只是不生效也不持久化，与主题切换口径一致。
+   */
+  const pushCloseBehavior = useCallback(async (behavior: CloseBehavior) => {
+    try {
+      const status = await shellBridge.setCloseBehavior(behavior);
+      setCloseBehaviorStatus(
+        status.trayAvailable ? undefined : TRAY_UNAVAILABLE_HINT,
+      );
+    } catch (error) {
+      if (isTauriIpcUnavailable(error)) {
+        return;
+      }
+      setCloseBehaviorStatus(
+        `关闭行为未能应用：${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }, []);
+
+  /**
+   * 写入一个用户设置并立即落盘；没有数据层（预览模式）时只改内存状态。
+   * 主题、关注球队与关闭行为共用这一条路径。
+   */
+  const persistSetting = useCallback(async (key: string, value: unknown) => {
+    const store = storeRef.current;
+    if (!store) {
+      return;
+    }
+    store.setSetting(key, value);
+    await store.save();
+  }, []);
+
+  /**
    * 刷新一个订阅并落盘（手动刷新与后台调度共用同一条路径）。
    * 只有内容真正变化时才重建语义增强，304 与失败不动增强分区。
    */
@@ -301,6 +361,15 @@ export default function App() {
       applyTheme(savedTheme);
       setTheme(savedTheme);
 
+      // 窗口行为（SC-002）：快照设置是权威来源，启动时同步给桌面壳，
+      // 否则“上次选的退出”会在下次启动后变回隐藏到托盘。
+      const savedCloseBehavior = normalizeCloseBehavior(
+        store.getSetting(CLOSE_BEHAVIOR_SETTING_KEY),
+      );
+      setCloseBehavior(savedCloseBehavior);
+      await pushCloseBehavior(savedCloseBehavior);
+      if (cancelled) return;
+
       // 关注球队（SC-016）：坏值在读取边界丢弃，不猜成某支球队。
       setFollowedTeamIds(
         readFollowedTeamIds(store.getSetting(FOLLOWED_TEAMS_SETTING_KEY)),
@@ -338,8 +407,13 @@ export default function App() {
       schedulerRef.current?.stop();
       schedulerRef.current = null;
     };
-    // 两个回调身份稳定（useCallback），该 effect 实际只在挂载时执行一次。
-  }, [markRefreshing, refreshFromStore, refreshSubscription]);
+    // 三个回调身份稳定（useCallback），该 effect 实际只在挂载时执行一次。
+  }, [
+    markRefreshing,
+    pushCloseBehavior,
+    refreshFromStore,
+    refreshSubscription,
+  ]);
 
   /**
    * 添加订阅（SC-007 / SRC-002）：地址归一化 → 建源 → 立即抓取一次。
@@ -464,12 +538,7 @@ export default function App() {
     const next = toggleTheme(theme);
     setTheme(next);
     applyTheme(next);
-
-    const store = storeRef.current;
-    if (store) {
-      store.setSetting(THEME_SETTING_KEY, next);
-      await store.save();
-    }
+    await persistSetting(THEME_SETTING_KEY, next);
   }
 
   /**
@@ -479,12 +548,17 @@ export default function App() {
   async function handleToggleFollowedTeam(teamId: string, followed: boolean) {
     const next = toggleFollowedTeam(followedTeamIds, teamId, followed);
     setFollowedTeamIds(next);
+    await persistSetting(FOLLOWED_TEAMS_SETTING_KEY, next);
+  }
 
-    const store = storeRef.current;
-    if (store) {
-      store.setSetting(FOLLOWED_TEAMS_SETTING_KEY, next);
-      await store.save();
-    }
+  /**
+   * 切换关闭行为（SC-002）：状态立即生效并落盘，再推给桌面壳。
+   * 与主题、关注球队一致——预览模式下可切换但不持久化。
+   */
+  async function handleChangeCloseBehavior(next: CloseBehavior) {
+    setCloseBehavior(next);
+    await persistSetting(CLOSE_BEHAVIOR_SETTING_KEY, next);
+    await pushCloseBehavior(next);
   }
 
   /**
@@ -546,6 +620,9 @@ export default function App() {
           followableTeams={followableTeams}
           followedTeamIds={followedTeamIds}
           onToggleFollowedTeam={handleToggleFollowedTeam}
+          closeBehavior={closeBehavior}
+          onChangeCloseBehavior={handleChangeCloseBehavior}
+          closeBehaviorStatus={closeBehaviorStatus}
         />
       }
       inspector={

@@ -27,6 +27,7 @@ function mockBackend(
   overrides: {
     dataStoreRead?: string | null | Error;
     webcalFetch?: (args: Record<string, unknown>) => unknown;
+    shellSetCloseBehavior?: unknown;
   } = {},
 ) {
   invokeMock.mockImplementation(
@@ -37,6 +38,15 @@ function mockBackend(
       if (cmd === "webcal_fetch") {
         return asPromise(
           overrides.webcalFetch ? overrides.webcalFetch(args ?? {}) : null,
+        );
+      }
+      if (cmd === "shell_set_close_behavior") {
+        // 默认模拟“托盘可用”的正常回答：桌面壳回显实际生效的行为。
+        return asPromise(
+          overrides.shellSetCloseBehavior ?? {
+            behavior: args?.behavior,
+            trayAvailable: true,
+          },
         );
       }
       return Promise.resolve(null);
@@ -1281,5 +1291,122 @@ describe("月格与详情栏的农历（SC-010 / CN-001）", () => {
     expect(
       grid.querySelector('[data-date="2026-10-10"] .cell-lunar')?.textContent,
     ).toBe("九月");
+  });
+});
+
+const CLOSE_BEHAVIOR_KEY = "app.closeBehavior";
+
+/** 推给桌面壳的关闭行为序列（Rust 侧才是执行者）。 */
+function pushedCloseBehaviors(): unknown[] {
+  return invokeMock.mock.calls
+    .filter(([cmd]) => cmd === "shell_set_close_behavior")
+    .map(([, args]) => (args as { behavior?: unknown } | undefined)?.behavior);
+}
+
+/** 最近一次写入快照里的某个设置值。 */
+function settingInSnapshot(key: string): unknown {
+  const settings = writtenSnapshots().at(-1)!.settings as Record<
+    string,
+    unknown
+  >;
+  return settings[key];
+}
+
+function closeBehaviorInSnapshot(): unknown {
+  return settingInSnapshot(CLOSE_BEHAVIOR_KEY);
+}
+
+function closeBehaviorButton(name: string): HTMLElement {
+  return within(sidebar()).getByRole("button", { name });
+}
+
+describe("窗口行为（SC-002）", () => {
+  it("默认隐藏到托盘，并在启动时推给桌面壳", async () => {
+    await renderReadyApp();
+
+    const option = closeBehaviorButton("隐藏到托盘");
+    expect(option.getAttribute("aria-pressed")).toBe("true");
+    expect(closeBehaviorButton("退出应用").getAttribute("aria-pressed")).toBe(
+      "false",
+    );
+    // 说明文案写清“应用是否还在运行”，不靠颜色单独表达。
+    expect(within(sidebar()).getByText(/继续在系统托盘运行/)).toBeTruthy();
+    // 托盘可用时不应出现降级提示。
+    expect(within(sidebar()).queryByText(/系统托盘不可用/)).toBeNull();
+    expect(pushedCloseBehaviors()).toEqual(["hide-to-tray"]);
+  });
+
+  it("快照里的退出设置在启动时恢复，并推给桌面壳", async () => {
+    mockBackend({
+      dataStoreRead: seededSnapshot({ [CLOSE_BEHAVIOR_KEY]: "quit" }),
+    });
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
+
+    expect(closeBehaviorButton("退出应用").getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(pushedCloseBehaviors()).toEqual(["quit"]);
+  });
+
+  it("坏值按默认行为处理，不猜出第三种语义", async () => {
+    mockBackend({
+      dataStoreRead: seededSnapshot({ [CLOSE_BEHAVIOR_KEY]: "minimize" }),
+    });
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
+
+    expect(closeBehaviorButton("隐藏到托盘").getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(pushedCloseBehaviors()).toEqual(["hide-to-tray"]);
+  });
+
+  it("切换关闭行为写入快照并推送桌面壳", async () => {
+    await renderReadyApp();
+
+    fireEvent.click(closeBehaviorButton("退出应用"));
+
+    await waitFor(() => expect(closeBehaviorInSnapshot()).toBe("quit"));
+    expect(pushedCloseBehaviors()).toEqual(["hide-to-tray", "quit"]);
+    expect(closeBehaviorButton("退出应用").getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+  });
+
+  it("桌面壳把隐藏降级为退出时（托盘不可用）说明真实行为（§13）", async () => {
+    mockBackend({
+      dataStoreRead: seededSnapshot(),
+      shellSetCloseBehavior: { behavior: "quit", trayAvailable: false },
+    });
+    render(<App />);
+
+    await waitFor(() =>
+      expect(
+        within(sidebar()).getByText(/系统托盘不可用：关闭窗口将直接退出应用/),
+      ).toBeTruthy(),
+    );
+    // 设置值仍是用户选的“隐藏到托盘”，降级只发生在执行侧。
+    expect(closeBehaviorButton("隐藏到托盘").getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+  });
+
+  it("桌面壳拒绝推送时给出可解释状态，但不影响持久化（§13）", async () => {
+    mockBackend({
+      dataStoreRead: seededSnapshot(),
+      shellSetCloseBehavior: new Error("未知的关闭行为：exit"),
+    });
+    render(<App />);
+
+    await waitFor(() =>
+      expect(
+        within(sidebar()).getByText(/关闭行为未能应用：未知的关闭行为/),
+      ).toBeTruthy(),
+    );
+
+    // 失败的是执行侧：设置照常落盘，下次启动仍会按用户选择推送。
+    fireEvent.click(closeBehaviorButton("退出应用"));
+    await waitFor(() => expect(closeBehaviorInSnapshot()).toBe("quit"));
   });
 });

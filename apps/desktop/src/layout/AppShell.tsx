@@ -18,9 +18,21 @@ interface AppShellProps {
 const SIDEBAR_PANE_ID = "app-sidebar";
 const INSPECTOR_PANE_ID = "app-inspector";
 
-/** 自动折叠阈值：右栏在 1080px 收起，左栏在 880px 收起。 */
-const INSPECTOR_NARROW_QUERY = "(max-width: 1080px)";
-const SIDEBAR_NARROW_QUERY = "(max-width: 880px)";
+/**
+ * 自动折叠阈值（px）：右栏在 1080px 收起，左栏在 880px 收起。
+ *
+ * 这两个数字与 tauri.conf.json 的窗口最小宽度是一份契约：最小宽度必须
+ * 落在左栏阈值之内，这样窗口缩到最小尺寸时两侧面板都已收起，月历主体
+ * 仍然完整可用（ui-design §23 的“最窄允许范围”）。契约由
+ * `window-size-contract.test.ts` 守住。
+ */
+export const NARROW_LAYOUT_THRESHOLDS = {
+  inspector: 1080,
+  sidebar: 880,
+} as const;
+
+const INSPECTOR_NARROW_QUERY = `(max-width: ${NARROW_LAYOUT_THRESHOLDS.inspector}px)`;
+const SIDEBAR_NARROW_QUERY = `(max-width: ${NARROW_LAYOUT_THRESHOLDS.sidebar}px)`;
 
 interface CollapsiblePaneProps {
   id: string;

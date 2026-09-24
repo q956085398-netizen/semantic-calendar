@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use tauri::Manager;
 
+mod shell;
 mod webcal;
 
 /// 本地数据快照所在的子目录（位于系统 app data dir 之下）。
@@ -100,11 +101,33 @@ async fn webcal_fetch(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // 单实例（SC-002）：必须最先注册（插件约定）。第二次启动不再起新
+        // 进程，而是把已有窗口恢复到前台，因此不会出现重复进程与双托盘。
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            shell::show_main_window(app);
+        }))
+        .manage(shell::ShellState::new())
+        .setup(|app| {
+            // 托盘不可用不阻塞启动：关闭行为会自动退化为退出
+            // （shell::effective_close_behavior），不会出现“窗口藏起来又没有入口”。
+            let tray_available = match shell::install_tray(app.handle()) {
+                Ok(()) => true,
+                Err(message) => {
+                    eprintln!("[shell] 系统托盘不可用，关闭窗口将直接退出：{message}");
+                    false
+                }
+            };
+            app.state::<shell::ShellState>()
+                .set_tray_available(tray_available);
+            Ok(())
+        })
+        .on_window_event(|window, event| shell::handle_window_event(window, event))
         .invoke_handler(tauri::generate_handler![
             data_store_read,
             data_store_write,
             data_store_rename,
-            webcal_fetch
+            webcal_fetch,
+            shell::shell_set_close_behavior
         ])
         .run(tauri::generate_context!())
         .expect("error while running Semantic Calendar");

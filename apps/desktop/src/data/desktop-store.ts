@@ -1,5 +1,6 @@
 import { CalendarStore, type StoreOpenResult } from "./store/calendar-store";
 import { createTauriFileIO } from "./store/tauri-file-io";
+import { isTauriIpcUnavailable } from "../ipc/tauri-ipc";
 
 /** 桌面端唯一的数据快照文件（位于 app data dir 的 store 子目录）。 */
 export const STORE_FILE_NAME = "calendar-store.json";
@@ -16,17 +17,9 @@ export async function openDesktopCalendarStore(): Promise<StoreOpenResult | null
   try {
     return await CalendarStore.open(createTauriFileIO(), STORE_FILE_NAME);
   } catch (error) {
-    if (isIpcUnavailable(error)) {
+    if (isTauriIpcUnavailable(error)) {
       return null;
     }
     throw error;
   }
-}
-
-/**
- * 无 Tauri 运行时的浏览器环境里，invoke 会在访问
- * window.__TAURI_INTERNALS__ 时抛错；据此区分“预览模式”与真实故障。
- */
-function isIpcUnavailable(error: unknown): boolean {
-  return /__TAURI_INTERNALS__/i.test(String(error));
 }

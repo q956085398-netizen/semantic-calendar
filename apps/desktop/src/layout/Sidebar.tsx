@@ -7,16 +7,22 @@ import {
 import { WEBCAL_SOURCE_TYPE, type CalendarSource } from "../data/model";
 import { formatDateTime } from "../format/time";
 import type { Theme } from "../theme/theme";
+import {
+  CLOSE_BEHAVIOR_OPTIONS,
+  describeCloseBehavior,
+  type CloseBehavior,
+} from "../shell/close-behavior";
 import { FollowedTeamsPicker } from "./FollowedTeamsPicker";
 import type { FixtureTeamDisplay } from "../semantic/metadata-resolver";
 
 /**
- * 左侧栏（ui-design §4）：品牌区 + 小月历 + 数据源列表 + 关注球队 + 导入 / 订阅 + 主题切换。
+ * 左侧栏（ui-design §4）：品牌区 + 小月历 + 数据源列表 + 关注球队 + 导入 / 订阅 + 窗口行为 + 主题切换。
  *
  * 小月历由 App 注入（SC-005），与主视图共享导航状态。
  * SC-006 起列出真实导入的本地 ICS 数据源；
  * SC-007 起列出 WebCal 订阅，并可添加 / 刷新 / 启停 / 删除（SRC-002 / SRC-003）；
  * SC-016 起提供关注球队选择（SPORT-006），持久化由 App 负责；
+ * SC-002 起提供关闭窗口行为（隐藏到托盘 / 退出），执行者是桌面壳；
  * 内置行（节假日 / 节气 / 英超）仍是静态占位，由 SC-011 / SC-012 提供数据，
  * 显示开关与设置入口由 SC-018 接线。
  */
@@ -56,6 +62,12 @@ interface SidebarProps {
   followedTeamIds: readonly string[];
   /** 关注 / 取消关注。 */
   onToggleFollowedTeam: (teamId: string, followed: boolean) => void;
+  /** 关闭窗口行为（SC-002）：当前设置值。 */
+  closeBehavior: CloseBehavior;
+  /** 切换关闭行为；落盘与推送桌面壳由 App 负责。 */
+  onChangeCloseBehavior: (behavior: CloseBehavior) => void;
+  /** 关闭行为未能应用到桌面壳时的说明（§13 可解释状态）。 */
+  closeBehaviorStatus?: string;
 }
 
 interface StaticSourceRow {
@@ -131,6 +143,9 @@ export function Sidebar({
   followableTeams,
   followedTeamIds,
   onToggleFollowedTeam,
+  closeBehavior,
+  onChangeCloseBehavior,
+  closeBehaviorStatus,
 }: SidebarProps) {
   const [draftUrl, setDraftUrl] = useState("");
 
@@ -300,6 +315,38 @@ export function Sidebar({
       />
 
       <div className="sidebar-footer">
+        {/* 窗口行为（SC-002）：两种语义互斥，用分段控件明确表达当前选择，
+            文字同时说明“应用是否还在运行”，不靠颜色单独传达。 */}
+        <div className="shell-behavior">
+          <h2 id="shell-behavior-heading" className="sidebar-heading">
+            关闭窗口时
+          </h2>
+          <div
+            className="segmented"
+            role="group"
+            aria-labelledby="shell-behavior-heading"
+          >
+            {CLOSE_BEHAVIOR_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className="segmented-item"
+                aria-pressed={closeBehavior === option.value}
+                title={option.hint}
+                onClick={() => onChangeCloseBehavior(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <p className="store-status">{describeCloseBehavior(closeBehavior)}</p>
+          {closeBehaviorStatus && (
+            <p className="store-status" role="status">
+              {closeBehaviorStatus}
+            </p>
+          )}
+        </div>
+
         <button
           type="button"
           className="theme-toggle"
