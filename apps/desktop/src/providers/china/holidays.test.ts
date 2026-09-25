@@ -9,6 +9,7 @@ import {
   HOLIDAY_ARRANGEMENTS,
   type HolidayArrangementData,
   type HolidayItemData,
+  type HolidayRange,
 } from "./holidays-data";
 
 /**
@@ -263,6 +264,219 @@ describe("日期准确性（与农历表互证）", () => {
   });
 });
 
+/**
+ * 通知口径样例：样例值逐条读自通知原文（`holidays-data.ts` 里三个 `sourceUrl`
+ * 页面），并且不读 `HOLIDAY_ARRANGEMENTS`。可核对的性质是「两处必须各改一次」，
+ * 而不是「两个来源互相独立」——样例与数据文件读的是同一份通知，谁都不比谁更权威，
+ * 但数据文件被改动而这张表没跟着改就会红。
+ *
+ * 与「日期准确性（与农历表互证）」一组的分工：那一组证明登记的日期不是一串乱码、
+ * 并钉住几个易错日期，但整段区间挪一天、把补班日写错一天它都看不出来（数据文件
+ * 自身仍然自洽，按年合计的天数也没变）；这一张表按通知原文逐条比对，并覆盖到每
+ * 一年每一条通知条目（见本组最后一条用例）。
+ *
+ * 区间写法与数据文件同一口径：通知写「与周末连休」的（2024 元旦、端午）按连休
+ * 区间登记，因此样例里的天数会多于通知里那句「共 X 天」。
+ */
+interface NoticeSample {
+  /** 这条样例读自哪一年的通知，用于报错时定位。 */
+  year: number;
+  /** 通知里的条目名（合并放假的条目不止一段）。 */
+  names: readonly string[];
+  rest: HolidayRange;
+  /** 通知里的「上班」日期，逐日登记。 */
+  makeup: readonly string[];
+}
+
+const NOTICE_SAMPLES: readonly NoticeSample[] = [
+  // 2024：国办发明电〔2023〕7号。
+  {
+    year: 2024,
+    names: ["元旦"],
+    rest: { from: "2023-12-30", to: "2024-01-01" },
+    makeup: [],
+  },
+  {
+    year: 2024,
+    names: ["春节"],
+    rest: { from: "2024-02-10", to: "2024-02-17" },
+    makeup: ["2024-02-04", "2024-02-18"],
+  },
+  {
+    year: 2024,
+    names: ["清明节"],
+    rest: { from: "2024-04-04", to: "2024-04-06" },
+    makeup: ["2024-04-07"],
+  },
+  {
+    year: 2024,
+    names: ["劳动节"],
+    rest: { from: "2024-05-01", to: "2024-05-05" },
+    makeup: ["2024-04-28", "2024-05-11"],
+  },
+  {
+    year: 2024,
+    names: ["端午节"],
+    rest: { from: "2024-06-08", to: "2024-06-10" },
+    makeup: [],
+  },
+  {
+    year: 2024,
+    names: ["中秋节"],
+    rest: { from: "2024-09-15", to: "2024-09-17" },
+    makeup: ["2024-09-14"],
+  },
+  {
+    year: 2024,
+    names: ["国庆节"],
+    rest: { from: "2024-10-01", to: "2024-10-07" },
+    makeup: ["2024-09-29", "2024-10-12"],
+  },
+  // 2025：国办发明电〔2024〕12号。
+  {
+    year: 2025,
+    names: ["元旦"],
+    rest: { from: "2025-01-01", to: "2025-01-01" },
+    makeup: [],
+  },
+  {
+    year: 2025,
+    names: ["春节"],
+    rest: { from: "2025-01-28", to: "2025-02-04" },
+    makeup: ["2025-01-26", "2025-02-08"],
+  },
+  {
+    year: 2025,
+    names: ["清明节"],
+    rest: { from: "2025-04-04", to: "2025-04-06" },
+    makeup: [],
+  },
+  {
+    year: 2025,
+    names: ["劳动节"],
+    rest: { from: "2025-05-01", to: "2025-05-05" },
+    makeup: ["2025-04-27"],
+  },
+  {
+    year: 2025,
+    names: ["端午节"],
+    rest: { from: "2025-05-31", to: "2025-06-02" },
+    makeup: [],
+  },
+  {
+    year: 2025,
+    names: ["国庆节", "中秋节"],
+    rest: { from: "2025-10-01", to: "2025-10-08" },
+    makeup: ["2025-09-28", "2025-10-11"],
+  },
+  // 2026：国办发明电〔2025〕7号。
+  {
+    year: 2026,
+    names: ["元旦"],
+    rest: { from: "2026-01-01", to: "2026-01-03" },
+    makeup: ["2026-01-04"],
+  },
+  {
+    year: 2026,
+    names: ["春节"],
+    rest: { from: "2026-02-15", to: "2026-02-23" },
+    makeup: ["2026-02-14", "2026-02-28"],
+  },
+  {
+    year: 2026,
+    names: ["清明节"],
+    rest: { from: "2026-04-04", to: "2026-04-06" },
+    makeup: [],
+  },
+  {
+    year: 2026,
+    names: ["劳动节"],
+    rest: { from: "2026-05-01", to: "2026-05-05" },
+    makeup: ["2026-05-09"],
+  },
+  {
+    year: 2026,
+    names: ["端午节"],
+    rest: { from: "2026-06-19", to: "2026-06-21" },
+    makeup: [],
+  },
+  {
+    year: 2026,
+    names: ["中秋节"],
+    rest: { from: "2026-09-25", to: "2026-09-27" },
+    makeup: [],
+  },
+  {
+    year: 2026,
+    names: ["国庆节"],
+    rest: { from: "2026-10-01", to: "2026-10-07" },
+    makeup: ["2026-09-20", "2026-10-10"],
+  },
+];
+
+describe("通知口径样例（逐条读自通知原文）", () => {
+  it("放假区间内每一天都是放假日，假期名与通知条目一致", () => {
+    for (const sample of NOTICE_SAMPLES) {
+      for (const key of dateKeysBetween(sample.rest.from, sample.rest.to)) {
+        expect(
+          chinaHolidays.chinaHolidayOfKey(key),
+          `${sample.year} 年通知：${key}`,
+        ).toMatchObject({ kind: "rest", names: sample.names });
+      }
+    }
+  });
+
+  it("区间首尾之外的一天不是放假日", () => {
+    for (const sample of NOTICE_SAMPLES) {
+      // 通知条目之间不接壤，区间外相邻的那一天就不该是放假日（将来真接壤时，
+      // 这条与数据都要显式改）。整段区间挪一天而天数不变时，只有这一条与前一条
+      // 会红——按年合计的「放假日数」对挪位是瞎的。
+      for (const key of [
+        keyOfEpochDay(epochDayOfKey(sample.rest.from) - 1),
+        keyOfEpochDay(epochDayOfKey(sample.rest.to) + 1),
+      ]) {
+        expect(
+          chinaHolidays.chinaHolidayOfKey(key)?.kind,
+          `${sample.year} 年通知：${key}`,
+        ).not.toBe("rest");
+      }
+    }
+  });
+
+  it("补班日逐条登记正确", () => {
+    for (const sample of NOTICE_SAMPLES) {
+      for (const key of sample.makeup) {
+        expect(
+          chinaHolidays.chinaHolidayOfKey(key),
+          `${sample.year} 年通知：${key}`,
+        ).toMatchObject({ kind: "makeup", names: sample.names });
+      }
+    }
+  });
+
+  it("覆盖每一年与每一条通知条目（新增年份 / 条目必须补样例）", () => {
+    // CN-007 的可更新策略是「发布下一年度通知后追加一条安排并补测试样例」。
+    // 这一条把「补样例」变成可执行的：只加数据不加样例会红，并直接指出缺哪一年、
+    // 缺哪一条条目（缺日期的空档由上面几条按天断言，这里管的是范围）。
+    const sampledNames = new Map<number, Set<string>>();
+    for (const sample of NOTICE_SAMPLES) {
+      const names = sampledNames.get(sample.year) ?? new Set<string>();
+      names.add(sample.names.join("、"));
+      sampledNames.set(sample.year, names);
+    }
+
+    expect([...sampledNames.keys()].sort()).toEqual(
+      HOLIDAY_ARRANGEMENTS.map((arrangement) => arrangement.year).sort(),
+    );
+    for (const arrangement of HOLIDAY_ARRANGEMENTS) {
+      expect(
+        [...(sampledNames.get(arrangement.year) ?? [])].sort(),
+        `${arrangement.year} 年通知的条目`,
+      ).toEqual(arrangement.items.map((item) => item.names.join("、")).sort());
+    }
+  });
+});
+
 describe("数据缺失不猜测（P-03）", () => {
   it("没有登记安排的年份查不到假期", () => {
     for (const key of [
@@ -288,31 +502,53 @@ describe("数据缺失不猜测（P-03）", () => {
 });
 
 describe("年份数据版本可追踪（CN-007）", () => {
-  it("每个假期都能追到通知文号与发布日期", () => {
-    expect(chinaHolidays.versions.map((version) => version.year)).toEqual([
-      2024, 2025, 2026,
-    ]);
+  it("每一天都能追到所属安排的通知文号（跨年放假日归属发文年份）", () => {
+    // 元数据本身由下一条逐条锁定；这一条管的是归属：日期的 version 就是它所属
+    // 那一年登记的那一条，跨年的放假日按发文年份算（2024 年安排里的 2023-12-30
+    // 属于〔2023〕7号，而不是 2023 年的另一份通知）。因此断言写成「与那一年登记的
+    // 版本对象一致」，而不是在这里再抄一份文号——文号只锁一处。
+    const versionOfYear = (year: number) =>
+      chinaHolidays.versions.find((version) => version.year === year);
+    const versionOfKey = (key: string) =>
+      chinaHolidays.chinaHolidayOfKey(key)?.version;
 
-    expect(chinaHolidays.chinaHolidayOfKey("2026-10-01")?.version).toEqual({
-      year: 2026,
-      revision: 1,
-      notice: "国办发明电〔2025〕7号",
-      publishedAt: "2025-11-04",
-      sourceUrl:
-        "https://www.gov.cn/zhengce/content/202511/content_7047090.htm",
-    });
-
-    // 跨年的放假日归属发文年份（2024 年安排里的 2023-12-30）。
-    expect(chinaHolidays.chinaHolidayOfKey("2023-12-30")?.version.notice).toBe(
-      "国办发明电〔2023〕7号",
-    );
+    expect(versionOfKey("2023-12-30")?.year).toBe(2024);
+    expect(versionOfKey("2023-12-30")).toEqual(versionOfYear(2024));
+    expect(versionOfKey("2025-10-06")).toEqual(versionOfYear(2025));
+    expect(versionOfKey("2026-10-01")).toEqual(versionOfYear(2026));
   });
 
-  it("修订号逐个安排登记，用于标记数据修正", () => {
-    for (const version of chinaHolidays.versions) {
-      expect(version.revision).toBeGreaterThanOrEqual(1);
-      expect(version.sourceUrl.startsWith("https://")).toBe(true);
-    }
+  it("版本清单逐条登记文号、发布日期、来源地址与修订号", () => {
+    // 装配期校验已经保证 revision ≥ 1、来源是 https、发布日期落在合法区间
+    // （见「装配期校验」一组），因此再断言一遍这些条件证明不了任何事——
+    // 这里锁的是登记内容本身：改文号、改发布日期、改来源地址或推进修订号，
+    // 都必须显式改这张表（CN-007：可追溯、数据修正可标记）。
+    expect(chinaHolidays.versions).toEqual([
+      {
+        year: 2024,
+        revision: 1,
+        notice: "国办发明电〔2023〕7号",
+        publishedAt: "2023-10-25",
+        sourceUrl:
+          "https://www.gov.cn/zhengce/zhengceku/202310/content_6911528.htm",
+      },
+      {
+        year: 2025,
+        revision: 1,
+        notice: "国办发明电〔2024〕12号",
+        publishedAt: "2024-11-12",
+        sourceUrl:
+          "https://www.gov.cn/zhengce/content/202411/content_6986382.htm",
+      },
+      {
+        year: 2026,
+        revision: 1,
+        notice: "国办发明电〔2025〕7号",
+        publishedAt: "2025-11-04",
+        sourceUrl:
+          "https://www.gov.cn/zhengce/content/202511/content_7047090.htm",
+      },
+    ]);
   });
 });
 
