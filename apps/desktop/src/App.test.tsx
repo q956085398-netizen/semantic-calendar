@@ -2470,6 +2470,39 @@ describe("月切换的分片读取（SC-020 / app-spec §15）", () => {
     ).toBeGreaterThan(0);
   });
 
+  it("大数据量下提醒仍按计划触发：计划重建分片不改变提醒时间", async () => {
+    await renderReadyApp();
+
+    // 1,500 条事件让提醒计划的重建走分片路径（展开 30 天窗口约 154 ms），
+    // 再导入一场时间已知的比赛：到点仍然按原时间弹出。
+    chooseImportFile(icsFile(buildIcsFixture(1_500), "big.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 \d+/)).toBeTruthy(), {
+      timeout: 10_000,
+    });
+    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy(), {
+      timeout: 10_000,
+    });
+
+    // 计划就绪：设置页能看到下一条提醒（分片重建完成、调度器已重排）。
+    const pane = openSettings();
+    await waitFor(
+      () => expect(within(pane).getByText(/下一条提醒/)).toBeTruthy(),
+      { timeout: 10_000 },
+    );
+    closeSettings();
+
+    // 比赛 2026-09-26 23:30，默认提前 30 分钟。
+    await advanceTo(2026, 9, 26, 22, 59);
+    expect(sentNotifications().map((entry) => entry.title)).not.toContain(
+      "Arsenal vs Manchester City",
+    );
+    await advanceTo(2026, 9, 26, 23, 0);
+    expect(sentNotifications().map((entry) => entry.title)).toContain(
+      "Arsenal vs Manchester City",
+    );
+  });
+
   it("整理未完成时切月：新月份不会显示上个月的月格数据", async () => {
     await renderReadyApp();
     chooseImportFile(icsFile(buildIcsFixture(1_500), "big.ics"));

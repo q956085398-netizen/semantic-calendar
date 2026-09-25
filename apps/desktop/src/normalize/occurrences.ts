@@ -46,16 +46,24 @@ export function expandEventOccurrences(
   return step.value;
 }
 
-/** 分片粒度（chunkEvents）为 0：中间不让出，一次跑完（同步入口）。 */
+/** 分片粒度为 0：中间不让出，一次跑完（同步入口）。 */
 const NO_SLICES = 0;
+
+/**
+ * 分片粒度（事件条数）：生成器每这么多条给一个让出点，也是调用方做时间检查
+ * 的频率。粒度由**每条事件的代价**决定（重复规则展开 + 时区换算，实测每 128
+ * 条约 4 ms），因此放在展开算法旁边；语义增强的分片粒度不同（500 条），因为
+ * 那里的每条事件便宜得多（ENRICH_CHUNK_SIZE）。
+ */
+export const OCCURRENCE_CHUNK_EVENTS = 128;
 
 /**
  * 分片展开（SC-020 / app-spec §15「大量事件不应阻塞 UI 线程」）。
  *
- * 输出与 expandEventOccurrences 逐条相同，只是每处理 chunkEvents 条事件让出
- * 一次控制权：调用方在 yield 处决定怎么让（读取路径见 calendar/month-occurrences
- * ——按时间预算让出主线程，界面才能重绘、点击才有响应）。同步入口就是这个
- * 生成器的一次排空，因此两条路径不可能各自演化出不同的语义。
+ * 输出与 expandEventOccurrences 逐条相同，只是每处理 chunkEvents 条事件给一个
+ * 让出点：调用方在 yield 处决定怎么让（读取路径见 calendar/month-occurrences
+ * ——按让出阈值把长计算拆成短任务，界面才能重绘、点击才有响应）。同步入口就是
+ * 这个生成器的一次排空，因此两条路径不可能各自演化出不同的语义。
  *
  * 三趟扫描的先后不能交换：第二趟要用第一趟汇总的例外表，第三趟要用第二趟
  * 记下的 handledExceptions（哪些例外已被对应 master 消费）。
@@ -63,7 +71,7 @@ const NO_SLICES = 0;
 export function* expandEventOccurrencesInChunks(
   events: readonly EnrichedEvent[],
   window: OccurrenceWindow,
-  chunkEvents: number,
+  chunkEvents: number = OCCURRENCE_CHUNK_EVENTS,
 ): Generator<void, EnrichedEvent[], void> {
   // 第一趟：RECURRENCE-ID 例外按 (sourceId, uid) 归组，交给对应 master 消费。
   const exceptionsByMaster = new Map<string, EnrichedEvent[]>();

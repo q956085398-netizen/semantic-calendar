@@ -7,8 +7,9 @@ import {
   todayKeyFromDate,
   type YearMonth,
 } from "./calendar/month-grid";
-import { expandEventOccurrences } from "./normalize/occurrences";
 import { MiniMonth } from "./calendar/MiniMonth";
+import { yieldToMain } from "./scheduling/yield-to-main";
+import { createReminderPlanLoad } from "./notifications/reminder-plan-load";
 import { MonthView } from "./calendar/MonthView";
 import { monthOccurrencePendingText } from "./calendar/month-occurrences";
 import { useMonthOccurrences } from "./calendar/use-month-occurrences";
@@ -93,11 +94,7 @@ import {
   normalizeNotificationsEnabled,
   type MatchReminderSetting,
 } from "./notifications/notification-settings";
-import {
-  REMINDER_HORIZON_DAYS,
-  planReminders,
-  type PlannedReminder,
-} from "./notifications/reminder-plan";
+import { type PlannedReminder } from "./notifications/reminder-plan";
 import {
   createNotificationScheduler,
   type NotificationScheduler,
@@ -438,32 +435,75 @@ export default function App() {
     notificationsEnabled,
     matchReminder,
   });
+  /**
+   * 计划缓存（SC-020）：调度器的 `plan` / `replan` 是同步回调，读的就是这一份；
+   * 重建在后台分片进行（见下面的 effect 与 rebuildReminderPlan）。这样调度器
+   * 的接口与语义都不用动，10,000 条事件下「展开 30 天窗口」的约 154 ms 也不再
+   * 落在主线程上。
+   */
+  const reminderPlanRef = useRef<PlannedReminder[]>([]);
+  /** 已处理提醒 id（NOTIFY-004）：读取计划时过滤，见 buildReminderPlan。 */
+  const handledIdsRef = useRef<ReadonlySet<string>>(new Set());
+  /** 重建代次：晚到的旧重建不会覆盖新结果（数据变化可能让两次重建重叠）。 */
+  const planGenerationRef = useRef(0);
+
+  /**
+   * 调度器读计划：同步、不重算。已处理的提醒在**读取侧**排除，而不是重建侧
+   * ——弹一条提醒、重启恢复去重日志都不该触发一次重建（NOTIFY-004 只需要
+   * “这一条不再进计划”，日志是几百条的小集合，过滤是常数开销）。
+   */
   const buildReminderPlan = useCallback(() => {
+    const plan = reminderPlanRef.current;
+    const handled = handledIdsRef.current;
+    return handled.size === 0
+      ? plan
+      : plan.filter((reminder) => !handled.has(reminder.id));
+  }, []);
+
+  /**
+   * 分片重建计划（SC-020）：第一个任务同步跑，约 200 条事件以下的日历当场
+   * 就绪（与改动前完全一致）；更大的日历让出主线程，期间计划为空——宁可让
+   * 提醒晚几百毫秒（仍在 2 小时容忍窗口内），也不按旧数据弹一条已被删除的
+   * 事件。算完后让调度器按新计划重排。
+   */
+  const rebuildReminderPlan = useCallback(async () => {
     const input = reminderInputRef.current;
-    const from = todayKeyFromDate(new Date());
-    const occurrences = expandEventOccurrences(input.events, {
-      from,
-      to: shiftDateKey(from, REMINDER_HORIZON_DAYS),
-    });
-    return planReminders({
-      events: occurrences,
+    const generation = planGenerationRef.current + 1;
+    planGenerationRef.current = generation;
+    const run = createReminderPlanLoad({
+      events: input.events,
+      from: todayKeyFromDate(new Date()),
       notificationsEnabled: input.notificationsEnabled,
       matchReminder: input.matchReminder,
       nowMs: Date.now(),
-      handledIds: handledReminderIds(handledRef.current),
-      horizonDays: REMINDER_HORIZON_DAYS,
     });
+    reminderPlanRef.current = [];
+    for (;;) {
+      run.advance();
+      if (!run.hasWork()) {
+        break;
+      }
+      await yieldToMain();
+      if (planGenerationRef.current !== generation) {
+        return;
+      }
+    }
+    if (planGenerationRef.current !== generation) {
+      return;
+    }
+    reminderPlanRef.current = run.result() ?? [];
+    reminderSchedulerRef.current?.reschedule();
   }, []);
 
-  /** 事件或设置变化 → 让调度器按最新输入重排（启动时的首次排程同此路径）。 */
+  /** 事件或设置变化 → 重建计划并让调度器重排（启动时的首次排程同此路径）。 */
   useEffect(() => {
     reminderInputRef.current = {
       events: visibleEvents,
       notificationsEnabled,
       matchReminder,
     };
-    reminderSchedulerRef.current?.reschedule();
-  }, [visibleEvents, notificationsEnabled, matchReminder]);
+    void rebuildReminderPlan();
+  }, [visibleEvents, notificationsEnabled, matchReminder, rebuildReminderPlan]);
 
   /**
    * 从本地数据层重建 UI 状态；只显示启用来源的事件（SRC-003）。
@@ -636,6 +676,7 @@ export default function App() {
         Date.now(),
       );
       handledRef.current = nextLog;
+      handledIdsRef.current = handledReminderIds(nextLog);
       const store = storeRef.current;
       if (store) {
         store.setSetting(FIRED_REMINDERS_SETTING_KEY, nextLog);
@@ -762,6 +803,7 @@ export default function App() {
         readHandledReminders(store.getSetting(FIRED_REMINDERS_SETTING_KEY)),
         Date.now(),
       );
+      handledIdsRef.current = handledReminderIds(handledRef.current);
       await refreshNotificationPermission();
       if (cancelled) return;
 
@@ -772,7 +814,13 @@ export default function App() {
        */
       const reminders = createNotificationScheduler({
         plan: buildReminderPlan,
-        replan: buildReminderPlan,
+        replan: () => {
+          // 跨天唤醒：窗口要跟着日期滑动。重建在后台分片进行，本次先用现有
+          // 计划——落在旧窗口里的提醒仍然有效；重建完成后 reschedule 会按
+          // 新窗口重排，因此窗口最多晚到几百毫秒（SC-020）。
+          void rebuildReminderPlan();
+          return buildReminderPlan();
+        },
         send: async (reminder) => {
           await notificationBridge.send({
             title: reminder.title,
@@ -850,6 +898,7 @@ export default function App() {
     markReminderProcessed,
     refreshNotificationPermission,
     buildReminderPlan,
+    rebuildReminderPlan,
     saveStore,
     failDataLayer,
   ]);
