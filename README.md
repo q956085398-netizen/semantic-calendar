@@ -368,7 +368,7 @@ npm run tauri -- build
 
 改动一条链路时不必每次跑全量：在 `apps/desktop` 下用 `npx vitest run <文件>` 只跑相关文件
 （例如 `npx vitest run src/ics/parse-ics.test.ts`），改动完成后在仓库根目录跑一次
-`npm run test` 与 `npm run lint`。当前全量是 81 个文件、921 个用例，本机约 35–50 秒
+`npm run test` 与 `npm run lint`。当前全量是 81 个文件、924 个用例，本机约 35–50 秒
 （波动主要在 `App.test.tsx` 一组：它是界面接线的集成层，单文件先跑它最省时间）。
 
 测试与人工验收的分工写在 [docs/ui-acceptance.md](docs/ui-acceptance.md)：哪些 §26 验收项
@@ -423,7 +423,7 @@ ACL / schema）与 `dist/`、`src-tauri/target/` 一样被 Prettier 跳过，因
 - 小月历 `calendar/MiniMonth.tsx`：与主视图共用同一份网格计算（CAL-002 联动），点击日期 / 步进月份双向同步；
 - Inspector `layout/InspectorPanel.tsx`：由选中日期驱动的极简日期详情（CAL-003），普通日期留白；
 - 主题 `theme/theme.ts` + `index.css`：浅色暖白 / 深色炭灰同一套 CSS 变量，偏好经 `app.theme` 设置持久化（THEME-003）；selected / hover / focus 三态视觉区分（ui-design §17 / §24）；
-- 月格语义视觉（SC-013）：主背景由 `calendar/cell-backdrop.ts` 裁决，一个格子只有一个——节日 / 节气专属视觉（`display/DayBackdrop.tsx`：图片整格铺满、被格子裁切、文字区带遮罩，深色主题再压暗）＞ 联赛视觉 ＞ 假期 / 补班（语义色混进主题底板的底色 + 半透明、被格子裁切的「休」「补」大字）＞ 普通背景。假期视觉是候选之一而不是叠加层，被节日或比赛拿走主背景的日子整体让位（ui-design 参考图 10 月 4 日 / 10 月 6 日）；比赛对阵块与事件摘要照常叠加，右上角小徽标按 §7.3 不再出现。裁切、层级与两套主题的取值由 `calendar/cell-visual-contract.test.ts` 对 `index.css` 断言（jsdom 看不到布局）；
+- 月格语义视觉（SC-013）：主背景由 `calendar/cell-backdrop.ts` 裁决，一个格子只有一个——节日 / 节气专属视觉（`display/DayBackdrop.tsx`：图片整格铺满、被格子裁切、文字区带遮罩，深色主题再压暗）＞ 联赛视觉 ＞ 假期 / 补班（语义色混进主题底板的底色 + 半透明、被格子裁切的「休」「补」大字）＞ 普通背景。假期视觉是候选之一而不是叠加层，被节日或比赛拿走主背景的日子整体让位（ui-design 参考图 10 月 4 日 / 10 月 6 日）；比赛对阵块与事件摘要照常叠加，右上角小徽标按 §7.3 不再出现。裁切、层级与两套主题的取值由 `calendar/cell-visual-contract.test.ts` 对 `index.css` 断言（jsdom 看不到布局）：格子是背景层的包含块与裁切容器（背景层绝对定位——先得落在格子里，裁切才管得到它们）、越界是有意的（「不完整」的字与放大的 Logo 靠裁切收住）、休 / 补 / 节气 / 比赛各占一支色系且四个色相两两分得开（§20）。DOM 一侧的同名规则（休 / 补各一次，唯一载体是右下角那个大字）由 `calendar/MonthView.test.tsx` 的「不再出现第二个…」守住；默认构建不携带图片资源这件事由 `App.test.tsx` 的「默认构建不携带图片资源」盯住**应用装配**那一层——将来接入资源包要从那里开始改；
 - 侧栏数据源：SC-006 起显示已导入的本地 ICS 来源，SC-007 起显示 WebCal 订阅；每行的勾选框就是该来源的显示开关（SC-018 / ui-design §4 第 2 项），行内仍写明“刷新中 / 已停用 / 刷新失败 / 上次成功 / 尚未刷新”的事实（SRC-003）；内置四行（我的日历 / 中国节假日 / 二十四节气 / 英超赛程）是内置来源开关，与设置页同一份设置；删除来源等需要确认的管理动作在设置页。
 
 本地 ICS 导入（SC-006）位于 `apps/desktop/src/ics/` 与 `apps/desktop/src/data/import/`：
@@ -462,7 +462,7 @@ WebCal / ICS 订阅（SC-007）位于 `apps/desktop/src/data/webcal/` 与 `apps/
 - 落盘串行化 `CalendarStore.save()`：低频刷新与手动操作可能同时写同一个临时文件，写入进入队列，快照在队列内序列化（最后一次写入反映最新状态）；
 - UI（`layout/Sidebar.tsx` / `layout/SettingsView.tsx`）：侧栏是订阅入口（地址输入 + 添加）与来源列表——每行勾选框即显示开关、行内「刷新」、状态显示“刷新中… / 上次成功 … / 刷新失败：… / 已停用 / 尚未刷新”（SRC-003）；设置页列出同一批来源（最近刷新状态 + 删除），删除前确认并级联删除该来源的事件。停用（取消勾选）后事件立即从月视图消失但数据保留。
 
-v0.1 已知限制：同一文件改名后再次导入会视为新来源（新增副本），删除入口在设置页的数据源一节（SC-018）；WebCal 抓取暂不读取系统代理（reqwest 默认 feature 关闭 `system-proxy`，以避免额外依赖），正文按 UTF-8 宽松解码；RRULE 的 BYSETPOS / BYWEEKNO 等高级部分按“降级为单次事件”处理，完整支持留给后续版本；语义色 token 为临时基线，完整语义色体系由 SC-013 定稿。
+v0.1 已知限制：同一文件改名后再次导入会视为新来源（新增副本），删除入口在设置页的数据源一节（SC-018）；WebCal 抓取暂不读取系统代理（reqwest 默认 feature 关闭 `system-proxy`，以避免额外依赖），正文按 UTF-8 宽松解码；RRULE 的 BYSETPOS / BYWEEKNO 等高级部分按“降级为单次事件”处理，完整支持留给后续版本。语义色体系已由 SC-013 定稿：休 / 补 / 节气 / 比赛各占一支色系（ui-design §20），分色口径锁在 `calendar/cell-visual-contract.test.ts` 的「语义色按类别分色」里，色值仍可调整、类别不能对调。
 
 英超元数据 Provider（SC-014）位于 `apps/desktop/src/providers/football/`，把“识别这是什么”（Matcher）与“展示素材从哪来”（Metadata）分开（架构草案 §5 / SPORT-001）：
 

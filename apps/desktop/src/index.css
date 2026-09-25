@@ -36,7 +36,9 @@
   --radius-cell: 12px;
 
   /* 语义 accent（SC-009 / §7.5）：由 Metadata Resolver 引用，
-     UI 组件不接触具体色值；语义色体系由 SC-013 细化 */
+     UI 组件不接触具体色值；分色口径（休 / 补 / 节气 / 比赛各占一支色系）
+     由 SC-013 定稿，锁在 calendar/cell-visual-contract.test.ts 的
+     「语义色按类别分色」一条里——色值可以调，类别不能对调 */
   --semantic-holiday: var(--source-holiday);
   --semantic-makeup-workday: #4d7ea8;
   --semantic-festival: #b9803c;

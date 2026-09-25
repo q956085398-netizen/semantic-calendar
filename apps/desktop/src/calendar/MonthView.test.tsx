@@ -702,18 +702,29 @@ describe("月格语义视觉与多语义冲突（SC-013 / ui-design §16）", ()
     expect(cell.querySelector(".cell-day")?.textContent).toBe("1");
   });
 
-  it("不再出现第二个「休」标记：整个格子里「休」只渲染一次（§7.3）", () => {
+  it("不再出现第二个「休」/「补」标记：整个格子里大字只渲染一次（§7.3 / §8.2）", () => {
     const grid = renderWith({
-      chinaDay: new Map([["2026-10-01", REST_DAY]]),
+      chinaDay: new Map([
+        ["2026-10-01", REST_DAY],
+        ["2026-10-10", MAKEUP_DAY],
+      ]),
     });
-    const cell = cellOf(grid, "2026-10-01");
-    const glyphOwners = [...cell.querySelectorAll("*")].filter(
-      (element) => element.textContent === "休",
-    );
 
-    expect(glyphOwners.map((element) => element.className)).toEqual([
-      "cell-glyph",
-    ]);
+    // 休假与补班同一条规则（§8.2：规则与「休」一致、不重复增加右上角小标签）：
+    // 格子里该字只允许有一个载体，就是右下角那一个大字。
+    for (const [dateKey, glyph] of [
+      ["2026-10-01", "休"],
+      ["2026-10-10", "补"],
+    ] as const) {
+      const cell = cellOf(grid, dateKey);
+      const glyphOwners = [...cell.querySelectorAll("*")].filter(
+        (element) => element.textContent === glyph,
+      );
+
+      expect(glyphOwners.map((element) => element.className)).toEqual([
+        "cell-glyph",
+      ]);
+    }
   });
 
   it("一次连休的每一天是同一个主背景、同一支语义色（CN-004 连续视觉 §7.1）", () => {

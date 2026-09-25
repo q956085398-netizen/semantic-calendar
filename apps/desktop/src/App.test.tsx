@@ -432,6 +432,30 @@ describe("月份导航与日期选择（SC-005 / CAL-002 / CAL-003）", () => {
     expect(within(inspector).getByText("农历八月十三")).toBeTruthy();
   });
 
+  it("默认构建不携带图片资源：节日格只有语义文字，没有背景图（SC-013 的 v0.1 口径）", () => {
+    freezeClock();
+    render(<App />);
+    const grid = within(screen.getByRole("main")).getByRole("grid", {
+      name: "2026年9月",
+    });
+    const midAutumn = grid.querySelector('[data-date="2026-09-25"]');
+
+    // 节日 / 节气背景是逻辑引用（SC-012），引用照常落到格子上；能不能画出图片
+    // 由资源包决定，而应用装配不传资源包——v0.1 没有可随应用分发的图片许可
+    // （SC-022 定的口径，见 third-party-assets.md §1 与 app-spec §9）。
+    // 这条断言盯的是**应用装配这一层**：将来接入资源包要从这里开始改
+    // （并从本文件与 third-party-assets.md §1、§3 一起登记），而不是让默认构建
+    // 在无人察觉的情况下长出图片。徽标一侧的同一条口径由「导入的比赛在月格显示
+    // 队标 VS 队标」按 fallback 文本（ARS / MCI）守着，这里不重复。
+    expect(midAutumn?.getAttribute("data-china-backdrop")).toBe(
+      "bg.festival.mid-autumn-festival",
+    );
+    expect(midAutumn?.querySelector(".cell-backdrop")).toBeNull();
+    expect(midAutumn?.querySelector(".cell-semantic")?.textContent).toBe(
+      "中秋节",
+    );
+  });
+
   it("方向键移动选择，焦点跟随，跨月自动导航（roving tabindex）", async () => {
     freezeClock();
     render(<App />);
