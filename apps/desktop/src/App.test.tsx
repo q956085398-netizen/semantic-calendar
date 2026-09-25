@@ -1358,8 +1358,7 @@ describe("关注球队（SC-016 / SPORT-006）", () => {
 describe("比赛月格与 Matchday Inspector（SC-016 / SPORT-004 / SPORT-005）", () => {
   it("导入的比赛在月格显示队标 VS 队标，点击后进入比赛详情", async () => {
     await renderReadyApp();
-    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
-    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+    await importMatchIcs();
 
     const grid = screen.getByRole("grid", { name: "2026年9月" });
     const cell = grid.querySelector('[data-date="2026-09-26"]') as HTMLElement;
@@ -1401,8 +1400,7 @@ describe("比赛月格与 Matchday Inspector（SC-016 / SPORT-004 / SPORT-005）
     render(<App />);
     await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
 
-    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
-    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+    await importMatchIcs();
     fireEvent.click(
       screen
         .getByRole("grid", { name: "2026年9月" })
@@ -1712,8 +1710,7 @@ const FIRED_REMINDERS_KEY = "notifications.firedReminders";
 describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
   it("比赛按默认建议（赛前 30 分钟）弹出本地通知，并把去重状态写入快照", async () => {
     await renderReadyApp();
-    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
-    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+    await importMatchIcs();
 
     // 设置页此刻已经能说明下一条提醒（app-spec §12 可解释状态）。
     const pane = openSettings();
@@ -1783,8 +1780,7 @@ describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
 
-    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
-    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+    await importMatchIcs();
 
     // 提醒时间：23:30 前 60 分钟 → 22:30。
     await advanceTo(2026, 9, 26, 22, 29);
@@ -1818,8 +1814,7 @@ describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
 
-    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
-    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+    await importMatchIcs();
     await advanceTo(2026, 9, 27, 0, 0);
 
     expect(sentNotifications()).toEqual([]);
@@ -1874,8 +1869,7 @@ describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
       }),
     });
     await renderReadyApp();
-    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
-    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+    await importMatchIcs();
 
     await advanceTo(2026, 9, 26, 23, 0);
     await waitFor(() =>
@@ -1928,6 +1922,12 @@ function selectDate(dateKey: string): HTMLElement {
   const cell = grid.querySelector(`[data-date="${dateKey}"]`) as HTMLElement;
   fireEvent.click(cell);
   return grid;
+}
+
+/** 导入一场英超比赛，等到事件真的进了界面（这一组好几条用例都要先有比赛数据）。 */
+async function importMatchIcs() {
+  chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
+  await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
 }
 
 describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
@@ -2089,8 +2089,7 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
 
   it("关闭「英超赛程」：比赛回到普通事件显示，识别结果仍在快照里", async () => {
     await renderReadyApp();
-    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
-    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+    await importMatchIcs();
     selectDate("2026-09-26");
 
     const grid = screen.getByRole("grid", { name: "2026年9月" });
@@ -2172,8 +2171,7 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
 
-    chooseImportFile(icsFile(MATCH_ICS, "matches.ics"));
-    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+    await importMatchIcs();
     const pane = openSettings();
     await waitFor(() =>
       expect(within(pane).getByText(/下一条提醒/)).toBeTruthy(),
@@ -2269,6 +2267,262 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     );
     expect(within(sidebar()).queryByText("team.ics")).toBeNull();
     expect(writtenSnapshots().at(-1)!.events).toEqual([]);
+  });
+
+  it("设置页只有声明的几节，且不出现事件内容（验收：不是 Dashboard）", async () => {
+    await renderReadyApp();
+    await importMatchIcs();
+
+    const pane = openSettings();
+
+    // 小节清单写死：新增一节（统计 / 推荐 / 概览 / 图表）会让这条变红，
+    // 那时需要一次明确的决定——设置页是偏好页，不是首页。
+    expect(
+      within(pane)
+        .getAllByRole("heading", { level: 3 })
+        .map((heading) => heading.textContent),
+    ).toEqual([
+      "外观",
+      "区域",
+      "数据源",
+      "关注球队",
+      "通知",
+      "关闭窗口时",
+      "关于",
+    ]);
+
+    // 数据在月视图与详情栏，不在这里汇总：月格与事件摘要都不出现。
+    expect(pane.querySelector('[role="grid"]')).toBeNull();
+    expect(pane.querySelector(".month-cell")).toBeNull();
+    expect(pane.querySelector(".cell-events")).toBeNull();
+
+    // 事件文本只允许出现一处，而且必须是「下一条提醒」那一行——§12 要求状态
+    // 可解释（为什么没提醒 / 下一条什么时候来），它是状态而不是事件列表。
+    // 哪天这里变多，说明设置页开始汇总用户数据了。
+    const titleMentions = within(pane).getAllByText(/vs Manchester City/);
+    expect(titleMentions).toHaveLength(1);
+    expect(
+      titleMentions[0].closest("[data-notification-permission]"),
+    ).not.toBeNull();
+
+    // 另一头：这里没有「需要重启」的文案——当前没有需要重启的设置，界面也不该
+    // 承诺；真出现那样一条设置时，这条断言要被换成一条真的提示（验收的第 2 半句）。
+    expect(within(pane).queryByText(/重启/)).toBeNull();
+  });
+
+  it("网络来源在设置页给出最近刷新状态，与侧栏同一句话（验收 5）", async () => {
+    await renderReadyApp();
+    mockBackend({ webcalFetch: () => webcalOk(SUBSCRIBE_ICS) });
+    await subscribeToFeed();
+
+    const pane = openSettings();
+    const row = within(pane).getByText(SUBSCRIBE_DISPLAY_NAME).closest("li")!;
+    const rowStatus = (): string =>
+      row.querySelector(".source-status")?.textContent ?? "";
+
+    // 网络来源在设置页仍有刷新入口（管理动作集中在这里）。
+    expect(within(row).getByRole("button", { name: "刷新" })).toBeTruthy();
+    expect(rowStatus()).toContain("上次成功");
+    // 与侧栏逐字相同：两处共用 source-display，说法不会各自漂移。同一句话里
+    // 也不含订阅地址——脱敏在落库前就做完了，两处界面都只是照读。
+    expect(rowStatus()).toBe(subscriptionRowStatus());
+
+    // 刷新失败：原因与「上次成功」同时出现在设置页同一行。
+    mockBackend({
+      webcalFetch: () =>
+        new Error(`error sending request for url (${SUBSCRIBE_URL})`),
+    });
+    fireEvent.click(within(row).getByRole("button", { name: "刷新" }));
+
+    await waitFor(() => expect(rowStatus()).toContain("刷新失败"));
+    expect(rowStatus()).toContain("上次成功");
+    expect(rowStatus()).toBe(subscriptionRowStatus());
+  });
+
+  it("停用本地导入来源后数据仍在，重新显示立即恢复（验收 3，与订阅同一口径）", async () => {
+    await renderReadyApp();
+    chooseImportFile(icsFile(IMPORT_ICS, "team.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
+
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const dayCell = () =>
+      grid.querySelector('[data-date="2026-09-23"]') as HTMLElement;
+    expect(within(dayCell()).getByText("19:00 晚间例会")).toBeTruthy();
+
+    fireEvent.click(within(sidebar()).getByLabelText("team.ics"));
+    await waitFor(() => expect(subscriptionRowStatus()).toContain("已停用"));
+    expect(within(dayCell()).queryByText(/晚间例会/)).toBeNull();
+
+    // 停用只改显示：事件与来源都留在快照里（启停不删除用户数据）。
+    const snapshot = writtenSnapshots().at(-1)!;
+    expect(snapshot.events).toHaveLength(2);
+    expect(
+      (snapshot.sources as Array<Record<string, unknown>>)[0].enabled,
+    ).toBe(false);
+
+    // 重新显示：不需要重新导入文件。
+    fireEvent.click(within(sidebar()).getByLabelText("team.ics"));
+    await waitFor(() =>
+      expect(within(dayCell()).getByText("19:00 晚间例会")).toBeTruthy(),
+    );
+  });
+
+  it("启动读回刷新间隔：选项内的取值直接进设置页，不改写成默认（验收 2）", async () => {
+    mockBackend({
+      dataStoreRead: seededSnapshot({ [WEBCAL_INTERVAL_KEY]: 60 }),
+    });
+    freezeClock();
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
+
+    const pane = openSettings();
+    const select = within(pane).getByLabelText(
+      "WebCal 刷新间隔",
+    ) as HTMLSelectElement;
+    // 此前只有「坏值回落默认」这一半有集成证据，选项内的取值只有纯函数单测。
+    expect(select.value).toBe("60");
+    expect(within(pane).getByText(/每小时自动检查订阅/)).toBeTruthy();
+  });
+
+  it("改一批偏好后重启：七条逐项恢复（验收 2，「可持久化」走完整一圈）", async () => {
+    await renderReadyApp();
+    const pane = openSettings();
+
+    // 七条偏好各改一次，全部通过设置页的控件（写）。
+    fireEvent.click(within(pane).getByRole("button", { name: "深色" }));
+    fireEvent.click(builtinCheckbox(pane, "中国节假日"));
+    fireEvent.click(builtinCheckbox(pane, "英超赛程"));
+    fireEvent.change(within(pane).getByLabelText("WebCal 刷新间隔"), {
+      target: { value: "60" },
+    });
+    fireEvent.click(within(pane).getByLabelText(/阿森纳/));
+    fireEvent.click(within(pane).getByLabelText("日历提醒"));
+    fireEvent.change(within(pane).getByLabelText("比赛提醒提前量"), {
+      target: { value: "15" },
+    });
+    fireEvent.click(closeBehaviorButton("退出应用"));
+
+    // 每次落盘都是整份快照：等到最后一份把七条都带上。
+    await waitFor(() => {
+      const settings = snapshotSettings();
+      expect(settings["app.theme"]).toBe("dark");
+      expect(settings[BUILTIN_HIDDEN_KEY]).toEqual([
+        "cn-holiday",
+        "premier-league",
+      ]);
+      expect(settings[WEBCAL_INTERVAL_KEY]).toBe(60);
+      expect(settings[FOLLOWED_TEAMS_KEY]).toEqual(["arsenal"]);
+      expect(settings[NOTIFICATIONS_ENABLED_KEY]).toBe(false);
+      expect(settings[MATCH_REMINDER_KEY]).toBe(15);
+      expect(settings[CLOSE_BEHAVIOR_KEY]).toBe("quit");
+    });
+
+    // 重启（读）：把最后写下的快照原样交给下一次启动。
+    const snapshot = JSON.stringify(writtenSnapshots().at(-1));
+    cleanup();
+    mockBackend({ dataStoreRead: snapshot });
+    freezeClock();
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/本地数据层就绪/)).toBeTruthy(),
+    );
+
+    // 主题在装配层就恢复，不必等到打开设置页。
+    expect(document.documentElement.dataset.theme).toBe("dark");
+
+    const reopened = openSettings();
+    expect(builtinCheckbox(reopened, "中国节假日").checked).toBe(false);
+    expect(builtinCheckbox(reopened, "英超赛程").checked).toBe(false);
+    expect(
+      (within(reopened).getByLabelText("WebCal 刷新间隔") as HTMLSelectElement)
+        .value,
+    ).toBe("60");
+    expect(
+      (within(reopened).getByLabelText(/阿森纳/) as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(
+      (within(reopened).getByLabelText("日历提醒") as HTMLInputElement).checked,
+    ).toBe(false);
+    expect(
+      (within(reopened).getByLabelText("比赛提醒提前量") as HTMLSelectElement)
+        .value,
+    ).toBe("15");
+    expect(closeBehaviorButton("退出应用").getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+  });
+
+  it("启动读回通知总开关：关闭时显示未选中，到点也不弹（验收 2）", async () => {
+    mockBackend({
+      dataStoreRead: seededSnapshot({ [NOTIFICATIONS_ENABLED_KEY]: false }),
+    });
+    freezeClock();
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
+
+    const pane = openSettings();
+    expect(
+      (within(pane).getByLabelText("日历提醒") as HTMLInputElement).checked,
+    ).toBe(false);
+    closeSettings();
+
+    // 持久化的开关真的管住调度：导入比赛、推到提醒时刻也不发通知。
+    await importMatchIcs();
+    await advanceTo(2026, 9, 26, 23, 30);
+    expect(sentNotifications()).toEqual([]);
+  });
+
+  it("关掉「日历提醒」立即不再弹，重新打开立即恢复（验收 1，不需要重启）", async () => {
+    await renderReadyApp();
+    await importMatchIcs();
+
+    const pane = openSettings();
+    fireEvent.click(within(pane).getByLabelText("日历提醒"));
+    await waitFor(() =>
+      expect(snapshotSettings()[NOTIFICATIONS_ENABLED_KEY]).toBe(false),
+    );
+    closeSettings();
+
+    // 到点不弹：关掉的是本次会话的调度，不是“下次启动才生效”。
+    await advanceTo(2026, 9, 26, 23, 5);
+    expect(sentNotifications()).toEqual([]);
+
+    // 重新打开：待触发的提醒立刻回到计划里（仍在迟到容忍窗口内，NOTIFY-004）。
+    const reopened = openSettings();
+    fireEvent.click(within(reopened).getByLabelText("日历提醒"));
+    await waitFor(() =>
+      expect(snapshotSettings()[NOTIFICATIONS_ENABLED_KEY]).toBe(true),
+    );
+    closeSettings();
+
+    await advanceTo(2026, 9, 26, 23, 10);
+    await waitFor(() => expect(sentNotifications()).toHaveLength(1));
+    expect(sentNotifications()[0].title).toBe("Arsenal vs Manchester City");
+  });
+
+  it("改「比赛提醒」提前量立即按新时刻重排（验收 1，不需要重启）", async () => {
+    await renderReadyApp();
+    await importMatchIcs();
+
+    // 默认建议是赛前 30 分钟（23:30 的比赛 → 23:00 触发）。
+    await advanceTo(2026, 9, 26, 22, 0);
+    const pane = openSettings();
+    fireEvent.change(within(pane).getByLabelText("比赛提醒提前量"), {
+      target: { value: "15" },
+    });
+    await waitFor(() =>
+      expect(snapshotSettings()[MATCH_REMINDER_KEY]).toBe(15),
+    );
+    closeSettings();
+
+    // 旧计划已经被换掉：23:00 不再弹（否则说明改动要等下一次启动才生效）。
+    await advanceTo(2026, 9, 26, 23, 0);
+    expect(sentNotifications()).toEqual([]);
+
+    // 新计划立即生效：赛前 15 分钟。
+    await advanceTo(2026, 9, 26, 23, 15);
+    await waitFor(() => expect(sentNotifications()).toHaveLength(1));
+    expect(sentNotifications()[0].body).toContain("赛前 15 分钟");
   });
 });
 

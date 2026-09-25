@@ -368,7 +368,7 @@ npm run tauri -- build
 
 改动一条链路时不必每次跑全量：在 `apps/desktop` 下用 `npx vitest run <文件>` 只跑相关文件
 （例如 `npx vitest run src/ics/parse-ics.test.ts`），改动完成后在仓库根目录跑一次
-`npm run test` 与 `npm run lint`。当前全量是 81 个文件、924 个用例，本机约 35–50 秒
+`npm run test` 与 `npm run lint`。当前全量是 83 个文件、957 个用例，本机约 35–50 秒
 （波动主要在 `App.test.tsx` 一组：它是界面接线的集成层，单文件先跑它最省时间）。
 
 测试与人工验收的分工写在 [docs/ui-acceptance.md](docs/ui-acceptance.md)：哪些 §26 验收项
@@ -561,7 +561,7 @@ SC-017 的边界：调度器活在 webview 里，窗口隐藏时 Chromium 会节
 - 一处状态、两个入口：四个内置来源的勾选框在侧栏数据源列表（ui-design §4.3）与设置页数据源一节同时出现，关注球队选择器同样两处共用——同一份 App 状态与同一份读取边界，不是两套逻辑；
 - 数据源管理：设置页列出导入 / 订阅来源，显示与侧栏同源的“最近刷新状态”（SRC-003），并提供删除（确认后级联删除该来源的事件）；本地 ICS 来源的删除入口就是这里（SC-006 的遗留项）；
 - WebCal 刷新间隔：`intervalMs` 以供应商注入调度器，改设置后 `reschedule()` 立即按新间隔重排（不需要重建调度器、不需要重启）；失败重试固定 30 分钟，与这条设置无关；
-- 测试：取值域与读取边界有单测（`settings/builtin-sources.test.ts`、`settings/webcal-interval.test.ts`），视图过滤含「关掉英超后提醒计划不再当比赛」的反例（`semantic/app-builtin-sources.test.ts`），调度器的间隔注入在 `data/webcal/refresh-scheduler.test.ts`，端到端接线（开关真的改变月格 / 详情栏、刷新间隔真的改变唤醒时刻、来源删除与持久化、区域与预览提示这类常量文案）在 `App.test.tsx` 的「设置页（SC-018 / app-spec §9 SETTINGS）」一组里，画面与两套主题另经浏览器人工验收。
+- 测试：取值域与读取边界有单测（`settings/builtin-sources.test.ts`、`settings/webcal-interval.test.ts`），来源状态文案的取值域（尚未刷新 / 上次成功 / 刷新中 / 已停用 / 失败 + 上次成功）与识别色在 `layout/source-display.test.ts`，视图过滤含「关掉英超后提醒计划不再当比赛」的反例（`semantic/app-builtin-sources.test.ts`），调度器的间隔注入在 `data/webcal/refresh-scheduler.test.ts`；三条验收措辞由 `settings/settings-contract.test.ts` 从源码层面守住——**所有 v0.1 偏好可持久化**（8 个设置键逐一核对写入 + 启动读取 + 读取边界三件齐全、新偏好必须登记成 `*_SETTING_KEY` 常量、键名不写死在调用点）、**改动即时生效**（写偏好的 handler 必须同时有落盘与即时效果；目前没有「只能等重启」的设置，例外清单为空）、**设置页不演变为 Dashboard**（`layout/SettingsView.tsx` 只能 import 白名单内的模块，事件数据与派生层进不来，白名单里的每项都写明理由且必须仍被使用）；端到端接线（开关真的改变月格 / 详情栏与提醒计划、刷新间隔真的改变唤醒时刻、通知开关与比赛提醒改完立即按新时刻重排、来源启停不删数据、来源删除与持久化、网络来源在设置页给出与侧栏同一句话的最近刷新状态、区域与预览提示这类常量文案）在 `App.test.tsx` 的「设置页（SC-018 / app-spec §9 SETTINGS）」一组里，画面与两套主题另经浏览器人工验收。
 
 SC-018 的边界：设置页没有自己的存储——读写全走 `CalendarStore` 的 settings 分区（原样 JSON，加键不需要迁移）；区域一节在 v0.1 保持只读，语言 / 时区接入时再定义键与读取边界；「我的日历」是对用户事件来源（本地导入 + 订阅）的组开关，单个来源的显示开关仍在各自的来源行里；内置来源的开关不改变语义识别的注册表（Matcher / Resolver 仍按事件跑一遍），快照里的增强分区不会因为关掉某个来源而变小——识别结果与显示开关分开存储，因此重新打开是即时的。刷新间隔的最短选项是 1 小时：调度形状仍是“一个指向到期时刻的定时器”，不是轮询（app-spec §12 允许的后台触发只有启动、手动刷新、到达刷新时间），这条设置改的是“刷新时间什么时候到”，不是唤醒方式。
 
