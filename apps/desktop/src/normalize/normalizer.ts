@@ -10,6 +10,7 @@
  */
 
 import type { RawCalendarEvent, StoredEvent } from "../data/model";
+import { isChunkBoundary } from "../scheduling/chunk-boundary";
 import { normalizeEventTitle } from "./title";
 
 export function normalizeEventForStorage(event: RawCalendarEvent): StoredEvent {
@@ -19,6 +20,51 @@ export function normalizeEventForStorage(event: RawCalendarEvent): StoredEvent {
     normalizedTitle: normalizeEventTitle(event.title),
     ...(timezone !== undefined && { timezone }),
   };
+}
+
+/**
+ * 分片粒度（事件条数）：每条约 1.5 µs（10,000 条约 15 ms，performance.md
+ * §3.5），128 条一片约 0.2 ms。导入与订阅刷新两条摄入链路的标准化与落库
+ * 都用这个粒度（两条都是逐条遍历，每条代价同量级）。
+ */
+export const NORMALIZE_CHUNK_EVENTS = 128;
+
+/**
+ * 同步入口：分片生成器的一次排空，结果逐条相同（normalizer.test.ts 有
+ * 等价性用例）。解析产物按调用方声明的来源落成入库事件。
+ */
+export function normalizeEventsForStorage(
+  events: readonly Omit<RawCalendarEvent, "sourceId">[],
+  sourceId: string,
+): StoredEvent[] {
+  const steps = normalizeEventsInChunks(events, sourceId);
+  let step = steps.next();
+  while (!step.done) {
+    step = steps.next();
+  }
+  return step.value;
+}
+
+/**
+ * 分片标准化（SC-024 / app-spec §15「大量事件不应阻塞 UI 线程」）。
+ *
+ * 这一趟很容易被漏掉：解析与落库各自分片之后，中间这条一次 15 ms 的同步
+ * 遍历正好是一帧，10,000 条导入里它自己就是一次可感知的停顿。
+ */
+export function* normalizeEventsInChunks(
+  events: readonly Omit<RawCalendarEvent, "sourceId">[],
+  sourceId: string,
+  chunkEvents: number = NORMALIZE_CHUNK_EVENTS,
+): Generator<void, StoredEvent[], void> {
+  const stored: StoredEvent[] = [];
+  for (let index = 0; index < events.length; index += 1) {
+    if (isChunkBoundary(index, chunkEvents)) {
+      yield;
+    }
+    // sourceId 以调用方声明为准，与 CalendarStore.upsertEvents 同一口径。
+    stored.push(normalizeEventForStorage({ ...events[index], sourceId }));
+  }
+  return stored;
 }
 
 /** 时区语义：TZID > UTC > 浮动（缺省）；全天事件无时区语义。 */

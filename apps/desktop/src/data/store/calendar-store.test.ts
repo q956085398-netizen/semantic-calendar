@@ -796,3 +796,198 @@ describe("可见事件集合的版本号（SC-020）", () => {
     expect(reopened.listEvents()).toHaveLength(1);
   });
 });
+
+/**
+ * SC-024：落库 / 替换 / 读取模型 / 快照序列化的分片版本。
+ *
+ * 两件事被测：分片不改变结果（对照同步入口逐条比较），以及分片特有的
+ * 风险——让出主线程后读取方可能读到半份集合，此时版本号必须能区分
+ * 「半份」与「算完」。
+ */
+describe("分片落库、读取与序列化（SC-024）", () => {
+  /** 覆盖插入 / 更新 / 多来源 / 排序：40 条够跨越任意小粒度。 */
+  function seededEvents(): RawCalendarEvent[] {
+    const events: RawCalendarEvent[] = [];
+    for (let index = 0; index < 40; index += 1) {
+      events.push(
+        makeEvent({
+          uid: `event-${index}@semantic-calendar`,
+          title: `事件 ${index}`,
+        }),
+      );
+    }
+    return events;
+  }
+
+  /** 把生成器排空，返回结果与让出次数。 */
+  function drain<T>(steps: Generator<void, T, void>): {
+    result: T;
+    yields: number;
+  } {
+    let yields = 0;
+    let step = steps.next();
+    while (!step.done) {
+      yields += 1;
+      step = steps.next();
+    }
+    return { result: step.value, yields };
+  }
+
+  it("upsertEventsInChunks 与同步入口逐条相同（不同粒度下都是同一份结果）", async () => {
+    const sync = await CalendarStore.open(fileIO, storePath);
+    sync.store.upsertSource(makeSource());
+
+    const expected = sync.store.upsertEvents("source-1", seededEvents());
+    expect(expected).toEqual({ inserted: 40, updated: 0 });
+
+    for (const chunkEvents of [1, 7, 1000]) {
+      // 每个粒度都用一份干净的存储，计数才可比。
+      const chunked = await CalendarStore.open(fileIO, storePath);
+      chunked.store.upsertSource(makeSource());
+      const run = drain(
+        chunked.store.upsertEventsInChunks(
+          "source-1",
+          seededEvents(),
+          chunkEvents,
+        ),
+      );
+      expect(run.result).toEqual(expected);
+      expect(chunked.store.listEvents()).toEqual(sync.store.listEvents());
+    }
+  });
+
+  it("重复 upsert 走更新分支：增强结果失效，计数与同步入口一致", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+    store.upsertSource(makeSource());
+    store.upsertEvents("source-1", seededEvents());
+    const identity = {
+      sourceId: "source-1",
+      uid: "event-0@semantic-calendar",
+    };
+    store.saveEnrichment(identity, { semantic: fixtureSemantic });
+
+    const run = drain(
+      store.upsertEventsInChunks(
+        "source-1",
+        [makeEvent({ uid: "event-0@semantic-calendar" })],
+        1,
+      ),
+    );
+
+    expect(run.result).toEqual({ inserted: 0, updated: 1 });
+    expect(store.getEnrichment(identity)).toBeUndefined();
+  });
+
+  it("replaceSourceEventsInChunks 与同步入口相同：消失的删、仍在的保留", async () => {
+    const sync = await CalendarStore.open(fileIO, storePath);
+    const chunked = await CalendarStore.open(fileIO, storePath);
+    for (const { store } of [sync, chunked]) {
+      store.upsertSource(makeSource());
+      store.upsertEvents("source-1", seededEvents());
+    }
+
+    // 批次里只剩前 20 条：后 20 条应当被删掉。
+    const batch = seededEvents().slice(0, 20);
+
+    const expected = sync.store.replaceSourceEvents("source-1", batch);
+    const run = drain(
+      chunked.store.replaceSourceEventsInChunks("source-1", batch, 3),
+    );
+
+    expect(run.result).toEqual(expected);
+    expect(run.result.removed).toBe(20);
+    expect(chunked.store.listEvents()).toEqual(sync.store.listEvents());
+  });
+
+  it("listEnrichedEventsInChunks 与同步入口逐条相同（含增强连接与排序）", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+    store.upsertSource(makeSource());
+    store.upsertEvents("source-1", seededEvents());
+    store.saveEnrichment(
+      { sourceId: "source-1", uid: "event-3@semantic-calendar" },
+      { semantic: fixtureSemantic, metadata: { display: "badge" } },
+    );
+
+    const expected = store.listEnrichedEvents();
+    for (const chunkEvents of [1, 6, 1000]) {
+      expect(
+        drain(store.listEnrichedEventsInChunks(undefined, chunkEvents)).result,
+      ).toEqual(expected);
+    }
+
+    // 读取结果与存储内部状态解耦：改结果不会污染存储（逐条克隆仍在）。
+    const loaded = drain(store.listEnrichedEventsInChunks(undefined, 4)).result;
+    loaded[0].title = "被改过的结果";
+    expect(store.listEvents().map((event) => event.title)).not.toContain(
+      "被改过的结果",
+    );
+  });
+
+  it("分片落库期间读到的版本号一定与结束后的不同（否则读取方会跳过重读）", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+    store.upsertSource(makeSource());
+
+    const steps = store.upsertEventsInChunks("source-1", seededEvents(), 4);
+    // 第一个任务之后：一部分事件已入库（分片进行到一半）。
+    expect(steps.next().done).toBe(false);
+    const midwayRevision = store.eventsRevision();
+    const midwayCount = store.listEvents().length;
+
+    drain(steps);
+
+    expect(midwayCount).toBeGreaterThan(0);
+    expect(midwayCount).toBeLessThan(store.listEvents().length);
+    expect(store.eventsRevision()).not.toBe(midwayRevision);
+  });
+
+  it("小批量一次跑完：版本号只推进一次（与改动前完全一致）", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+    store.upsertSource(makeSource());
+
+    // 少于一个分片粒度：同步入口一次排空，没有让出点。
+    store.upsertEvents("source-1", seededEvents().slice(0, 5));
+
+    expect(store.eventsRevision()).toBe(1);
+  });
+
+  it("保存的快照文本与旧路径（toSnapshot + stringify）逐字节相同", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+    store.upsertSource(makeSource());
+    store.upsertSource(
+      makeSource({ id: "source-2", name: "订阅", type: "webcal" }),
+    );
+    store.upsertEvents("source-1", seededEvents());
+    store.upsertEvents("source-2", seededEvents().slice(0, 5));
+    store.saveEnrichment(
+      { sourceId: "source-1", uid: "event-1@semantic-calendar" },
+      { semantic: fixtureSemantic, metadata: { display: "badge", rank: 2 } },
+    );
+    store.setSetting("theme", "dark");
+    store.setSetting("followedTeams", ["arsenal", "liverpool"]);
+    // 快照里值为 undefined 的键不输出（与 JSON.stringify 同一口径）。
+    store.setSetting("空值", undefined);
+
+    const written = await store.serializeSnapshot();
+
+    expect(written).toBe(JSON.stringify(store.toSnapshot(), null, 2));
+    // 真实落盘：文件内容与直接序列化一致，且能原样读回。
+    await store.save();
+    expect(await readFile(storePath, "utf8")).toBe(written);
+    const { store: reopened } = await CalendarStore.open(fileIO, storePath);
+    expect(reopened.listEvents()).toHaveLength(45);
+    expect(reopened.getSetting("followedTeams")).toEqual([
+      "arsenal",
+      "liverpool",
+    ]);
+  });
+
+  it("空存储的快照也是逐字节相同的：空分区不展开", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+
+    const written = await store.serializeSnapshot();
+
+    expect(written).toBe(JSON.stringify(store.toSnapshot(), null, 2));
+    expect(written).toContain('"sources": []');
+    expect(written).toContain('"settings": {}');
+  });
+});

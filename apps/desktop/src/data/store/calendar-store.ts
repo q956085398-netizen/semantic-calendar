@@ -11,6 +11,11 @@ import {
   type WebcalCache,
 } from "../model";
 import { migrateAndValidate, readVersion } from "./migrations";
+import { isChunkBoundary } from "../../scheduling/chunk-boundary";
+import {
+  runYielding,
+  type RunYieldingDeps,
+} from "../../scheduling/run-yielding";
 import {
   CURRENT_SCHEMA_VERSION,
   isValidSnapshotShape,
@@ -19,7 +24,17 @@ import {
   type EventEnrichment,
   type StoreSnapshotV1,
 } from "./schema";
+import { snapshotJsonInChunks, type SnapshotSections } from "./snapshot-json";
 import type { FileIO } from "./file-io";
+
+/**
+ * 分片粒度（事件条数）：落库每条只算一次键并写一次 Map（远便宜于解析），
+ * 128 条一片约 0.1 ms；读取模型的逐条克隆（约 4 µs/条）也用同一粒度。
+ */
+export const STORE_CHUNK_EVENTS = 128;
+
+/** 落盘的注入点：只供测试加速分片（见 save）。 */
+export type StoreSaveDeps = RunYieldingDeps;
 
 export type StoreRecoveryReason =
   "corrupt-json" | "invalid-shape" | "future-version";
@@ -156,19 +171,50 @@ export class CalendarStore {
    * 写入串行化：低频刷新与手动刷新可能同时触发落盘，而临时文件路径
    * 只有一个，交叉写入会让 rename 撞上已被移走的 tmp 文件。
    * 快照在队列内序列化，保证最后一次调用写入的是最新状态。
+   *
+   * 序列化分片进行（SC-024）：10,000 条事件下逐条克隆 + 一次 stringify 共约
+   * 60 ms 不中断，而落盘正好发生在一件用户动作的收尾（导入完成后界面就该恢复
+   * 响应）。分片后每个任务约 5 ms，`writeFile` 本身是异步 I/O。
    */
-  save(): Promise<void> {
+  save(deps: StoreSaveDeps = {}): Promise<void> {
     const write = this.saveChain.then(async () => {
       const tmpPath = `${this.filePath}.tmp`;
-      await this.fileIO.writeFile(
-        tmpPath,
-        JSON.stringify(this.toSnapshot(), null, 2),
-      );
+      await this.fileIO.writeFile(tmpPath, await this.serializeSnapshot(deps));
       await this.fileIO.renameFile(tmpPath, this.filePath);
     });
     // 失败只交给本次调用方，不阻塞后续写入。
     this.saveChain = write.catch(() => undefined);
     return write;
+  }
+
+  /** 分片序列化当前状态；输出与 `JSON.stringify(toSnapshot(), null, 2)` 逐字节相同。 */
+  async serializeSnapshot(deps: StoreSaveDeps = {}): Promise<string> {
+    return runYielding(this.snapshotJsonInChunks(), deps);
+  }
+
+  /**
+   * 分片序列化生成器（SC-024）：`save()` 用它，性能基线也用它量「单次任务」
+   * （主线程上最长的一段），见 src/bench/import-slices.bench.ts。
+   */
+  snapshotJsonInChunks(chunkItems?: number): Generator<void, string, void> {
+    return snapshotJsonInChunks(this.snapshotSections(), chunkItems);
+  }
+
+  /**
+   * 序列化输入：各分区按稳定顺序排好，**不克隆**——快照是给磁盘的文本，落盘
+   * 路径上没有“把快照交出去”这一步；存储里每条记录都是整体替换、从不原地修改，
+   * 因此逐条读到的都是某条记录的一个完整版本（见 snapshot-json.ts）。
+   */
+  private snapshotSections(): SnapshotSections {
+    return {
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      sources: [...this.sources.values()].sort(byId),
+      events: [...this.events.entries()]
+        .sort(([a], [b]) => compareString(a, b))
+        .map(([, event]) => event),
+      enrichments: this.enrichments,
+      settings: this.settings,
+    };
   }
 
   toSnapshot(): StoreSnapshotV1 {
@@ -249,13 +295,42 @@ export class CalendarStore {
 
   /** sourceId 以调用方声明为准，防止跨来源数据污染。 */
   upsertEvents(sourceId: string, events: StoredEvent[]): UpsertResult {
+    const steps = this.upsertEventsInChunks(sourceId, events);
+    let step = steps.next();
+    while (!step.done) {
+      step = steps.next();
+    }
+    return step.value;
+  }
+
+  /**
+   * 分片落库（SC-024 / app-spec §15）：每 chunkEvents 条给一个让出点，
+   * 同步入口 `upsertEvents` 就是这个生成器的一次排空，结果逐条相同。
+   *
+   * **分片期间版本号推进两次**（开始一次、结束一次），这是与同步入口唯一的
+   * 可观察差异，也是必须的：分片让出主线程后，读取方（App 的 refreshFromStore）
+   * 可能在落库进行到一半时读到事件集合，并把当时的版本号记成“已读过”。若结束
+   * 时的版本号与半途读到的一样，读取方会认为集合没变、跳过重读——界面就永远
+   * 停在半份事件上。中间让出过才补第二个推进：小批量数据一次跑完，行为与
+   * 改动前完全一致（版本号只 +1）。
+   */
+  *upsertEventsInChunks(
+    sourceId: string,
+    events: StoredEvent[],
+    chunkEvents: number = STORE_CHUNK_EVENTS,
+  ): Generator<void, UpsertResult, void> {
     if (events.length > 0) {
       this.eventsRevisionValue += 1;
     }
     let inserted = 0;
     let updated = 0;
-    for (const event of events) {
-      const stamped = { ...event, sourceId };
+    let sliced = false;
+    for (let index = 0; index < events.length; index += 1) {
+      if (isChunkBoundary(index, chunkEvents)) {
+        sliced = true;
+        yield;
+      }
+      const stamped = { ...events[index], sourceId };
       const key = eventKey(identityOfEvent(stamped));
       if (this.events.has(key)) {
         updated += 1;
@@ -266,13 +341,58 @@ export class CalendarStore {
       }
       this.events.set(key, stamped);
     }
+    if (sliced) {
+      this.eventsRevisionValue += 1;
+    }
     return { inserted, updated };
   }
 
   listEvents(sourceId?: string): StoredEvent[] {
-    return [...this.events.values()]
-      .filter((event) => sourceId === undefined || event.sourceId === sourceId)
-      .map(clone);
+    const steps = this.listEventsInChunks(sourceId);
+    let step = steps.next();
+    while (!step.done) {
+      step = steps.next();
+    }
+    return step.value;
+  }
+
+  /**
+   * 分片读取原始事件（SC-024）：逐条克隆是这里唯一的代价（约 4 µs/条，
+   * 10,000 条约 43 ms），选中与排序先做（都很便宜）。同步入口 `listEvents`
+   * 是这个生成器的一次排空，结果逐条相同。
+   *
+   * 语义增强的重建用它取输入：那一段曾经把 43 ms 的整份克隆放在第一个任务里
+   * （SC-020 只分了匹配循环），导入动作因此仍有一次跨帧的停顿。
+   */
+  *listEventsInChunks(
+    sourceId?: string,
+    chunkEvents: number = STORE_CHUNK_EVENTS,
+  ): Generator<void, StoredEvent[], void> {
+    const selected = [...this.events.values()].filter(
+      (event) => sourceId === undefined || event.sourceId === sourceId,
+    );
+    const events: StoredEvent[] = [];
+    for (let index = 0; index < selected.length; index += 1) {
+      if (isChunkBoundary(index, chunkEvents)) {
+        yield;
+      }
+      events.push(clone(selected[index]));
+    }
+    return events;
+  }
+
+  /**
+   * 某来源是否已有事件（不带克隆）。用于「空响应是否要保留缓存」这类
+   * 只关心有无的判定——`listEvents()` 会逐条克隆，10,000 条就是 43 ms。
+   */
+  hasEvents(sourceId: string): boolean {
+    const prefix = eventKeyPrefix(sourceId);
+    for (const key of this.events.keys()) {
+      if (key.startsWith(prefix)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   removeEvents(sourceId: string): void {
@@ -303,12 +423,44 @@ export class CalendarStore {
    * 匹配是确定性的，因此重建结果与刷新前一致，用户不会因为一次刷新丢语义。
    */
   replaceSourceEvents(sourceId: string, events: StoredEvent[]): ReplaceResult {
-    const nextKeys = new Set(
-      events.map((event) => eventKey(identityOfEvent({ ...event, sourceId }))),
-    );
+    const steps = this.replaceSourceEventsInChunks(sourceId, events);
+    let step = steps.next();
+    while (!step.done) {
+      step = steps.next();
+    }
+    return step.value;
+  }
+
+  /**
+   * 分片全量替换（SC-024）：键集合构造、消失事件删除、新事件落库三段各自分片，
+   * 同步入口 `replaceSourceEvents` 是这个生成器的一次排空，结果逐条相同。
+   *
+   * 版本号推进只有一处与同步入口不同：落库那一段由 `upsertEventsInChunks`
+   * 负责（见那里的说明，分片期间它在开始与结束各推一次）。删除段的推进口径
+   * 不变——删除全部发生在推进之前，中途读到旧版本号的读取方在结束时一定会
+   * 看到一个更大的值，因此不会误判“集合没变”。
+   */
+  *replaceSourceEventsInChunks(
+    sourceId: string,
+    events: StoredEvent[],
+    chunkEvents: number = STORE_CHUNK_EVENTS,
+  ): Generator<void, ReplaceResult, void> {
+    const nextKeys = new Set<string>();
+    for (let index = 0; index < events.length; index += 1) {
+      if (isChunkBoundary(index, chunkEvents)) {
+        yield;
+      }
+      nextKeys.add(eventKey(identityOfEvent({ ...events[index], sourceId })));
+    }
     const prefix = eventKeyPrefix(sourceId);
+    // 键快照先取好：删除会改动 Map，但不能改动这次要比对的名单。
+    const existingKeys = [...this.events.keys()];
     let removed = 0;
-    for (const key of [...this.events.keys()]) {
+    for (let index = 0; index < existingKeys.length; index += 1) {
+      if (isChunkBoundary(index, chunkEvents)) {
+        yield;
+      }
+      const key = existingKeys[index];
       if (key.startsWith(prefix) && !nextKeys.has(key)) {
         this.events.delete(key);
         this.enrichments.delete(key);
@@ -318,7 +470,11 @@ export class CalendarStore {
     if (removed > 0) {
       this.eventsRevisionValue += 1;
     }
-    const { inserted, updated } = this.upsertEvents(sourceId, events);
+    const { inserted, updated } = yield* this.upsertEventsInChunks(
+      sourceId,
+      events,
+      chunkEvents,
+    );
     return { inserted, updated, removed };
   }
 
@@ -352,22 +508,46 @@ export class CalendarStore {
    * （normalizedTitle 回退口径见 asNormalizedEvent）。
    */
   listEnrichedEvents(sourceId?: string): EnrichedEvent[] {
-    return [...this.events.values()]
+    const steps = this.listEnrichedEventsInChunks(sourceId);
+    let step = steps.next();
+    while (!step.done) {
+      step = steps.next();
+    }
+    return step.value;
+  }
+
+  /**
+   * 分片读取模型（SC-024 / app-spec §15）：选中与排序（10,000 条约 3 ms）同步
+   * 完成，逐条克隆与增强连接（约 4 µs/条，占总代价的九成）分片进行。同步入口
+   * `listEnrichedEvents` 是这个生成器的一次排空，结果逐条相同。
+   *
+   * 只在算完后发布整份结果：读取方拿它换掉界面上的一整份事件集合，半份结果会
+   * 让月格与详情栏在几帧内反复变化（与月视图展开同一取舍）。
+   */
+  *listEnrichedEventsInChunks(
+    sourceId?: string,
+    chunkEvents: number = STORE_CHUNK_EVENTS,
+  ): Generator<void, EnrichedEvent[], void> {
+    const selected = [...this.events.values()]
       .filter((event) => sourceId === undefined || event.sourceId === sourceId)
       .sort(
         (a, b) =>
           compareString(a.start, b.start) || compareString(a.uid, b.uid),
-      )
-      .map((event) => {
-        const enrichment = this.enrichments.get(
-          eventKey(identityOfEvent(event)),
-        );
-        return {
-          ...asNormalizedEvent(clone(event)),
-          semantic: enrichment?.semantic,
-          metadata: enrichment?.metadata,
-        };
+      );
+    const enriched: EnrichedEvent[] = [];
+    for (let index = 0; index < selected.length; index += 1) {
+      if (isChunkBoundary(index, chunkEvents)) {
+        yield;
+      }
+      const event = selected[index];
+      const enrichment = this.enrichments.get(eventKey(identityOfEvent(event)));
+      enriched.push({
+        ...asNormalizedEvent(clone(event)),
+        semantic: enrichment?.semantic,
+        metadata: enrichment?.metadata,
       });
+    }
+    return enriched;
   }
 
   // ---- 设置 ----

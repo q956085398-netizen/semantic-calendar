@@ -54,7 +54,9 @@ function* enrichStoreInChunks(
   stack: SemanticStack,
   chunkSize: number = ENRICH_CHUNK_SIZE,
 ): Generator<void, EnrichmentStats, void> {
-  const events = store.listEvents();
+  // 取输入这一步本身也要分片（SC-024）：它是逐条克隆（10,000 条约 43 ms），
+  // 放在第一个任务里等于把整段重建的门槛留在了主线程上。
+  const events = yield* store.listEventsInChunks();
   // 先整体清空再重建：旧 Matcher 的产物（含孤儿记录）不会残留。
   store.clearEnrichments();
 

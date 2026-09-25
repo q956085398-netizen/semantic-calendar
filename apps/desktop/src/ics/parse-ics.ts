@@ -15,6 +15,7 @@
  */
 
 import type { EventAlarm, ExdateValue, RawCalendarEvent } from "../data/model";
+import { isChunkBoundary } from "../scheduling/chunk-boundary";
 
 /** 单个坏事件的说明；eventIndex 为 1 基 VEVENT 序号，undefined 表示文件级问题。 */
 export interface IcsParseIssue {
@@ -42,12 +43,25 @@ const DATE_TIME_LOCAL = /^\d{8}T\d{6}$/;
 const DURATION =
   /^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/;
 
-/** 展开 RFC 5545 折叠行：以空格 / 制表符开头的行拼回上一行。 */
-function unfoldLines(text: string): string[] {
+/**
+ * 展开 RFC 5545 折叠行：以空格 / 制表符开头的行拼回上一行。
+ *
+ * 分片进行（SC-024）：折叠状态就在 `lines` 的末行上，因此片边界落在折叠组
+ * 中间时结果不变。文本切分本身（一次 `split`）不分片：10,000 条约 4 ms，
+ * 在一帧以内（见 performance.md §3.5）。
+ */
+function* unfoldLinesInChunks(
+  text: string,
+  chunkLines: number,
+): Generator<void, string[], void> {
   const normalized = text.replace(/^\uFEFF/, "");
   const rawLines = normalized.split(/\r\n|\r|\n/);
   const lines: string[] = [];
-  for (const line of rawLines) {
+  for (let index = 0; index < rawLines.length; index += 1) {
+    if (isChunkBoundary(index, chunkLines)) {
+      yield;
+    }
+    const line = rawLines[index];
     if ((line.startsWith(" ") || line.startsWith("\t")) && lines.length > 0) {
       lines[lines.length - 1] += line.slice(1);
     } else {
@@ -55,6 +69,27 @@ function unfoldLines(text: string): string[] {
     }
   }
   return lines;
+}
+
+/**
+ * 「这是不是一个 ICS 文件」的预检：逐行扫描，命中即返回。
+ * 分片进行：文件里若有一大段前置组件（VTIMEZONE 等），这趟扫描同样是全量遍历，
+ * 不能留成一次不可中断的任务。
+ */
+function* looksLikeIcsInChunks(
+  lines: readonly string[],
+  chunkLines: number,
+): Generator<void, boolean, void> {
+  for (let index = 0; index < lines.length; index += 1) {
+    if (isChunkBoundary(index, chunkLines)) {
+      yield;
+    }
+    const upper = lines[index].trim().toUpperCase();
+    if (upper === "BEGIN:VCALENDAR" || upper === "BEGIN:VEVENT") {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** 解析内容行 `NAME;PARAM=值:value`，引号内的分隔符不生效。 */
@@ -395,17 +430,24 @@ function parseValarm(lines: readonly string[]): EventAlarm | null {
  * 提取 VEVENT 的（已展开）原始行。
  * 用组件栈做严格配对：截断文件里 END:VCALENDAR 不会“替”VEVENT 闭合，
  * 未闭合的 VEVENT 计入 unclosed，由调用方报告而不是静默丢弃。
+ *
+ * 分片进行（SC-024）：组件栈、当前块与未闭合计数都跨片保留，片边界因此
+ * 不改变任何一条块的内容与顺序。
  */
-function extractVeventBlocks(lines: string[]): {
-  blocks: string[][];
-  unclosed: number;
-} {
+function* extractVeventBlocksInChunks(
+  lines: readonly string[],
+  chunkLines: number,
+): Generator<void, { blocks: string[][]; unclosed: number }, void> {
   const blocks: string[][] = [];
   const stack: string[] = [];
   let body: string[] | null = null;
   let unclosed = 0;
 
-  for (const line of lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    if (isChunkBoundary(index, chunkLines)) {
+      yield;
+    }
+    const line = lines[index];
     const upper = line.trim().toUpperCase();
     if (upper.startsWith("BEGIN:")) {
       const component = upper.slice("BEGIN:".length);
@@ -445,40 +487,79 @@ function extractVeventBlocks(lines: string[]): {
 /**
  * 解析 ICS 文本。任何输入都不抛异常：文件级问题与坏事件都进入 issues，
  * 调用方据此决定导入结果与用户反馈（错误隔离，ICS-005）。
+ *
+ * 同步入口：就是这个生成器的一次排空，因此两条路径不可能各自演化出
+ * 不同的语义（与 normalize/occurrences.ts 的分片入口同一形状）。
  */
 export function parseIcsCalendar(text: string): IcsParseResult {
+  const steps = parseIcsCalendarInChunks(text);
+  let step = steps.next();
+  while (!step.done) {
+    step = steps.next();
+  }
+  return step.value;
+}
+
+/**
+ * 分片粒度（文本行）：展开折叠行、ICS 预检与切 VEVENT 块都是逐行扫描，
+ * 每行约 0.1 µs，粒度因此比逐块解析粗（一片约 0.1 ms）。
+ */
+export const ICS_CHUNK_LINES = 1024;
+
+/**
+ * 分片粒度（VEVENT 块）：解析阶段每这么多块给一个让出点。每条事件的解析
+ * 约 10 µs（10,000 条约 100 ms，实测见 performance.md §3.5），与 occurrence
+ * 展开的粒度同量级（OCCURRENCE_CHUNK_EVENTS）。
+ */
+export const ICS_CHUNK_EVENTS = 128;
+
+/**
+ * 分片解析（SC-024 / app-spec §15「大量事件不应阻塞 UI 线程」）。
+ *
+ * 三趟都要能中断，缺一趟都留着一次可感知的停顿（10,000 条的实测：
+ * 逐行展开 7.7 ms、切块 13.5 ms、逐块解析 96 ms）。三趟共用同一个让出点
+ * 形状：每 chunk 个元素 yield 一次，调用方在 yield 处决定怎么让。
+ */
+export function* parseIcsCalendarInChunks(
+  text: string,
+  chunkLines: number = ICS_CHUNK_LINES,
+  chunkEvents: number = ICS_CHUNK_EVENTS,
+): Generator<void, IcsParseResult, void> {
   const events: ParsedIcsEvent[] = [];
   const issues: IcsParseIssue[] = [];
-  const lines = unfoldLines(text);
 
   const trimmedText = text.trim();
   if (trimmedText === "") {
     return { events, issues: [{ message: "文件为空" }] };
   }
-  const sawCalendarOrEvent = lines.some((line) => {
-    const upper = line.trim().toUpperCase();
-    return upper === "BEGIN:VCALENDAR" || upper === "BEGIN:VEVENT";
-  });
-  if (!sawCalendarOrEvent) {
+
+  const lines = yield* unfoldLinesInChunks(text, chunkLines);
+  if (!(yield* looksLikeIcsInChunks(lines, chunkLines))) {
     return { events, issues: [{ message: "不是有效的 ICS 日历文件" }] };
   }
 
-  const { blocks, unclosed } = extractVeventBlocks(lines);
+  const { blocks, unclosed } = yield* extractVeventBlocksInChunks(
+    lines,
+    chunkLines,
+  );
   if (unclosed > 0) {
     // 截断的最后一个事件按坏事件报告，而不是静默消失（导入错误报告）。
     // 未闭合块必然在所有已闭合块之后，序号即 blocks.length + 1。
     issues.push({ eventIndex: blocks.length + 1, message: "VEVENT 未闭合" });
   }
-  blocks.forEach((block, position) => {
+  for (let position = 0; position < blocks.length; position += 1) {
+    if (isChunkBoundary(position, chunkEvents)) {
+      yield;
+    }
     try {
-      events.push(parseVevent(block));
+      events.push(parseVevent(blocks[position]));
     } catch (error) {
       issues.push({
         eventIndex: position + 1,
         message: error instanceof Error ? error.message : String(error),
       });
     }
-  });
+  }
   return { events, issues };
 }
 

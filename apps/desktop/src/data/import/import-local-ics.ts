@@ -1,5 +1,15 @@
-import { parseIcsCalendar, type IcsParseIssue } from "../../ics/parse-ics";
-import { normalizeEventForStorage } from "../../normalize/normalizer";
+import {
+  parseIcsCalendarInChunks,
+  type IcsParseIssue,
+} from "../../ics/parse-ics";
+import {
+  NORMALIZE_CHUNK_EVENTS,
+  normalizeEventsInChunks,
+} from "../../normalize/normalizer";
+import {
+  runYielding,
+  type RunYieldingDeps,
+} from "../../scheduling/run-yielding";
 import type { CalendarSource } from "../model";
 import type { CalendarStore } from "../store/calendar-store";
 
@@ -14,6 +24,11 @@ import type { CalendarStore } from "../store/calendar-store";
  * 相同 (sourceId, uid, occurrenceId) 键，走 update 而不是新增副本；
  * v0.1 采用增量 upsert（不删除文件中已消失的事件），全量替换语义
  * 留给 WebCal 刷新（SC-007）。
+ *
+ * 三段都可分片（SC-024）：同步入口 `importLocalIcs` 是分片生成器的
+ * 一次排空，两条入口结果逐条相同。WebCal 的 200 刷新走同一组分片原语
+ * （parse-ics / normalizer / CalendarStore 各一处），只是最后一段用
+ * replaceSourceEventsInChunks 而不是 upsertEventsInChunks。
  */
 
 export interface LocalIcsImportInput {
@@ -32,6 +47,11 @@ export interface LocalIcsImportOutcome {
   issues: IcsParseIssue[];
 }
 
+/** 分片导入的注入点；chunkEvents 只供测试注入更小的值。 */
+export interface LocalIcsImportDeps extends RunYieldingDeps {
+  chunkEvents?: number;
+}
+
 const SOURCE_TYPE = "local-ics";
 
 /** 从文件名派生稳定 sourceId：保留 Unicode（中文文件名常见），归一化分隔符。 */
@@ -46,11 +66,48 @@ export function sourceIdForLocalIcsFile(fileName: string): string {
   return `local-ics:${slug || "import"}`;
 }
 
+/** 同步入口：分片生成器的一次排空（结果逐条相同）。 */
 export async function importLocalIcs(
   store: CalendarStore,
   input: LocalIcsImportInput,
 ): Promise<LocalIcsImportOutcome> {
-  const parsed = parseIcsCalendar(input.contents);
+  const steps = importLocalIcsInChunks(store, input);
+  let step = steps.next();
+  while (!step.done) {
+    step = steps.next();
+  }
+  return step.value;
+}
+
+/**
+ * 分片导入（SC-024 / app-spec §15）：解析、标准化、落库三段各自分片，
+ * 段与段之间也各有一个让出点，因此 10,000 条导入期间没有超过一帧的任务
+ * （实测见 performance.md §3.5）。
+ *
+ * 进度说明不做额外计数：界面已有的「导入中…」状态行 + 禁用按钮足够说明
+ * 正在发生什么——整段动作仍在秒级以内，而分片让界面全程保持可绘制。
+ */
+export function importLocalIcsYielding(
+  store: CalendarStore,
+  input: LocalIcsImportInput,
+  deps: LocalIcsImportDeps = {},
+): Promise<LocalIcsImportOutcome> {
+  return runYielding(
+    importLocalIcsInChunks(
+      store,
+      input,
+      deps.chunkEvents ?? NORMALIZE_CHUNK_EVENTS,
+    ),
+    deps,
+  );
+}
+
+function* importLocalIcsInChunks(
+  store: CalendarStore,
+  input: LocalIcsImportInput,
+  chunkEvents: number = NORMALIZE_CHUNK_EVENTS,
+): Generator<void, LocalIcsImportOutcome, void> {
+  const parsed = yield* parseIcsCalendarInChunks(input.contents);
   const skipped = parsed.issues.filter(
     (issue) => issue.eventIndex !== undefined,
   ).length;
@@ -77,11 +134,15 @@ export async function importLocalIcs(
     lastSyncAt: new Date().toISOString(),
   });
 
-  const { inserted, updated } = store.upsertEvents(
+  const stored = yield* normalizeEventsInChunks(
+    parsed.events,
     sourceId,
-    parsed.events.map((event) =>
-      normalizeEventForStorage({ ...event, sourceId }),
-    ),
+    chunkEvents,
+  );
+  const { inserted, updated } = yield* store.upsertEventsInChunks(
+    sourceId,
+    stored,
+    chunkEvents,
   );
   return {
     // 返回状态刷新后的最终形态，供调用方直接展示。

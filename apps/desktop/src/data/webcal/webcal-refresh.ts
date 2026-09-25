@@ -13,8 +13,15 @@
  * - 同一来源的并发刷新合并为一次请求（§12：避免不必要的重复下载）。
  */
 
-import { parseIcsCalendar, type IcsParseIssue } from "../../ics/parse-ics";
-import { normalizeEventForStorage } from "../../normalize/normalizer";
+import {
+  parseIcsCalendarInChunks,
+  type IcsParseIssue,
+} from "../../ics/parse-ics";
+import { normalizeEventsInChunks } from "../../normalize/normalizer";
+import {
+  runYielding,
+  type RunYieldingDeps,
+} from "../../scheduling/run-yielding";
 import {
   WEBCAL_SOURCE_TYPE,
   type CalendarSource,
@@ -59,7 +66,19 @@ export interface WebcalAddOutcome {
 }
 
 export interface WebcalDeps {
+  /** 订阅状态时钟（lastCheckedAt）；与分片时钟同名不同义，因此不整体透传。 */
   now?: () => Date;
+  /** 任务之间让出主线程的方式；只供测试注入（见 scheduling/run-yielding）。 */
+  yieldToMain?: () => Promise<void>;
+  /** 让出阈值；只供测试注入更小的值。 */
+  yieldAfterMs?: number;
+  /** 分片粒度（事件条数）；只供测试注入更小的值。 */
+  chunkEvents?: number;
+}
+
+/** 分片注入项：字段名与 WebcalDeps 的 `now` 冲突，逐项映射而不是整体透传。 */
+function sliceOptions(deps: WebcalDeps): RunYieldingDeps {
+  return { yieldToMain: deps.yieldToMain, yieldAfterMs: deps.yieldAfterMs };
 }
 
 /**
@@ -191,7 +210,10 @@ async function performRefresh(
     );
   }
 
-  const parsed = parseIcsCalendar(response.body ?? "");
+  const parsed = await runYielding(
+    parseIcsCalendarInChunks(response.body ?? ""),
+    sliceOptions(deps),
+  );
   const skipped = parsed.issues.filter(
     (issue) => issue.eventIndex !== undefined,
   ).length;
@@ -211,7 +233,8 @@ async function performRefresh(
   // 空日历（合法但没有 VEVENT）在已有缓存时按失败处理：服务端维护页 /
   // 中间代理返回的“空壳”与真正清空的订阅无法区分，而清空事件的代价
   // 远高于保留一份可能过期的缓存（P-01 可靠性优先 / §13 不删除旧数据）。
-  if (parsed.events.length === 0 && store.listEvents(sourceId).length > 0) {
+  // 只判定有无，不读整份事件（`listEvents()` 会逐条克隆，见 SC-024）。
+  if (parsed.events.length === 0 && store.hasEvents(sourceId)) {
     return markFailed(
       store,
       sourceId,
@@ -221,11 +244,15 @@ async function performRefresh(
     );
   }
 
-  const { inserted, updated, removed } = store.replaceSourceEvents(
-    sourceId,
-    parsed.events.map((event) =>
-      normalizeEventForStorage({ ...event, sourceId }),
-    ),
+  // 与本地导入同一组分片原语（SC-024）：标准化与按批次替换各自分片，
+  // 10,000 条的订阅刷新因此也不再整段占着主线程（性能文档 §3.5）。
+  const stored = await runYielding(
+    normalizeEventsInChunks(parsed.events, sourceId, deps.chunkEvents),
+    sliceOptions(deps),
+  );
+  const { inserted, updated, removed } = await runYielding(
+    store.replaceSourceEventsInChunks(sourceId, stored, deps.chunkEvents),
+    sliceOptions(deps),
   );
   store.updateSourceStatus(sourceId, {
     lastSyncStatus: "ok",

@@ -16,7 +16,7 @@ import { useMonthOccurrences } from "./calendar/use-month-occurrences";
 import { openDesktopCalendarStore } from "./data/desktop-store";
 import type { CalendarSource, EnrichedEvent } from "./data/model";
 import {
-  importLocalIcs,
+  importLocalIcsYielding,
   type LocalIcsImportOutcome,
 } from "./data/import/import-local-ics";
 import { createTauriHttpIO } from "./data/net/tauri-http-io";
@@ -34,6 +34,8 @@ import {
   normalizeWebcalUrl,
 } from "./data/webcal/webcal-url";
 import type { CalendarStore } from "./data/store/calendar-store";
+import { enrichedEventsInChunks } from "./data/store/enriched-events-load";
+import { runYielding } from "./scheduling/run-yielding";
 import type {
   StoreOpenResult,
   StoreRecoveryReason,
@@ -288,6 +290,8 @@ export default function App() {
   const [events, setEvents] = useState<EnrichedEvent[]>([]);
   /** 最近一次读事件时的存储版本（SC-020）：相同就不必再读一遍，见 refreshFromStore。 */
   const eventsRevisionRef = useRef(-1);
+  /** 事件读取的代次（SC-024）：只有最后一次发起的读取才发布结果。 */
+  const eventsLoadGenerationRef = useRef(0);
   const [importStatus, setImportStatus] = useState<string | undefined>();
   const [importBusy, setImportBusy] = useState(false);
 
@@ -509,27 +513,47 @@ export default function App() {
    * 从本地数据层重建 UI 状态；只显示启用来源的事件（SRC-003）。
    * useCallback：供启动 effect 与后台调度长期持有，身份必须稳定。
    *
-   * 事件集合没变时**不重新读取事件**（SC-020）：`listEnrichedEvents` 会逐条
-   * 克隆（10,000 条约 37 ms），而读取方拿到新数组就会重算月格——一次 304
+   * 事件集合没变时**不重新读取事件**（SC-020）：读取模型会逐条克隆
+   * （10,000 条约 37 ms），而读取方拿到新数组就会重算月格——一次 304
    * 刷新或一次失败刷新本来什么都没改，却会白读一遍、让月格闪一次“整理中”。
    * 判断依据是存储的 `eventsRevision()`（只在事件集合真的会变时推进），
    * 不是“数组换了新对象”。来源行照常更新：304 也要反映最近一次成功时间。
+   *
+   * 读取本身分片进行（SC-024）：克隆拆成短任务，任务之间让出主线程，读完
+   * 一次性发布（见 data/store/enriched-events-load.ts）。发布之前界面继续
+   * 显示上一份集合——不会出现“先空一下再填上”。
+   *
+   * **版本号在发布时才记**：读取期间事件集合可能又被改过（例如后台刷新插进来），
+   * 此时存储的版本号已经更大，下一次调用会照常重读；若提前记下读之前的值，
+   * 就等于把“读到的旧集合”认成最新。
    */
-  const refreshFromStore = useCallback((store: CalendarStore) => {
-    const nextSources = store.listSources();
-    setSources(nextSources);
-    const revision = store.eventsRevision();
-    if (revision === eventsRevisionRef.current) {
-      return;
-    }
-    eventsRevisionRef.current = revision;
-    const enabled = new Set(
-      nextSources.filter((source) => source.enabled).map((source) => source.id),
-    );
-    setEvents(
-      store.listEnrichedEvents().filter((event) => enabled.has(event.sourceId)),
-    );
-  }, []);
+  const refreshFromStore = useCallback(
+    async (store: CalendarStore): Promise<void> => {
+      const nextSources = store.listSources();
+      setSources(nextSources);
+      const revision = store.eventsRevision();
+      if (revision === eventsRevisionRef.current) {
+        return;
+      }
+      const enabled = new Set(
+        nextSources
+          .filter((source) => source.enabled)
+          .map((source) => source.id),
+      );
+      // 更新的读取一旦发起，这一次的结果就不再发布（它读的是更旧的一份）。
+      eventsLoadGenerationRef.current += 1;
+      const generation = eventsLoadGenerationRef.current;
+      const events = await runYielding(
+        enrichedEventsInChunks({ store, enabledSourceIds: enabled }),
+      );
+      if (generation !== eventsLoadGenerationRef.current) {
+        return;
+      }
+      eventsRevisionRef.current = revision;
+      setEvents(events);
+    },
+    [],
+  );
 
   /** 标记 / 取消“刷新中”：手动与后台刷新共用，避免同一来源重复入列。 */
   const markRefreshing = useCallback((sourceId: string, busy: boolean) => {
@@ -623,7 +647,7 @@ export default function App() {
         // 落盘失败不影响本次刷新的结论：内存里的事件与来源状态都是新的，
         // 提示由 saveStore 给出，调用方拿到的 outcome 仍然如实。
         await saveStore("订阅刷新结果");
-        refreshFromStore(store);
+        await refreshFromStore(store);
         return outcome;
       } finally {
         markRefreshing(sourceId, false);
@@ -730,7 +754,7 @@ export default function App() {
       // 分片执行（SC-020）：事件量由用户数据决定，片间让出主线程，
       // 启动时界面不会被一次长匹配阻塞。
       await reEnrichStoreYielding(store, semanticStack);
-      refreshFromStore(store);
+      await refreshFromStore(store);
 
       // 低频后台刷新（SC-007 / §12）：只在到达刷新时间时唤醒一次。
       // 调度器只读来源状态，所有写入仍由 refreshSubscription 负责；
@@ -924,7 +948,7 @@ export default function App() {
         await reEnrichStoreYielding(store, semanticStack);
       }
       await saveStore("订阅");
-      refreshFromStore(store);
+      await refreshFromStore(store);
       schedulerRef.current?.reschedule();
       const name = outcome.source?.name ?? "订阅";
       const detail =
@@ -974,7 +998,7 @@ export default function App() {
       return;
     }
     await saveStore("来源显示状态");
-    refreshFromStore(store);
+    await refreshFromStore(store);
     schedulerRef.current?.reschedule();
     setSubscriptionStatus(
       enabled ? `已显示「${name}」` : `已隐藏「${name}」（事件保留）`,
@@ -990,7 +1014,7 @@ export default function App() {
     const name = store.getSource(sourceId)?.name ?? "来源";
     store.removeSource(sourceId);
     await saveStore("删除结果");
-    refreshFromStore(store);
+    await refreshFromStore(store);
     schedulerRef.current?.reschedule();
     setSubscriptionStatus(`已删除「${name}」及其事件`);
   }
@@ -1123,13 +1147,14 @@ export default function App() {
     setImportBusy(true);
     try {
       const contents = await file.text();
-      const outcome = await importLocalIcs(store, {
+      const outcome = await importLocalIcsYielding(store, {
         fileName: file.name,
         contents,
       });
       await reEnrichStoreYielding(store, semanticStack);
       await saveStore("导入结果");
-      refreshFromStore(store);
+      // 等事件真的进了界面再收起忙碌状态：状态行与月格同时到齐。
+      await refreshFromStore(store);
       setImportStatus(formatImportStatus(outcome));
     } catch (error) {
       // 异常文案统一经脱敏与截断再进状态行（§14）。

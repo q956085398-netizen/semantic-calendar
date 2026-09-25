@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseIcsCalendar } from "./parse-ics";
+import { parseIcsCalendar, parseIcsCalendarInChunks } from "./parse-ics";
 
 /**
  * SC-006 / ICS-001–005：VEVENT 解析、基础字段映射与错误隔离。
@@ -711,5 +711,102 @@ describe("parseIcsCalendar — 事件自带提醒（VALARM）", () => {
     const result = parseIcsCalendar(wrap(BASIC_EVENT));
 
     expect(result.events[0].alarms).toBeUndefined();
+  });
+});
+
+/**
+ * SC-024 / app-spec §15：分片解析。
+ *
+ * 被测的是「分片不改变结果」：三趟扫描（逐行展开、ICS 预检、切 VEVENT 块）
+ * 与逐块解析各有让出点，不同的分片粒度下输出都必须与同步入口逐条相同——
+ * 包括坏事件序号、未闭合块报告与折叠行跨片拼接。
+ */
+describe("parseIcsCalendarInChunks — 分片解析（SC-024）", () => {
+  /** 覆盖折叠行、缩进续行、坏事件、未闭合块、嵌套 VALARM 与空行。 */
+  const TRICKY_ICS = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "BEGIN:VEVENT",
+    "UID:folded@example.com",
+    "SUMMARY:折",
+    " 叠后的标题",
+    "DESCRIPTION:第一行\\n第二行",
+    "DTSTART:20261018T163000Z",
+    "BEGIN:VALARM",
+    "TRIGGER:-PT15M",
+    "ACTION:DISPLAY",
+    "END:VALARM",
+    "END:VEVENT",
+    "",
+    "BEGIN:VEVENT",
+    "UID:allday@example.com",
+    "SUMMARY:全天安排",
+    "DTSTART;VALUE=DATE:20261018",
+    "DTEND;VALUE=DATE:20261020",
+    "END:VEVENT",
+    "BEGIN:VEVENT",
+    "UID:broken@example.com",
+    "SUMMARY:缺少开始时间",
+    "END:VEVENT",
+    "BEGIN:VEVENT",
+    "UID:truncated@example.com",
+    "SUMMARY:未闭合",
+    "DTSTART:20261019T090000Z",
+    "END:VCALENDAR",
+    "",
+  ].join("\r\n");
+
+  function drain(text: string, chunkLines: number, chunkEvents: number) {
+    const steps = parseIcsCalendarInChunks(text, chunkLines, chunkEvents);
+    let yields = 0;
+    let step = steps.next();
+    while (!step.done) {
+      yields += 1;
+      step = steps.next();
+    }
+    return { result: step.value, yields };
+  }
+
+  it("结果与同步入口逐条相同（不同分片粒度下都是同一份输出）", () => {
+    const expected = parseIcsCalendar(TRICKY_ICS);
+    // 夹具本身要覆盖到坏事件与未闭合块，否则等价性测的是一路顺风的分支。
+    expect(expected.events).toHaveLength(2);
+    expect(expected.issues).toHaveLength(2);
+
+    for (const [lines, blocks] of [
+      [1, 1],
+      [2, 1],
+      [3, 2],
+      [7, 3],
+      [1000, 1000],
+    ]) {
+      expect(drain(TRICKY_ICS, lines, blocks).result).toEqual(expected);
+    }
+  });
+
+  it("文件级失败同样分片：空文本与非 ICS 文本逐字相同", () => {
+    for (const text of ["", "   \r\n", "这是一个普通文本文件。"]) {
+      expect(drain(text, 1, 1).result).toEqual(parseIcsCalendar(text));
+    }
+  });
+
+  it("分片粒度为 0 时中间不让出：一次 next 就结束（同步入口不切片）", () => {
+    const steps = parseIcsCalendarInChunks(TRICKY_ICS, 0, 0);
+    const first = steps.next();
+
+    expect(first.done).toBe(true);
+    expect(first.value).toEqual(parseIcsCalendar(TRICKY_ICS));
+  });
+
+  it("开启分片后行扫描与逐块解析各自都有让出点", () => {
+    const { result, yields } = drain(TRICKY_ICS, 2, 1);
+
+    // 行数远超粒度，块解析也超过粒度：两段都在让出。
+    expect(yields).toBeGreaterThan(5);
+    expect(result).toEqual(parseIcsCalendar(TRICKY_ICS));
+  });
+
+  it("空输入没有可让出的工作：不产生多余让出点", () => {
+    expect(drain("", 1, 1).yields).toBe(0);
   });
 });
