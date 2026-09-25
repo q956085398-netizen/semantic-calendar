@@ -14,11 +14,16 @@ import { LUNAR_FIRST_YEAR, LUNAR_LAST_YEAR } from "./lunar-data";
 /**
  * 农历换算测试（SC-010 验收：目标年份范围内农历日期正确、有已知日期测试样例）。
  *
- * 样例来源：香港天文台「公曆與農曆日期對照表」年表（官方历法数据）。
- * 表数据由 tools/derive-lunar-table.mjs 从同一来源逐日推导，这里挑出
- * 边界与易错日期固定下来：春节、闰月月首、以及两种历史分歧日期——
- * 旧版农历表在 1933 / 1954 / 1978 年偏差一天，天文计算实现在 2057 年
- * 偏差一天，本表两处都取官方数据。
+ * 样例分两批，一批证明「表与实现一致」，一批让读者能自己复核：
+ *
+ * 1. 官方年表样例（OFFICIAL_SAMPLES）：来源是香港天文台「公曆與農曆日期對照表」
+ *    年表，表数据由 tools/derive-lunar-table.mjs 从同一来源逐日推导。这里挑出
+ *    边界与易错日期固定下来：春节、闰月月首、以及两种历史分歧日期——旧版农历表
+ *    在 1933 / 1954 / 1978 年偏差一天，天文计算实现在 2057 年偏差一天，本表两处
+ *    都取官方数据。
+ * 2. 公众日历样例（PUBLIC_CALENDAR_SAMPLES）：任意一份民用日历都能查到的日期，
+ *    用来抵消「表与实现同源」的盲区——推导工具一旦读错年表，上面的样例会一起错，
+ *    这一批不会。
  */
 
 /** 官方对照表样例：日期键 → 农历（月名表示初一，其余为日名）。 */
@@ -56,6 +61,34 @@ const OFFICIAL_SAMPLES: ReadonlyArray<readonly [string, string, string]> = [
   // 天文计算实现偏差一天的日子：官方数据为准（2057 年九月月首）
   ["2057-09-28", "九月", "初一"],
   ["2057-09-29", "九月", "初二"],
+];
+
+/**
+ * 公众日历可自行核对的固定样例：春节、元宵、端午、中秋与一个闰月月首。
+ * 期望值就是民用日历上的常识日期（例如 1997 年的春节是 2 月 7 日、2025 年
+ * 端午节是 5 月 31 日），不依赖推导工具，也不依赖年表文本，因此可以拿来
+ * 复核上面那一批的前提——推导工具读错年表时，两批不会一起错。唯一一处刻意
+ * 的交叉是 2027-02-06：它紧邻年表样例 2027-02-05（十二月廿九），两条互为
+ * 边界，用来钉住两批之间的衔接。
+ */
+const PUBLIC_CALENDAR_SAMPLES: ReadonlyArray<
+  readonly [string, string, string]
+> = [
+  // [日期, 农历月, 农历日]
+  ["1997-02-07", "正月", "初一"],
+  ["2012-01-23", "正月", "初一"],
+  ["2021-02-12", "正月", "初一"],
+  ["2022-02-01", "正月", "初一"],
+  ["2023-01-22", "正月", "初一"],
+  ["2027-02-06", "正月", "初一"], // 春节（紧邻年表样例 2027-02-05 的十二月廿九，两条互为边界）
+  ["2025-02-12", "正月", "十五"], // 元宵节
+  ["2024-06-10", "五月", "初五"], // 端午节
+  ["2025-05-31", "五月", "初五"],
+  ["2026-06-19", "五月", "初五"],
+  ["2024-09-17", "八月", "十五"], // 中秋节
+  ["2025-10-06", "八月", "十五"],
+  ["2026-09-25", "八月", "十五"],
+  ["2020-05-23", "闰四月", "初一"],
 ];
 
 const MONTH_NAMES = [
@@ -106,9 +139,12 @@ const DAY_NAMES = [
   "三十",
 ];
 
-describe("公历 → 农历换算（SC-010 / CN-001）", () => {
-  it("已知日期样例与官方对照表一致", () => {
-    const mismatches = OFFICIAL_SAMPLES.map(([dateKey, month, day]) => {
+/** 逐条比对样例与实际换算，返回不一致的描述（格式：期望 / 实际）。 */
+function mismatchesOf(
+  samples: ReadonlyArray<readonly [string, string, string]>,
+): string[] {
+  return samples
+    .map(([dateKey, month, day]) => {
       const lunar = lunarDateOfKey(dateKey);
       if (!lunar) return `${dateKey} 未换算（范围外？）`;
       const actual = `${lunar.isLeapMonth ? "闰" : ""}${MONTH_NAMES[lunar.month - 1]} / ${DAY_NAMES[lunar.day - 1]}`;
@@ -116,9 +152,17 @@ describe("公历 → 农历换算（SC-010 / CN-001）", () => {
       return actual === expected
         ? undefined
         : `${dateKey} 期望 ${expected} 实际 ${actual}`;
-    }).filter((value): value is string => value !== undefined);
+    })
+    .filter((value): value is string => value !== undefined);
+}
 
-    expect(mismatches).toEqual([]);
+describe("公历 → 农历换算（SC-010 / CN-001）", () => {
+  it("已知日期样例与官方对照表一致", () => {
+    expect(mismatchesOf(OFFICIAL_SAMPLES)).toEqual([]);
+  });
+
+  it("公众日历可核对的日期一致（春节 / 元宵 / 端午 / 中秋与闰月月首）", () => {
+    expect(mismatchesOf(PUBLIC_CALENDAR_SAMPLES)).toEqual([]);
   });
 
   it("支持范围边界：首日与末日可换算，范围外返回 undefined", () => {
