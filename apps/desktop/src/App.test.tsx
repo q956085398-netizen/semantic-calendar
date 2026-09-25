@@ -847,7 +847,7 @@ describe("重复事件月格展开（SC-008 / ICS-004）", () => {
 });
 
 describe("语义增强接线（SC-009 / SEM-003）", () => {
-  it("导入后执行匹配：当前注册表无领域 Matcher，全部回退普通显示", async () => {
+  it("导入后执行匹配：没有可识别的语义时全部回退普通显示", async () => {
     await renderReadyApp();
     chooseImportFile(icsFile(IMPORT_ICS));
     await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());

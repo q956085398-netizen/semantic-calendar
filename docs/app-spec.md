@@ -241,6 +241,8 @@ v0.1：
 
 UI 不允许通过 `title.includes(...)` 自行判断业务语义。
 
+> 当前实现（SC-009）：这条规则是可执行的——`apps/desktop/src/ui-boundary.test.ts` 扫描 `src/` 下所有 UI 源码（排除 `bench` / `data` / `format` / `ics` / `normalize` / `providers` / `semantic` / `settings` 这些非 UI 目录），断言三件事：领域名称不出现在 UI 源码里（球队的名称 / 别名 / 稳定 ID，联赛完整名称与英文名，节日 / 节气的名称 / 英文名 / 稳定 ID，法定节假日的假期名——假期行只有名字；清单全部从各自的 Provider 数据推导）；事件文本字段（`title` / `normalizedTitle` / `description` / `location`）上不出现判定型字符串操作（`includes` / `startsWith` / `endsWith` / `indexOf` / `lastIndexOf` / `matchAll` / `match` / `search` / `split`）；UI 不直接 import Provider 目录。原样渲染、真值判断与 `?.trim()` 这类展示处理不在禁止之列。三条规则各有测试：把违规写法喂给对应的判定函数必须报出来，否则守卫失效也无人察觉。注释同样在扫描范围内（引用领域名称的注释会被拦下），规则因此只有一条，不需要理解语法。判定规则的已知边界写在守卫文件头部：它认同一条语句里出现的字段名与判定操作（字段直接跟操作，或中间隔着括号、可选链与展示处理），改名后的局部变量、`event["title"]` 这类写法不在范围内——它是评审的抓手，不是数据流证明。
+
 ---
 
 ## 8. 核心数据模型
