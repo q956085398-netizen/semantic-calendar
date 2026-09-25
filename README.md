@@ -217,23 +217,25 @@ semantic-calendar/
 - [x] 桌面应用基础框架（SC-001 / SC-002：窗口、托盘、单实例、关闭行为）
 - [x] 现代化月视图（SC-004 / SC-013）
 - [x] 基本日期导航（SC-005）
-- [x] 解析本地 ICS 文件
-- [x] 订阅 ICS / WebCal 地址
+- [x] 解析本地 ICS 文件（SC-006）
+- [x] 事件标准化（SC-008：时区、全天事件、常见 recurrence、UID 去重）
+- [x] 订阅 ICS / WebCal 地址（SC-007：刷新、离线缓存与失败保留）
 - [x] 日历数据本地保存（SC-003）
 - [x] 农历显示（SC-010，1901–2099）
 - [x] 中国法定节假日（SC-011：放假 / 补班数据、连休分组、年份数据版本；月格底色与大字见 SC-013）
 - [x] 中国传统节日（SC-012：春节、元宵、龙抬头、清明、端午、七夕、中元、中秋、重阳、腊八、除夕）
 - [x] 二十四节气（SC-012：1901–2100；月格标签、详情栏与背景引用接口，专属背景渲染见 SC-013）
-- [x] 英超事件识别
-- [x] 英超球队元数据
+- [x] 英超事件识别（SC-009 语义框架：Matcher Engine 与 Metadata Resolver；SC-015 比赛标题识别与主客队）
+- [x] 英超球队元数据（SC-014：球队、别名、赛季名单与联赛元数据）
 - [x] 球队徽标展示（fallback 口径：仓库不分发徽标二进制，见 [third-party-assets.md](docs/third-party-assets.md) §3）
 - [x] 主队识别（SC-015）与关注球队设置（SC-016）
 - [x] 事件提醒（SC-017：系统通知权限、事件 alarm、比赛默认提醒、用户覆盖、去重与重启恢复）
 - [x] 设置页（SC-018：外观、区域预留、内置来源显示开关、来源管理与删除、WebCal 刷新间隔、关注球队、通知、窗口行为、关于）
 - [x] 明暗主题（SC-004 / THEME-001–003）
+- [x] 错误处理、离线降级与可解释状态（SC-019：网络失败保留缓存、Matcher 失败回退普通事件、坏记录隔离、日志脱敏）
 - [x] 基础性能测试（SC-020，基线与缓存策略见 [performance.md](docs/performance.md)）
 - [x] 导入链路的分片（SC-024：解析 / 标准化 / 落库 / 读取 / 落盘拆成短任务，10,000 条导入的最长任务 10.4 ms）
-- [x] Windows 安装包与发布检查（SC-022：NSIS 安装包、正式图标、MIT License、资产与许可清单、发布门槛逐项核对）
+- [x] Windows 安装包与发布检查（SC-022：NSIS 安装包、正式图标、MIT License、资产与许可清单、发布门槛逐项核对；发布文档与真实实现的引用一致性由 `src/release-docs.test.ts` 守住）
 - [x] 测试与人工验收（SC-021 / SC-023，见 [ui-acceptance.md](docs/ui-acceptance.md)）
 
 ## v0.1 暂不考虑
@@ -366,7 +368,7 @@ npm run tauri -- build
 
 改动一条链路时不必每次跑全量：在 `apps/desktop` 下用 `npx vitest run <文件>` 只跑相关文件
 （例如 `npx vitest run src/ics/parse-ics.test.ts`），改动完成后在仓库根目录跑一次
-`npm run test` 与 `npm run lint`。当前全量是 78 个文件、886 个用例，本机约 35–50 秒
+`npm run test` 与 `npm run lint`。当前全量是 79 个文件、894 个用例，本机约 35–50 秒
 （波动主要在 `App.test.tsx` 一组：它是界面接线的集成层，单文件先跑它最省时间）。
 
 测试与人工验收的分工写在 [docs/ui-acceptance.md](docs/ui-acceptance.md)：哪些 §26 验收项
@@ -399,6 +401,12 @@ ACL / schema）与 `dist/`、`src-tauri/target/` 一样被 Prettier 跳过，因
 - 设置入口：SC-018 起侧栏底部是「设置」按钮（打开状态不持久化），关闭行为的控件在设置页的「关闭窗口时」一节。
 
 人工验收记录（Windows，2026-09-24，`cargo build` 产物 + 真实前端）：默认设置下发送窗口关闭请求后进程存活、窗口不可见（隐藏到托盘）；快照写入 `app.closeBehavior: "quit"` 后同样操作进程退出；隐藏状态 30 秒内进程 CPU 时间增量 0s（可见空闲状态同样为 0s）；窗口隐藏时启动第二实例，第二实例立即退出、进程数保持 1、原窗口恢复可见（走与托盘相同的恢复函数）。托盘图标点击本身需人工交互，不在自动化覆盖范围内。
+
+## 关键实现位置
+
+以下按模块记录 v0.1 每块能力落在哪个文件、边界在哪，以及哪个测试守着它。
+模块路径写成仓库内的完整路径；测试文件可以写全路径，也可以只写唯一的文件名
+（`release-docs.test.ts` 会解析这两种写法，并要求引用的文件与用例名真实存在）。
 
 本地数据层（SC-003）位于 `apps/desktop/src/data/`：
 
@@ -541,7 +549,7 @@ SC-017 的边界：调度器活在 webview 里，窗口隐藏时 Chromium 会节
 - 一处状态、两个入口：四个内置来源的勾选框在侧栏数据源列表（ui-design §4.3）与设置页数据源一节同时出现，关注球队选择器同样两处共用——同一份 App 状态与同一份读取边界，不是两套逻辑；
 - 数据源管理：设置页列出导入 / 订阅来源，显示与侧栏同源的“最近刷新状态”（SRC-003），并提供删除（确认后级联删除该来源的事件）；本地 ICS 来源的删除入口就是这里（SC-006 的遗留项）；
 - WebCal 刷新间隔：`intervalMs` 以供应商注入调度器，改设置后 `reschedule()` 立即按新间隔重排（不需要重建调度器、不需要重启）；失败重试固定 30 分钟，与这条设置无关；
-- 测试：取值域与读取边界有单测（`settings/builtin-sources.test.ts`、`settings/webcal-interval.test.ts`），视图过滤含「关掉英超后提醒计划不再当比赛」的反例（`semantic/app-builtin-sources.test.ts`），调度器的间隔注入在 `data/webcal/refresh-scheduler.test.ts`，端到端接线（开关真的改变月格 / 详情栏、刷新间隔真的改变唤醒时刻、来源删除与持久化、区域与预览提示这类常量文案）在 `App.test.tsx` 的「设置页（SC-018）」一组里，画面与两套主题另经浏览器人工验收。
+- 测试：取值域与读取边界有单测（`settings/builtin-sources.test.ts`、`settings/webcal-interval.test.ts`），视图过滤含「关掉英超后提醒计划不再当比赛」的反例（`semantic/app-builtin-sources.test.ts`），调度器的间隔注入在 `data/webcal/refresh-scheduler.test.ts`，端到端接线（开关真的改变月格 / 详情栏、刷新间隔真的改变唤醒时刻、来源删除与持久化、区域与预览提示这类常量文案）在 `App.test.tsx` 的「设置页（SC-018 / app-spec §9 SETTINGS）」一组里，画面与两套主题另经浏览器人工验收。
 
 SC-018 的边界：设置页没有自己的存储——读写全走 `CalendarStore` 的 settings 分区（原样 JSON，加键不需要迁移）；区域一节在 v0.1 保持只读，语言 / 时区接入时再定义键与读取边界；「我的日历」是对用户事件来源（本地导入 + 订阅）的组开关，单个来源的显示开关仍在各自的来源行里；内置来源的开关不改变语义识别的注册表（Matcher / Resolver 仍按事件跑一遍），快照里的增强分区不会因为关掉某个来源而变小——识别结果与显示开关分开存储，因此重新打开是即时的。刷新间隔的最短选项是 1 小时：调度形状仍是“一个指向到期时刻的定时器”，不是轮询（app-spec §12 允许的后台触发只有启动、手动刷新、到达刷新时间），这条设置改的是“刷新时间什么时候到”，不是唤醒方式。
 
@@ -553,7 +561,7 @@ SC-018 的边界：设置页没有自己的存储——读写全走 `CalendarSto
 - 落盘失败不静默（§13 数据库异常提示）：App 的写路径统一经过一个 `saveStore(label)` 出口——内存里的更改照常生效（界面按新状态显示），同时给出「<动作>未能写入本地文件：<原因>（界面已按新状态显示，重启后可能丢失）」，侧栏底部与设置页顶部各显示一次；任何一次成功写入即清除该提示，所以它陈述的是最近一次写入的结果而不是一段历史。此前 `store.save()` 在多数写路径上不接错误，写盘失败会变成无人处理的 rejection（订阅 / 导入那条还会把“已写入内存”的成功说成失败）；
 - 快照坏记录隔离（验收：单个坏事件被隔离）：`data/store/schema.ts` 的 `narrowStoredEvent` / `narrowStoredSource` 在读取边界逐条收窄。快照是本地 JSON 文件，可能被手工编辑或被同步工具改坏，而结构级校验只看到“events 是数组”——一条缺 `start` 的记录会一路进到月格展开（`occurrences.ts` 的 `localDayKey` 读 `iso.endsWith`），把整个日历打掉（实测：白屏）。现在必需字段（uid / sourceId / title / start / allDay，日期只要求 `YYYY-MM-DD` 形态）不合格的事件整条隔离，可选字段（描述 / 地点 / EXDATE / VALARM 条目）类型不对只丢该字段，缺地址的订阅来源整条丢弃——它的事件保留在数据层（不删用户数据），只是暂时不可达。被隔离记录的**原文另存**为 `<快照名>.rejected-<时间戳>`（与整份快照损坏时的 `.corrupt-` 同一口径：数据留在磁盘上供人工检查，写备份失败也不阻断启动），条数报给界面（「已跳过 N 个无法读取的事件」）——只报条数不报名字，因为被隔离的记录字段本身就不可信，从里面取名字展示等于把坏数据放进界面；主文件在下一次落盘时重新变干净；
 - 其余验收项由既有链条与既有测试提供（本次只在同一份说明里对齐，没有重复补测试）：网络失败只标记来源状态、保留旧事件与上次成功时间（SC-007，`data/webcal/webcal-refresh.ts`）；Matcher / Resolver 抛错只降级自身、事件按普通事件继续显示（SC-009）；队徽 / Logo 缺失降级为球队代码 / 联赛短标签，图片加载失败同样换 fallback（SC-016 / `semantic/marks.ts`）；ICS 事件级解析错误进导入报告而不阻塞其余事件（SC-006 / ICS-005）；网络超时、连接失败、重定向与响应体读取失败在 Rust 侧就翻译成中文原因，且错误文案不含请求地址与 token（`src-tauri/src/webcal.rs`，含一条“连接失败不泄露地址”的 Rust 测试）；Provider 数据缺失按 §13 处理——识别不出就是普通事件、未收录的队徽 / 联赛 Logo 走 fallback、v0.1 没有可靠来源的天气不显示，而不是补一个看起来合理的值（`semantic/marks.test.ts`、`metadata-resolver.test.ts`，以及 App 集成里“比赛详情不含天气”的断言）；
-- 测试：脱敏规则与边界在 `reliability/redact.test.ts`，状态文案在 `layout/data-layer-status.test.ts`，坏记录收窄规则在 `data/store/schema.test.ts`（逐字段），落盘与读取的端到端效果在 `data/store/calendar-store.test.ts`（坏记录不影响其余记录、坏记录不再写回文件）；语义报告不泄露正文在 `matcher-engine.test.ts` / `metadata-resolver.test.ts` / `notification-bridge.test.ts`；端到端接线在 `App.test.tsx` 的「错误降级与可解释状态（SC-019）」一组——快照打不开时不冒充预览模式且月视图可用、落盘失败时“界面已生效 + 没写进磁盘”两件事同时说清且恢复后自动清除、落盘失败的状态行与日志都不含订阅 token、快照里的坏记录被隔离后月视图照常并说明少了几条。
+- 测试：脱敏规则与边界在 `reliability/redact.test.ts`，状态文案在 `layout/data-layer-status.test.ts`，坏记录收窄规则在 `data/store/schema.test.ts`（逐字段），落盘与读取的端到端效果在 `data/store/calendar-store.test.ts`（坏记录不影响其余记录、坏记录不再写回文件）；语义报告不泄露正文在 `matcher-engine.test.ts` / `metadata-resolver.test.ts` / `notification-bridge.test.ts`；端到端接线在 `App.test.tsx` 的「错误降级与可解释状态（SC-019 / app-spec §13–14）」一组——快照打不开时不冒充预览模式且月视图可用、落盘失败时“界面已生效 + 没写进磁盘”两件事同时说清且恢复后自动清除、落盘失败的状态行与日志都不含订阅 token、快照里的坏记录被隔离后月视图照常并说明少了几条。
 
 SC-019 的边界：v0.1 不加全局离线横幅或网络状态探测——§13 要求的“显示缓存 + 标记刷新失败 + 不删除旧数据”按来源行陈述（SRC-003），启动时不做连通性检查（那会引入一个常驻探测）；失败后的重试仍是调度器的固定 30 分钟，没有手动的“立即重试全部”（每行的「刷新」就是单点重试）；坏记录隔离只覆盖存储边界，导入 / 订阅进来的事件由解析器与标准化保证字段齐全，因此那里不需要第二道收窄；被隔离的记录另存为备份文件后就不再回到主快照（不做“保留一份读不出来的记录”的旁路分区——那会让每次启动都重新隔离同一批记录，后续 schema 变更还得一直背着它们），备份文件与 `.corrupt-` 一样是给人看的，应用不再读它。Provider 装配期的唯一性校验仍按“宁可启动即失败”处理：那是发布前就该被测试拦下的数据错误，不是用户数据。
 
@@ -567,7 +575,7 @@ SC-019 的边界：v0.1 不加全局离线横幅或网络状态探测——§13 
 - 月切换读取分片（SC-020 收尾，`calendar/month-occurrences.ts` + `calendar/use-month-occurrences.ts`）：展开本身在三处改动之后仍是渲染路径上的一次同步计算（10,000 条约 164 ms 不让出主线程）。现在按**让出阈值**（`MONTH_YIELD_AFTER_MS = 5 ms`，软阈值：一次任务还会多跑一片 128 条事件，末次多一次分桶）驱动 `normalize/occurrences.ts` 的分片生成器，任务之间用同一个 `yieldToMain` 让出；同步入口就是生成器的一次排空，两条路径不可能各自演化出不同语义（`occurrences.test.ts`「分片展开」一组逐条对照两者结果）。第一个任务在渲染期跑：**约 200 条以下**（实测 200 条 3/3 次、300 条 0/3 次）就此算完、首帧即完整月格，不会「先空一下再填上」；更大的日历进入整理状态，期间**不发布半份结果**（月格为空 + 表头状态行说明工作量，`monthOccurrencePendingText`），算完一次性给出完整月格。实测：单次任务 6.3–6.6 ms（10,000 条；最坏一次约 14 ms，仍在一帧内），让出约 3 µs 一次，整段墙钟与同步路径同量级（总时长的对照差值落在测量抖动里，所以文档只引用稳定的单次任务耗时）。缓存键是「事件数组身份 + 窗口日期」：窗口没变而事件换了（导入 / 刷新 / 设置开关）必须重算，两者都没变的重渲染（主题、选中日期、侧栏折叠）不重算；**事件集合没变的后台刷新不重读事件**——存储用 `eventsRevision()` 报告「集合是否真的变过」（304 与失败刷新不推进），否则每次刷新都会白克隆一遍事件（10,000 条 37 ms）并让月格闪一次「整理中」；
 - 后台唤醒守卫 `scheduling/no-polling.test.ts`：扫描 `src/`（除测试）不允许 `setInterval`，扫描 `src-tauri/src/` 不允许周期定时器或睡眠循环。调度器本身「空闲零唤醒、只持一个定时器」由各自的单测覆盖（`refresh-scheduler.test.ts`、`notification-scheduler.test.ts`）；
 - 缓存失效清单写在 performance.md §4：WebCal 校验值（200 整体替换、304 只推进时间）、WebCal 事件集（键差集替换，失败一律不动旧数据）、增强结果（按事件失效 / 重建清空 / 级联删除）、已处理提醒日志（30 天 500 条裁剪）、本地导入（增量 upsert）各有规则与覆盖测试；队徽 / 联赛 Logo **没有**应用内缓存——仓库不分发图片，解析无状态，接入资源包后由 WebView 自己的图片缓存负责，应用不再叠一层需要失效策略的缓存；
-- 测试：格式化器缓存与降级在 `format/time.test.ts`，让出主线程、分片执行器与无轮询守卫在 `scheduling/`，提醒计划的分片等价性在 `notifications/reminder-plan-load.test.ts`，分片与同步入口结果一致、以及「重叠重建不留旧快照产物」在 `semantic/enrich.test.ts`（去掉队列这条用例会失败），三条新展开用例（跨窗口 `COUNT`、`UNTIL` 快路径、改期例外指向窗口前实例）与分片展开的等价性在 `normalize/occurrences.test.ts`；读取路径的分片口径（预算、粒度、与同步路径逐条相同）在 `calendar/month-occurrences.test.ts`，React 接线（首帧即完整、整理状态、切月不串数据、同一份输入不重算）在 `calendar/use-month-occurrences.test.tsx`，表头状态行在 `calendar/MonthView.test.tsx`，大数据量导入后的端到端表现在 `App.test.tsx` 的「月切换的分片读取（SC-020）」一组。
+- 测试：格式化器缓存与降级在 `format/time.test.ts`，让出主线程、分片执行器与无轮询守卫在 `scheduling/`，提醒计划的分片等价性在 `notifications/reminder-plan-load.test.ts`，分片与同步入口结果一致、以及「重叠重建不留旧快照产物」在 `semantic/enrich.test.ts`（去掉队列这条用例会失败），三条新展开用例（跨窗口 `COUNT`、`UNTIL` 快路径、改期例外指向窗口前实例）与分片展开的等价性在 `normalize/occurrences.test.ts`；读取路径的分片口径（预算、粒度、与同步路径逐条相同）在 `calendar/month-occurrences.test.ts`，React 接线（首帧即完整、整理状态、切月不串数据、同一份输入不重算）在 `calendar/use-month-occurrences.test.tsx`，表头状态行在 `calendar/MonthView.test.tsx`，大数据量导入后的端到端表现在 `App.test.tsx` 的「月切换的分片读取（SC-020 / app-spec §15）」一组。
 
 SC-020 的边界：提醒计划的重建（展开 30 天窗口 + 计划，10,000 条约 138 ms）仍是同步段，但它不在渲染路径上，只在启动 / 数据变化 / 跨天 / 到点各发生一次，数字记在 `src/bench/reminder.bench.ts` 备用；月切换读取已分片，代价是 1,000 条规模会拆成 2–3 个任务、整理状态行出现约 2 帧，以及整理期间月格为空（不给半份结果）。导入链路留下的同步段已由 SC-024 补上（见下）。这些剩余的不中断时长都在 performance.md §6 如实记录，没有假装整条链路都是非阻塞的。性能门槛也没有在这一单里写死：§15 的顺序是「先建立基线，再根据实测锁定硬指标」，本单交付的是前半句。
 

@@ -86,7 +86,7 @@ END:VCALENDAR
 | 14 | 普通日期右侧允许简洁留白 | `layout/InspectorPanel.test.tsx`「普通日期不进入比赛模式：结构与留白不变（§12）」 | 10-19 的详情栏只有「MONDAY / 10月19日 / 2026 / 农历九月初十」，其余留白 | 通过 |
 | 15 | 多语义日期不会出现视觉元素堆叠失控 | `calendar/cell-backdrop.test.ts`（§16.1 优先级逐条）；`calendar/MonthView.test.tsx`（节日 + 假期 + 比赛、休假 + 比赛）；`layout/InspectorPanel.test.tsx`「比赛日与节气同日时两个标签都在」 | 10-04（休假 + 比赛）：只画联赛视觉，不叠假期底色与大字；10-06（假期 + 用户事件）：底色在、事件摘要照常 | 通过 |
 | 16 | 浅色模式赛事详情栏与主界面自然融合 | `layout/MatchdayInspector.test.tsx`；色值集中在 `--bg-matchday-*` | 详情栏是降饱和的蓝灰渐变 + 左缘柔和过渡，与主界面同属一套底板 | 通过 |
-| 17 | 深色模式不存在大面积纯黑断层 | `calendar/cell-visual-contract.test.ts`「深色主题的底色底板要比浅色主题暗得多」（并断言亮度低于 5%） | 页面底 / 格子 / 侧栏 / 详情栏四层灰阶可分，无纯黑块 | 通过 |
+| 17 | 深色模式不存在大面积纯黑断层 | `calendar/cell-visual-contract.test.ts`「浅色与深色都定义了底色浓度与背景遮罩」（其中断言底色底板亮度低于 5%） | 页面底 / 格子 / 侧栏 / 详情栏四层灰阶可分，无纯黑块 | 通过 |
 | 18 | 应用品牌使用中文「语义日历」 | `App.test.tsx`「渲染侧栏、月历主区域与详情栏三个区域」（`getByText("语义日历")`）；`index.html` 的 `<title>语义日历</title>` | 侧栏品牌区、窗口标题均为中文 | 通过 |
 
 ## 5. 本次发现的问题

@@ -6,7 +6,7 @@ app-spec §20 的发布门槛里「第三方资产 / 数据来源完成发布前
 
 口径：
 
-- **本仓库原创**：由本仓库的代码或脚本生成，或由维护者截图，随 [LICENSE](../../LICENSE)（MIT）分发。
+- **本仓库原创**：由本仓库的代码或脚本生成，或由维护者截图，随 [LICENSE](../LICENSE)（MIT）分发。
 - **第三方依赖**：通过 npm / Cargo 引入，保留其原始许可，不修改、不再分发源码副本。
 - **第三方商标与媒体**：不随应用分发（见 §3、§4）。
 
@@ -26,7 +26,7 @@ app-spec §20 的发布门槛里「第三方资产 / 数据来源完成发布前
 重跑图标生成：
 
 ```bash
-npm run icon          # = node tools/render-app-icon.mjs && tauri icon src-tauri/app-icon.png
+npm run icon          # = node tools/render-app-icon.mjs && tauri icon src-tauri/app-icon.png && node tools/prune-mobile-icons.mjs
 ```
 
 图标因此不存在「素材来自哪里」的问题——它是脚本的产物，脚本在仓库里，改动可 Review、可回滚。

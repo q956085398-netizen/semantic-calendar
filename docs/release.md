@@ -34,11 +34,11 @@ npm run tauri build        # 仓库根目录；Windows 上产出 NSIS 安装包
 | 英超比赛识别与 UI 可用 | `providers/football/football-matcher.test.ts`、`football-metadata-resolver.test.ts`、`calendar/MatchCell.tsx` 相关用例（ui-acceptance.md §4 第 12 项，SC-023 修复后复检通过） | 通过 |
 | 关注球队可持久化 | `providers/football/followed-teams.test.ts`、`App.test.tsx` 的「关注球队」一组 | 通过 |
 | 本地通知可用且不会明显重复 | `notifications/reminder-plan.test.ts`、`notification-scheduler.test.ts`、`fired-reminders.test.ts` | 通过 |
-| 网络失败有降级 | `data/webcal/webcal-refresh.test.ts`（失败保留旧事件）、`reliability/redact.test.ts`（日志脱敏）、`App.test.tsx` 的「错误降级与可解释状态（SC-019）」一组 | 通过 |
+| 网络失败有降级 | `data/webcal/webcal-refresh.test.ts`（失败保留旧事件）、`reliability/redact.test.ts`（日志脱敏）、`App.test.tsx` 的「错误降级与可解释状态（SC-019 / app-spec §13–14）」一组 | 通过 |
 | 性能基线已记录 | [performance.md](performance.md)：冷启动中位 282 ms、空闲 CPU 0.0–0.1%、10,000 条月切换 152 ms 等 | 通过 |
-| 核心自动化测试通过 | `npm test`：78 个测试文件 / 886 条用例全绿（2026-09-25；其中 4 个文件、30 条用例来自 SC-020 的读取路径分片、提醒计划分片与事件集合版本号，另有 4 个文件、38 条用例来自 SC-024 的导入链路分片——两条都含既有测试文件里新增的用例） | 通过 |
+| 核心自动化测试通过 | `npm test`：79 个测试文件 / 894 条用例全绿（2026-09-25；其中 4 个文件、30 条用例来自 SC-020 的读取路径分片、提醒计划分片与事件集合版本号，另有 4 个文件、38 条用例来自 SC-024 的导入链路分片，1 个文件、8 条用例来自 SC-022 的发布文档守卫——前两条都含既有测试文件里新增的用例） | 通过 |
 | 第三方资产 / 数据来源完成发布前审查 | [third-party-assets.md](third-party-assets.md)（含一条留待公开分发前处理的参考图问题） | 通过（带已知项） |
-| README 与真实实现同步 | README「功能状态」「关键实现位置」按本单更新，命令与脚本一并写入 | 通过 |
+| README 与真实实现同步 | README「MVP：v0.1」的功能清单逐条对应到 Ticket、「关键实现位置」按模块给出文件与边界、「开发环境」给出可复制命令；跨文件的引用与命令由 `release-docs.test.ts` 守住（见 §7） | 通过 |
 
 ## 3. Windows 安装 / 启动 / 卸载验收
 
@@ -139,7 +139,7 @@ v0.1 **不做自动更新**，策略明确如下：
 ## 7. 怎么重跑这些检查
 
 ```bash
-# 1. 回归与守卫（打包配置、名称、版本、License、资产清单都在这条里）
+# 1. 回归与守卫（打包配置、名称、版本、License、资产清单、发布文档引用都在这条里）
 npm test
 
 # 2. 静态检查
@@ -158,3 +158,9 @@ npm run tauri build
 
 §2 的每条门槛项都指向具体的测试文件或人工记录；改动任一领域后，先让对应的那一行重新变绿，
 再按 §7 的顺序跑一遍。
+
+> 文档与实现的一致性也在这条链上：`apps/desktop/src/release-docs.test.ts` 要求 README 与
+> docs/ 里引用的测试文件、用例名、相对链接、`npm run` 命令与 `SC-0NN` 编号都真实存在，
+> 且 `docs/tickets.md` 里的每个 Ticket 都能在 README 的「MVP：v0.1」清单里找到落点。
+> 改名字、拆文件、调脚本时漏改一半，它会红——发布门槛里「README 与真实实现一致」这一行
+> 因此不靠人记得。
