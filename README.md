@@ -305,6 +305,7 @@ semantic-calendar/
 - [App Spec](docs/app-spec.md)：v0.1 产品、功能、数据、可靠性、性能、测试与发布的统一规格入口。
 - [UI Spec](docs/ui-design.md)：月视图、明暗主题、节假日 / 节气 / 比赛日与 Inspector 的视觉与交互规范。
 - [Tickets](docs/tickets.md)：v0.1 工作单、依赖关系、批次和关键路径。
+- [性能基线与缓存策略](docs/performance.md)：v0.1 首个性能基线（可重复的测量方法与实测数字）、缓存失效清单、后台唤醒约束（SC-020）。
 - [项目愿景](docs/vision.md)：说明我们想解决什么问题、产品边界和长期方向。
 - [架构草案](docs/architecture.md)：描述数据源、标准化、Matcher、元数据和 UI 的分层关系。
 - [开发原则与建议做法](docs/development-principles.md)：约束早期开发方式，避免过度设计和资源浪费。
@@ -348,6 +349,7 @@ npm run dev       # 启动 Vite 前端开发服务器
 npm run tauri -- dev
 npm run build     # TypeScript 检查 + Vite 生产构建
 npm run test      # Vitest
+npm run bench     # 性能基线（vitest bench，见 docs/performance.md）
 npm run lint      # ESLint
 npm run format    # Prettier 格式检查
 npm run tauri -- build
@@ -525,3 +527,15 @@ SC-018 的边界：设置页没有自己的存储——读写全走 `CalendarSto
 - 测试：脱敏规则与边界在 `reliability/redact.test.ts`，状态文案在 `layout/data-layer-status.test.ts`，坏记录收窄规则在 `data/store/schema.test.ts`（逐字段），落盘与读取的端到端效果在 `data/store/calendar-store.test.ts`（坏记录不影响其余记录、坏记录不再写回文件）；语义报告不泄露正文在 `matcher-engine.test.ts` / `metadata-resolver.test.ts` / `notification-bridge.test.ts`；端到端接线在 `App.test.tsx` 的「错误降级与可解释状态（SC-019）」一组——快照打不开时不冒充预览模式且月视图可用、落盘失败时“界面已生效 + 没写进磁盘”两件事同时说清且恢复后自动清除、落盘失败的状态行与日志都不含订阅 token、快照里的坏记录被隔离后月视图照常并说明少了几条。
 
 SC-019 的边界：v0.1 不加全局离线横幅或网络状态探测——§13 要求的“显示缓存 + 标记刷新失败 + 不删除旧数据”按来源行陈述（SRC-003），启动时不做连通性检查（那会引入一个常驻探测）；失败后的重试仍是调度器的固定 30 分钟，没有手动的“立即重试全部”（每行的「刷新」就是单点重试）；坏记录隔离只覆盖存储边界，导入 / 订阅进来的事件由解析器与标准化保证字段齐全，因此那里不需要第二道收窄；被隔离的记录另存为备份文件后就不再回到主快照（不做“保留一份读不出来的记录”的旁路分区——那会让每次启动都重新隔离同一批记录，后续 schema 变更还得一直背着它们），备份文件与 `.corrupt-` 一样是给人看的，应用不再读它。Provider 装配期的唯一性校验仍按“宁可启动即失败”处理：那是发布前就该被测试拦下的数据错误，不是用户数据。
+
+性能基线与缓存策略（SC-020）位于 `apps/desktop/src/bench/`、`apps/desktop/src/scheduling/` 与 `apps/desktop/src/normalize/occurrences.ts`，数字与方法汇总在 [docs/performance.md](docs/performance.md)：
+
+- 可重复的基线：`npm run bench`（vitest bench，跑在 Node 环境、每条固定迭代次数）覆盖纯计算与磁盘 I/O；`tools/measure-desktop.ps1` 覆盖窗口与进程（冷启动 N 次取中位数、可见空闲连续两段 CPU 采样、向主窗口发 WM_CLOSE 后用 `IsWindowVisible` 确认真的隐藏）。工作负载 `src/bench/fixtures.ts` 全部由下标算术推导——不用随机数、不读时钟、不依赖运行机器的时区；英超对阵从真实目录的赛季名单成对取队，名单变化时夹具自动跟随，不会退化成「一条都匹配不上」的空转；
+- 首个基线（2026-09-25，Ryzen 7 5700X / 64 GB / Windows 10.0.26200，release 产物）：冷启动中位 282 ms；空闲内存 26 MB 工作集 / 5 MB 私有；可见空闲与隐藏窗口的 30 秒 CPU 增量 0.000–0.031 s（隐藏后主窗口不可见）；10,000 条事件月切换 152 ms（1,000 条 16.2 ms）；10,000 条导入的解析 + 落库 83 ms、应用侧一次导入总时长 320 ms；Matcher 批处理 57.7 ms；WebCal 304 命中缓存无可测量的解析开销，200 全量替换 86.6 ms；
+- 月切换 597 → 152 ms 的三处改动（语义不变，`normalize/occurrences.ts` + `format/time.ts`）：窗口之前的候选只计数不物化（长序列里九成候选如此）、`UNTIL` 边界快路径（候选日 + 1 天仍早于边界时无需换算）、`Intl.DateTimeFormat` 按用途缓存（构造约 50 µs，比 `format` 贵两个数量级，原先 6 处调用点各自 new）。第三处同时消掉分桶与月格摘要的同款开销，并把「Z 形态换算 / 墙钟形态切片」收进一个 `localTimeOfDayLabel`；
+- 语义增强分片：`reEnrichStoreYielding` 每 500 条一片（单片约 3 ms），片间用 `scheduling/yield-to-main.ts` 让出主线程——用 MessageChannel 任务而不是 `setTimeout`，因为 Chromium 对隐藏页面会把定时器节流到每秒甚至每分钟一次，那会把一次后台刷新拖成几十秒。同步入口 `reEnrichStore` 与它共用同一份生成器实现，结果逐字节相同；启动重建、订阅刷新、导入三条路径都走分片入口。分片带来一个新的重叠风险：两次重建可能交错，而重建是「先整体清空再重建」，交错会让分区里混进旧快照的产物（孤儿记录），因此同一次存储上的重建排队执行，最后一次完成的结果是权威的；
+- 后台唤醒守卫 `scheduling/no-polling.test.ts`：扫描 `src/`（除测试）不允许 `setInterval`，扫描 `src-tauri/src/` 不允许周期定时器或睡眠循环。调度器本身「空闲零唤醒、只持一个定时器」由各自的单测覆盖（`refresh-scheduler.test.ts`、`notification-scheduler.test.ts`）；
+- 缓存失效清单写在 performance.md §4：WebCal 校验值（200 整体替换、304 只推进时间）、WebCal 事件集（键差集替换，失败一律不动旧数据）、增强结果（按事件失效 / 重建清空 / 级联删除）、已处理提醒日志（30 天 500 条裁剪）、本地导入（增量 upsert）各有规则与覆盖测试；队徽 / 联赛 Logo **没有**应用内缓存——仓库不分发图片，解析无状态，接入资源包后由 WebView 自己的图片缓存负责，应用不再叠一层需要失效策略的缓存；
+- 测试：格式化器缓存与降级在 `format/time.test.ts`，让出主线程与无轮询守卫在 `scheduling/`，分片与同步入口结果一致、以及「重叠重建不留旧快照产物」在 `semantic/enrich.test.ts`（去掉队列这条用例会失败），三条新展开用例（跨窗口 `COUNT`、`UNTIL` 快路径、改期例外指向窗口前实例）在 `normalize/occurrences.test.ts`。
+
+SC-020 的边界：月切换仍是一次同步计算（10,000 条 152 ms 对「感知即时」偏高，1,000 条的常见规模 16.2 ms 已在阈值内）——它发生在渲染路径的 `useMemo` 里，拆成增量渲染会改变月格更新方式，属于 v0.1 之后的设计；导入的解析 + 落库段（10,000 条约 83 ms）不拆分，解析是单趟文本处理，要让它不占主线程需要把整条管线搬进 Web Worker，那是架构变化而不是优化；因此「大量事件不阻塞 UI 线程」按可安全分片的那一段落实（增强），剩余的不中断时长在 performance.md §6 如实记录，没有假装整条链路都是非阻塞的。性能门槛也没有在这一单里写死：§15 的顺序是「先建立基线，再根据实测锁定硬指标」，本单交付的是前半句。

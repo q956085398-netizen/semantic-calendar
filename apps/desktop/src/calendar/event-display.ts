@@ -1,4 +1,5 @@
 import type { EnrichedEvent } from "../data/model";
+import { localTimeOfDayLabel } from "../format/time";
 import {
   displayMetadataOf,
   type FixtureDisplay,
@@ -15,14 +16,7 @@ export function eventTimeLabel(
   if (event.allDay) {
     return "";
   }
-  if (event.start.endsWith("Z")) {
-    return new Intl.DateTimeFormat(undefined, {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(new Date(event.start));
-  }
-  return event.start.slice(11, 16);
+  return localTimeOfDayLabel(event.start);
 }
 
 /** 一场比赛事件：事件本身 + 已收窄的对阵展示载荷。 */

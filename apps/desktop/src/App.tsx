@@ -36,7 +36,7 @@ import type {
   StoreOpenResult,
   StoreRecoveryReason,
 } from "./data/store/calendar-store";
-import { reEnrichStore } from "./semantic/enrich";
+import { reEnrichStoreYielding } from "./semantic/enrich";
 import { createAppSemanticStack } from "./semantic/app-registry";
 import { gateEventsForBuiltinSources } from "./semantic/app-builtin-sources";
 import { lunarLabelsOf } from "./semantic/app-lunar";
@@ -563,7 +563,7 @@ export default function App() {
       try {
         const outcome = await refreshWebcalSource(store, sourceId, httpIO);
         if (outcome.status === "updated") {
-          reEnrichStore(store, semanticStack);
+          await reEnrichStoreYielding(store, semanticStack);
         }
         // 落盘失败不影响本次刷新的结论：内存里的事件与来源状态都是新的，
         // 提示由 saveStore 给出，调用方拿到的 outcome 仍然如实。
@@ -671,7 +671,9 @@ export default function App() {
       storeRef.current = store;
       setDataLayer({ kind: "ready" });
       // 语义增强（SC-009）：用当前 Matcher 注册表重建后再进入 UI。
-      reEnrichStore(store, semanticStack);
+      // 分片执行（SC-020）：事件量由用户数据决定，片间让出主线程，
+      // 启动时界面不会被一次长匹配阻塞。
+      await reEnrichStoreYielding(store, semanticStack);
       refreshFromStore(store);
 
       // 低频后台刷新（SC-007 / §12）：只在到达刷新时间时唤醒一次。
@@ -855,7 +857,7 @@ export default function App() {
         return false;
       }
       if (outcome.refresh?.status === "updated") {
-        reEnrichStore(store, semanticStack);
+        await reEnrichStoreYielding(store, semanticStack);
       }
       await saveStore("订阅");
       refreshFromStore(store);
@@ -1061,7 +1063,7 @@ export default function App() {
         fileName: file.name,
         contents,
       });
-      reEnrichStore(store, semanticStack);
+      await reEnrichStoreYielding(store, semanticStack);
       await saveStore("导入结果");
       refreshFromStore(store);
       setImportStatus(formatImportStatus(outcome));

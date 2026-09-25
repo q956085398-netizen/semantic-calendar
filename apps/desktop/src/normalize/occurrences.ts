@@ -17,6 +17,7 @@ import {
   shiftDayKey,
 } from "../calendar/date-keys";
 import { formatDateKey, todayKeyFromDate } from "../calendar/month-grid";
+import { localTimeOfDayLabel } from "../format/time";
 import { parseIcsCompactDate } from "./ics-dates";
 import { parseRrule, type ParsedRrule } from "./rrule";
 import { wallClockToUtcIso } from "./timezone";
@@ -88,14 +89,12 @@ function expandMaster(
 ): EnrichedEvent[] {
   const ruleText = master.recurrence?.rrule;
   if (ruleText === undefined) {
-    const occurrence = canonicalizeTimezones(master);
-    return overlapsWindow(occurrence, window) ? [occurrence] : [];
+    return singleOccurrence(master, window);
   }
   const rule = parseRrule(ruleText);
   if (rule === undefined) {
     // 无法安全解释的规则降级为单次事件（P-01：宁可不展开也不错展开）。
-    const occurrence = canonicalizeTimezones(master);
-    return overlapsWindow(occurrence, window) ? [occurrence] : [];
+    return singleOccurrence(master, window);
   }
 
   const occurrences: EnrichedEvent[] = [];
@@ -136,6 +135,39 @@ function expandMaster(
   return occurrences;
 }
 
+/**
+ * 单次事件 → 窗口内 occurrence（0 或 1 条）。
+ * 先做日期级预筛再换算时区：窗口只覆盖 42 天，而一次月切换要过一遍全部事件，
+ * 为必然不可见的事件做墙钟 → UTC 换算（每条约 11µs）是纯浪费。
+ */
+function singleOccurrence(
+  event: EnrichedEvent,
+  window: OccurrenceWindow,
+): EnrichedEvent[] {
+  if (!couldOverlapWindow(event, window)) {
+    return [];
+  }
+  const occurrence = canonicalizeTimezones(event);
+  return overlapsWindow(occurrence, window) ? [occurrence] : [];
+}
+
+/**
+ * 便宜的窗口预筛（日期级，两侧各留一天余量）：只用来跳过必然不可见的
+ * 事件，判定为“可能可见”的仍走原有的精确逻辑。墙钟 / UTC 形态的同一天
+ * 在不同时区可能前后偏一天，多日事件的跨度也必须计入，所以余量不能省。
+ */
+function couldOverlapWindow(
+  event: EnrichedEvent,
+  window: OccurrenceWindow,
+): boolean {
+  const startDay = event.start.slice(0, 10);
+  const spanDays = spanDaysOf(event);
+  return (
+    shiftDayKey(startDay, spanDays + 1) >= window.from &&
+    shiftDayKey(startDay, -1) <= window.to
+  );
+}
+
 /** 生成的具体实例：master 墙钟空间 → 展示 / 存储身份形态。 */
 interface OccurrenceCandidate {
   /** 墙钟（或 Z 形态）ISO：与 master.start 同一比较空间。 */
@@ -155,6 +187,7 @@ function* candidatesOf(
   window: OccurrenceWindow,
 ): Generator<OccurrenceCandidate> {
   const frame = timeFrameOf(master);
+  const spanDays = spanDaysOf(master);
   let produced = 0;
   for (const wallIso of wallCandidates(master, rule, window.to)) {
     if (rule.until !== undefined && !withinUntil(master, wallIso, rule.until)) {
@@ -164,8 +197,44 @@ function* candidatesOf(
       return;
     }
     produced += 1;
+    // 窗口之前的候选只计数、不物化：COUNT / UNTIL 的语义完全不变，
+    // 省下的是每条候选的时区换算与 EXDATE / 例外匹配。长序列（例如从
+    // 1 月起的每周事件在 11 月的窗口里）有九成候选落在窗口之前。
+    if (beforeWindow(wallIso, spanDays, window.from)) {
+      continue;
+    }
     yield materializeCandidate(master, wallIso, frame);
   }
+}
+
+/**
+ * 事件自身跨度（天，向上取整），用于判断候选是否可能落进窗口。
+ * 多日事件开始于窗口之前仍可能与窗口相交，因此这个跨度必须计入。
+ */
+function spanDaysOf(master: EnrichedEvent): number {
+  if (master.end === undefined) {
+    return 0;
+  }
+  if (master.allDay) {
+    return Math.max(
+      0,
+      daysBetweenKeys(master.start.slice(0, 10), master.end.slice(0, 10)),
+    );
+  }
+  const durationMs = utcComponentMs(master.end) - utcComponentMs(master.start);
+  return durationMs <= 0 ? 0 : Math.ceil(durationMs / 86_400_000);
+}
+
+/**
+ * 候选是否确定落在窗口之前：只做日期级比较，并留一天余量——墙钟 / UTC
+ * 形态的同一天在不同时区可能前后偏一天，宁可多物化几条也不能漏掉实例。
+ */
+function beforeWindow(
+  wallIso: string,
+  spanDays: number,
+  windowFrom: string,
+): boolean {
+  return shiftDayKey(wallIso.slice(0, 10), spanDays + 1) < windowFrom;
 }
 
 /**
@@ -379,6 +448,13 @@ function withinUntil(
     return wallIso.slice(0, 10) <= until.value.slice(0, 10);
   }
   if (until.utc || master.start.endsWith("Z")) {
+    // 便宜路径：候选日 + 1 天仍早于 UNTIL 的日期时，任何时区下候选都早于
+    // 边界（偏移最大 ±14h，跨不过一整天），无需逐候选做时区换算——长序列
+    // 里九成候选走这里（SC-020）。反之“已越过边界”最多每条事件命中一次，
+    // 因为流在第一个越界候选处就停了。
+    if (shiftDayKey(wallIso.slice(0, 10), 1) < until.value.slice(0, 10)) {
+      return true;
+    }
     const untilMs = until.utc
       ? Date.parse(until.value)
       : tryWallClockToUtcMs(until.value, master.startTzid);
@@ -552,13 +628,7 @@ function inclusiveEndDay(
   endIso: string,
   startDay: string,
 ): string {
-  const timePart = endIso.endsWith("Z")
-    ? new Intl.DateTimeFormat(undefined, {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      }).format(new Date(endIso))
-    : endIso.slice(11, 16);
+  const timePart = localTimeOfDayLabel(endIso);
   if (timePart === "00:00" && endDay > startDay) {
     return shiftDayKey(endDay, -1);
   }

@@ -501,6 +501,67 @@ describe("expandEventOccurrences — 窗口与防御", () => {
     ]);
   });
 
+  it("窗口前的候选只计数、不物化：COUNT 仍按 DTSTART 起算（SC-020）", () => {
+    const event = makeEvent({
+      uid: "long-weekly",
+      start: "2026-01-05T09:00:00", // 周一，第 1 个实例
+      recurrence: { rrule: "FREQ=WEEKLY;COUNT=40", exdates: [] },
+    });
+
+    // 第 40 个实例 = 2026-01-05 + 39 周 = 2026-10-05；第 41 个不存在。
+    // 窗口前那 39 个候选只参与计数，不进入结果（也不做时区换算）。
+    expect(startsOf(expandEventOccurrences([event], WINDOW))).toEqual([
+      "2026-10-05T09:00:00",
+    ]);
+  });
+
+  it("UNTIL 远在窗口之后：窗口内实例照常展开（SC-020 的边界快路径）", () => {
+    const event = makeEvent({
+      uid: "until-far",
+      start: "2026-06-03T09:00:00.000Z", // 周三
+      recurrence: {
+        rrule: "FREQ=WEEKLY;UNTIL=20261230T090000Z",
+        exdates: [],
+      },
+    });
+
+    expect(startsOf(expandEventOccurrences([event], WINDOW))).toEqual([
+      "2026-10-07T09:00:00.000Z",
+      "2026-10-14T09:00:00.000Z",
+      "2026-10-21T09:00:00.000Z",
+      "2026-10-28T09:00:00.000Z",
+    ]);
+  });
+
+  it("改期例外指向窗口前的实例、自身落在窗口内：仍然展示（SC-020）", () => {
+    const master = makeEvent({
+      uid: "weekly",
+      title: "每周站会",
+      start: "2026-06-03T09:00:00", // 周三
+      recurrence: { rrule: "FREQ=WEEKLY", exdates: [] },
+    });
+    const moved = makeEvent({
+      uid: "weekly",
+      title: "每周站会（改期）",
+      start: "2026-10-09T15:00:00",
+      occurrenceId: "2026-09-30T09:00:00", // 窗口前的一个实例
+    });
+
+    // 内容按时间排序比较：输出顺序不是契约（月格分桶与提醒计划都会再排序），
+    // 被跳过候选认领的例外与走“孤儿例外”通道的例外内容相同。
+    expect(
+      startsOf(expandEventOccurrences([master, moved], WINDOW)).sort(),
+    ).toEqual(
+      [
+        "2026-10-07T09:00:00",
+        "2026-10-09T15:00:00",
+        "2026-10-14T09:00:00",
+        "2026-10-21T09:00:00",
+        "2026-10-28T09:00:00",
+      ].sort(),
+    );
+  });
+
   it("久远 DTSTART 的无界 DAILY 不卡死（迭代上限）", () => {
     const event = makeEvent({
       uid: "ancient",

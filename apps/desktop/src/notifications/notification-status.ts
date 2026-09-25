@@ -1,5 +1,6 @@
 import type { PlannedReminder } from "./reminder-plan";
 import type { NotificationPermissionState } from "./notification-bridge";
+import { localTimeLabel } from "../format/time";
 
 /**
  * 通知状态文案（SC-017 / app-spec §13「通知权限被禁用：在设置中显示状态」）。
@@ -71,11 +72,7 @@ export function canRequestNotificationPermission(
  * 与月历上的写法保持一致（本地时区）。
  */
 export function formatReminderTime(fireAtMs: number, nowMs: number): string {
-  const time = new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(new Date(fireAtMs));
+  const time = localTimeLabel(fireAtMs);
   const dayOffset = localDayOffset(fireAtMs, nowMs);
   if (dayOffset === 0) {
     return `今天 ${time}`;

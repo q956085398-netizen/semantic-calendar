@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { eventKey, identityOfEvent, type EnrichedEvent } from "../data/model";
 import { dateFromKey, parseDateKey } from "../calendar/month-grid";
 import { eventTimeLabel, splitFixtureEvents } from "../calendar/event-display";
+import { localWeekdayLabel } from "../format/time";
 import { displayMetadataOf } from "../semantic/metadata-resolver";
 import type { MarkAssetSource } from "../semantic/marks";
 import type { LunarLabel } from "../semantic/app-lunar";
@@ -71,9 +72,7 @@ export function InspectorPanel({
   const { year, month, day } = parseDateKey(dateKey);
   const date = dateFromKey(dateKey);
 
-  const weekday = new Intl.DateTimeFormat("en-US", { weekday: "long" })
-    .format(date)
-    .toUpperCase();
+  const weekday = localWeekdayLabel(date).toUpperCase();
   const monthDay = `${month}月${day}日`;
   const { fixtures, ordinary } = splitFixtureEvents(events);
   const isMatchday = fixtures.length > 0;

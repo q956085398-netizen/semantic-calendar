@@ -1,6 +1,7 @@
 import type { EnrichedEvent } from "../data/model";
 import { todayKeyFromDate } from "./month-grid";
 import { daysBetweenKeys, shiftDayKey } from "./date-keys";
+import { localTimeOfDayLabel } from "../format/time";
 
 /**
  * 事件 → 日期键分桶（SC-006：导入后月视图可见）。
@@ -40,13 +41,7 @@ export function eventDateKeys(event: DateKeySource): string[] {
 /** 时间事件的结束日：恰为当地 00:00 时回退一天（独占边界）。 */
 function inclusiveEndDay(endIso: string, startDay: string): string {
   const endDay = dateKeyOfDateTime(endIso);
-  const timePart = endIso.endsWith("Z")
-    ? new Intl.DateTimeFormat(undefined, {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      }).format(new Date(endIso))
-    : endIso.slice(11, 16);
+  const timePart = localTimeOfDayLabel(endIso);
   if (timePart === "00:00" && daysBetweenKeys(startDay, endDay) > 0) {
     return shiftDayKey(endDay, -1);
   }

@@ -27,6 +27,10 @@ const SRC_ROOT = path.resolve(
 
 /** 非 UI 层：数据、解析、标准化、偏好规则、语义与 Provider 自身的实现目录。 */
 const NON_UI_DIRS = [
+  // bench/ 是性能基线的固定工作负载（SC-020）：它刻意从真实目录取球队名
+  // 构造可命中的输入，既不是 UI 也不进应用包，因此与 Provider 目录同类。
+  // 只排除必须排除的目录——scheduling/ 这类通用原语照常扫描。
+  "bench",
   "data",
   "format",
   "ics",

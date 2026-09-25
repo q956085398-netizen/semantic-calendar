@@ -12,7 +12,7 @@ import {
   createBuiltinTypeMetadataResolver,
   createMetadataResolver,
 } from "./metadata-resolver";
-import { reEnrichStore } from "./enrich";
+import { reEnrichStore, reEnrichStoreYielding } from "./enrich";
 
 let dataDir: string;
 let storePath: string;
@@ -260,3 +260,98 @@ describe("增强管线（SC-009 / SEM-003 / SEM-004）", () => {
     );
   });
 });
+
+describe("分片增强（SC-020 / app-spec §15）", () => {
+  it("每片之后让出一次，末尾不空转", async () => {
+    const store = await seedStore();
+    const yields: number[] = [];
+    const stats = await reEnrichStoreYielding(
+      store,
+      {
+        engine: createMatcherEngine([
+          titleMatcher("cn", "国庆假期", "holiday"),
+        ]),
+        resolver: RESOLVER,
+      },
+      {
+        chunkSize: 1,
+        yieldToMain: async () => {
+          yields.push(1);
+        },
+      },
+    );
+
+    expect(stats).toEqual({ matched: 1, unmatched: 1 });
+    // 2 条事件 / 每片 1 条：只在第 1 条之后让出，最后一条之后没有下一条了。
+    expect(yields).toHaveLength(1);
+  });
+
+  it("分片执行与同步执行产出完全相同的增强分区", async () => {
+    const sync = await seededLargeStore();
+    const chunked = await seededLargeStore();
+    const stack = {
+      engine: createMatcherEngine([titleMatcher("cn", "国庆假期", "holiday")]),
+      resolver: RESOLVER,
+    };
+
+    const syncStats = reEnrichStore(sync, stack);
+    const chunkedStats = await reEnrichStoreYielding(chunked, stack, {
+      chunkSize: 3,
+    });
+
+    expect(chunkedStats).toEqual(syncStats);
+    expect(chunked.toSnapshot().enrichments).toEqual(
+      sync.toSnapshot().enrichments,
+    );
+  });
+
+  it("重叠的重建排队执行：分区里不会留下旧快照的产物", async () => {
+    const store = await seededLargeStore();
+    const stack = {
+      engine: createMatcherEngine([titleMatcher("cn", "国庆假期", "holiday")]),
+      resolver: RESOLVER,
+    };
+
+    let second: Promise<unknown> | undefined;
+    await reEnrichStoreYielding(store, stack, {
+      chunkSize: 2,
+      yieldToMain: async () => {
+        if (second === undefined) {
+          // 第一次重建让出主线程时清空事件，并立刻发起第二次重建——
+          // 没有队列的话，第一次会在恢复后把已删除事件的增强写回分区。
+          store.removeEvents("src-1");
+          second = reEnrichStoreYielding(store, stack, { chunkSize: 2 });
+        }
+        await Promise.resolve();
+      },
+    });
+    await second;
+
+    // 第二次重建看到的是空事件集，因此最终分区必须为空。
+    expect(store.toSnapshot().enrichments).toEqual({});
+    expect(store.listEvents()).toEqual([]);
+  });
+});
+
+/** 12 条事件的存储：分片边界（chunkSize=3）落在中间，能覆盖多片路径。 */
+async function seededLargeStore(): Promise<CalendarStore> {
+  const store = await openStore();
+  store.upsertSource({
+    id: "src-1",
+    type: "local-ics",
+    name: "测试源",
+    enabled: true,
+  });
+  store.upsertEvents(
+    "src-1",
+    Array.from({ length: 12 }, (_, index) => ({
+      uid: `event-${index}`,
+      sourceId: "src-1",
+      title: index % 4 === 0 ? "国庆假期" : `普通事件 ${index}`,
+      normalizedTitle: index % 4 === 0 ? "国庆假期" : `普通事件 ${index}`,
+      start: "2026-10-01",
+      allDay: true,
+    })),
+  );
+  return store;
+}
