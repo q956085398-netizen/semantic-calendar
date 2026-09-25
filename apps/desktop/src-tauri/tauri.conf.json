@@ -25,7 +25,23 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
+    "publisher": "Semantic Calendar contributors",
+    "copyright": "Copyright (c) 2026 Semantic Calendar contributors",
+    "category": "Productivity",
+    "shortDescription": "可识别事件语义的桌面日历",
+    "longDescription": "语义日历是一个面向桌面的现代日历：除了显示事件，还会识别法定节假日、传统节日、二十四节气与英超比赛，为它们补上语义视觉与提醒。\n\nSemantic Calendar is a desktop calendar that understands what events mean — Chinese statutory holidays, traditional festivals, 24 solar terms and Premier League fixtures — and shows them with semantic visuals and reminders.",
+    "license": "MIT",
+    "licenseFile": "../../../LICENSE",
+    "createUpdaterArtifacts": false,
+    "windows": {
+      "allowDowngrades": false,
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": true
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/64x64.png",

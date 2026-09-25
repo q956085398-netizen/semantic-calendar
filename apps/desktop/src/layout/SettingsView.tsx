@@ -1,4 +1,5 @@
 import { WEBCAL_SOURCE_TYPE, type CalendarSource } from "../data/model";
+import { APP_FACTS } from "../settings/app-info";
 import {
   BUILTIN_SOURCES,
   isBuiltinSourceEnabled,
@@ -28,6 +29,7 @@ import {
   sourceStatusText,
 } from "./source-display";
 import { FollowedTeamsPicker } from "./FollowedTeamsPicker";
+import { FactList } from "./FactList";
 import type { FixtureTeamDisplay } from "../semantic/metadata-resolver";
 
 /**
@@ -35,7 +37,8 @@ import type { FixtureTeamDisplay } from "../semantic/metadata-resolver";
  *
  * 一个轻量页面，不做多层后台、不做 Dashboard（验收：设置页面不演变为
  * Dashboard）：左栏仍是常驻导航与显示开关，这里只集中 v0.1 的必要偏好
- * ——外观、区域（预留）、数据源、关注球队、通知、窗口行为。
+ * ——外观、区域（预留）、数据源、关注球队、通知、窗口行为，外加一节只读的
+ * 「关于」（名称 / 版本 / License，SC-022）。
  *
  * 与侧栏的分工：可见 / 隐藏这类日常开关在侧栏数据源列表（ui-design §4 第 2 项、§4.3），
  * 需要确认或较少改动的管理动作（删除来源）与偏好集中在这里。同一个状态
@@ -203,17 +206,7 @@ export function SettingsView({
           <h3 id="settings-region" className="sidebar-heading">
             区域
           </h3>
-          <dl className="region-facts">
-            {REGION_FACTS.map((fact) => (
-              <div key={fact.label} className="region-fact">
-                <dt className="region-fact-label">{fact.label}</dt>
-                <dd className="region-fact-value">
-                  {fact.value}
-                  <span className="region-fact-detail">{fact.detail}</span>
-                </dd>
-              </div>
-            ))}
-          </dl>
+          <FactList facts={REGION_FACTS} />
           <p className="store-status">{REGION_RESERVED_NOTE}</p>
         </section>
 
@@ -439,6 +432,15 @@ export function SettingsView({
               {closeBehaviorStatus}
             </p>
           )}
+        </section>
+
+        {/* 关于（SC-022）：名称、版本与 License。发布门槛要求能对上“装的是哪一版、
+            按什么许可分发”，这里是用户侧唯一能看到这两件事的地方。 */}
+        <section className="settings-section" aria-labelledby="settings-about">
+          <h3 id="settings-about" className="sidebar-heading">
+            关于
+          </h3>
+          <FactList facts={APP_FACTS} />
         </section>
       </div>
     </section>

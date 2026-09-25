@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
+    "icon": "node tools/render-app-icon.mjs && tauri icon src-tauri/app-icon.png && node tools/prune-mobile-icons.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

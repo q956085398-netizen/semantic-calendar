@@ -1,5 +1,8 @@
 dist
 src-tauri/target
 
+# Tauri 生成的 ACL / 权限 schema：由 cargo build 产出，不随仓库分发（SC-022）
+src-tauri/gen
+
 # 生成的数据表：一行一年，便于整年对照（见 tools/derive-solar-terms.mjs 头部说明）
 src/providers/china/solar-terms-data.ts

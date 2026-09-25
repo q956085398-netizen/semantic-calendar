@@ -11,16 +11,10 @@
  * 键与读取边界一并定义（快照 settings 是开放命名空间，加键不需要迁移）。
  */
 
-export interface RegionFact {
-  label: string;
-  /** 当前固定取值。 */
-  value: string;
-  /** 取值从哪里来、意味着什么。 */
-  detail: string;
-}
+import type { Fact } from "./facts";
 
 /** 设置页「区域」一节的内容：陈述当前取值，不假装可配置。 */
-export const REGION_FACTS: readonly RegionFact[] = [
+export const REGION_FACTS: readonly Fact[] = [
   {
     label: "语言",
     value: "简体中文",

@@ -5,6 +5,7 @@ import {
   type ReactNode,
 } from "react";
 import { WEBCAL_SOURCE_TYPE, type CalendarSource } from "../data/model";
+import { APP_NAME_ZH } from "../settings/app-info";
 import {
   BUILTIN_SOURCES,
   isBuiltinSourceEnabled,
@@ -134,7 +135,7 @@ export function Sidebar({
         <span className="app-icon" aria-hidden="true">
           日
         </span>
-        <span className="brand-name">语义日历</span>
+        <span className="brand-name">{APP_NAME_ZH}</span>
       </div>
 
       {miniCalendar}

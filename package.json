@@ -12,6 +12,7 @@
     "bench": "npm run bench --workspace @semantic-calendar/desktop",
     "lint": "npm run lint --workspace @semantic-calendar/desktop",
     "format": "npm run format --workspace @semantic-calendar/desktop",
-    "tauri": "npm run tauri --workspace @semantic-calendar/desktop"
+    "tauri": "npm run tauri --workspace @semantic-calendar/desktop",
+    "icon": "npm run icon --workspace @semantic-calendar/desktop"
   }
 }

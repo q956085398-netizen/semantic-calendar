@@ -1770,28 +1770,28 @@ button:focus-visible {
   overflow-wrap: anywhere;
 }
 
-/* 区域（SC-018 预留）：术语与取值成对，说明跟在取值后面 */
-.region-facts {
+/* 只读事实列表（区域 SC-018 / 关于 SC-022）：术语与取值成对，说明跟在取值后面 */
+.settings-facts {
   margin: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.region-fact {
+.settings-fact {
   display: flex;
   gap: 10px;
   align-items: baseline;
 }
 
-.region-fact-label {
+.settings-fact-label {
   flex: none;
   width: 64px;
   color: var(--text-muted);
   font-size: 12px;
 }
 
-.region-fact-value {
+.settings-fact-value {
   margin: 0;
   display: flex;
   flex-direction: column;
@@ -1800,7 +1800,7 @@ button:focus-visible {
   font-size: 13px;
 }
 
-.region-fact-detail {
+.settings-fact-detail {
   color: var(--text-muted);
   font-size: 11.5px;
   line-height: 1.5;

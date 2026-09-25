@@ -8,6 +8,12 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import {
+  APP_LICENSE,
+  APP_NAME_EN,
+  APP_NAME_ZH,
+  APP_VERSION,
+} from "./settings/app-info";
 
 const invokeMock = vi.hoisted(() => vi.fn());
 
@@ -1922,6 +1928,7 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
       "关注球队",
       "通知",
       "关闭窗口时",
+      "关于",
     ]) {
       expect(within(pane).getByRole("heading", { name: heading })).toBeTruthy();
     }
@@ -1955,6 +1962,28 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
         (key) => key.startsWith("app.locale") || key.startsWith("app.timezone"),
       ),
     ).toEqual([]);
+  });
+
+  it("关于一节给出名称、版本与 License，且不写入设置键（SC-022）", async () => {
+    await renderReadyApp();
+    const pane = openSettings();
+
+    // 名称策略：界面给的是一对名字，中文名与侧栏品牌同源（settings/app-info）。
+    expect(
+      within(pane).getByText(`${APP_NAME_ZH} / ${APP_NAME_EN}`),
+    ).toBeTruthy();
+    // 版本来自构建期注入（package.json → vite define），不是写死的字符串。
+    expect(APP_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(within(pane).getByText(APP_VERSION)).toBeTruthy();
+    expect(within(pane).getByText(APP_LICENSE)).toBeTruthy();
+
+    // 这一节是只读事实：打开设置只会写入「最近打开时间」这一条既有键，
+    // 不会为「关于」多出任何设置键（新增键会让这条断言变红）。
+    expect(
+      Object.keys(snapshotSettings())
+        .filter((key) => key.startsWith("app."))
+        .sort(),
+    ).toEqual(["app.lastOpenedAt"]);
   });
 
   it("关闭「中国节假日」：休 / 补语义立即消失，设置写入快照，重开立即恢复", async () => {

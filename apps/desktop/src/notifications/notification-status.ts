@@ -1,6 +1,7 @@
 import type { PlannedReminder } from "./reminder-plan";
 import type { NotificationPermissionState } from "./notification-bridge";
 import { localTimeLabel } from "../format/time";
+import { APP_NAME_ZH } from "../settings/app-info";
 
 /**
  * 通知状态文案（SC-017 / app-spec §13「通知权限被禁用：在设置中显示状态」）。
@@ -37,7 +38,7 @@ export function describeNotificationStatus({
     return "浏览器预览模式：系统通知需要桌面环境";
   }
   if (permission === "denied") {
-    return "系统通知权限被拒绝：请在系统设置中允许「语义日历」发送通知";
+    return `系统通知权限被拒绝：请在系统设置中允许「${APP_NAME_ZH}」发送通知`;
   }
   if (problem !== undefined) {
     return problem;
