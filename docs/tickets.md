@@ -88,6 +88,7 @@ P0 结束时，必须存在一条真实链路：
 | SC-014 | [#15](https://github.com/q956085398-netizen/semantic-calendar/issues/15) | 英超球队 / 联赛元数据 Provider | SC-009 |
 | SC-015 | [#16](https://github.com/q956085398-netizen/semantic-calendar/issues/16) | 比赛标题 Matcher 与主客队识别 | SC-009, SC-014 |
 | SC-016 | [#17](https://github.com/q956085398-netizen/semantic-calendar/issues/17) | 关注球队、比赛月格、Matchday Inspector | SC-005, SC-013, SC-015 |
+| SC-023 | [#24](https://github.com/q956085398-netizen/semantic-calendar/issues/24) | 比赛格对阵块的窄格适配（SC-021 验收发现） | SC-016, SC-021 |
 
 ### 英超 Exit Criteria
 

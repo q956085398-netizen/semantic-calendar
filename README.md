@@ -306,6 +306,7 @@ semantic-calendar/
 - [UI Spec](docs/ui-design.md)：月视图、明暗主题、节假日 / 节气 / 比赛日与 Inspector 的视觉与交互规范。
 - [Tickets](docs/tickets.md)：v0.1 工作单、依赖关系、批次和关键路径。
 - [性能基线与缓存策略](docs/performance.md)：v0.1 首个性能基线（可重复的测量方法与实测数字）、缓存失效清单、后台唤醒约束（SC-020）。
+- [UI 验收记录](docs/ui-acceptance.md)：ui-design.md §26 的逐项验收清单、自动证据与人工验收记录（SC-021）。
 - [项目愿景](docs/vision.md)：说明我们想解决什么问题、产品边界和长期方向。
 - [架构草案](docs/architecture.md)：描述数据源、标准化、Matcher、元数据和 UI 的分层关系。
 - [开发原则与建议做法](docs/development-principles.md)：约束早期开发方式，避免过度设计和资源浪费。
@@ -354,6 +355,16 @@ npm run lint      # ESLint
 npm run format    # Prettier 格式检查
 npm run tauri -- build
 ```
+
+改动一条链路时不必每次跑全量：在 `apps/desktop` 下用 `npx vitest run <文件>` 只跑相关文件
+（例如 `npx vitest run src/ics/parse-ics.test.ts`），改动完成后在仓库根目录跑一次
+`npm run test` 与 `npm run lint`。当前全量是 68 个文件、800 个用例，本机约 25–45 秒
+（波动主要在 `App.test.tsx` 一组：它是界面接线的集成层，单文件先跑它最省时间）。
+`npm run format` 会把 `src-tauri/gen/schemas/` 下由 Tauri 生成的 JSON 一并报为未格式化
+（该目录不进版本库），因此只看 `src/` 的结果：`npx prettier --check src`。
+
+测试与人工验收的分工写在 [docs/ui-acceptance.md](docs/ui-acceptance.md)：哪些 §26 验收项
+由测试判定、哪些必须在真实渲染里看，以及可复现的验收步骤。
 
 前后端 IPC 由 `data_store_read` / `data_store_write` / `data_store_rename` 三个数据命令、`webcal_fetch` 一个网络命令与 `shell_set_close_behavior` 一个窗口行为命令承载（读取快照、原子写入、损坏隔离改名、订阅抓取、关闭语义下发）。
 
@@ -418,7 +429,7 @@ WebCal / ICS 订阅（SC-007）位于 `apps/desktop/src/data/webcal/` 与 `apps/
 - 网络访问全部走 Rust 侧 `webcal_fetch` 命令（`src-tauri/src/webcal.rs`，reqwest + 系统 TLS）：webview 里的 fetch 受同源策略限制、绝大多数 ICS 服务端不发 CORS 头，且敏感 token 不应进入 webview 网络栈；请求带连接 / 总超时（10s / 30s）与 20MB 正文上限，非 2xx 不读正文、只回状态码；
 - 端口抽象 `data/net/http-io.ts`（条件 GET）+ `tauri-http-io.ts`：刷新逻辑对网络层零依赖，测试用替身即可覆盖全部降级分支；
 - 地址处理 `webcal/webcal-url.ts`：`webcal://` 按 `https://` 处理、缺协议补 `https://`、去 fragment；`sourceId` 由地址散列派生（同一地址重复添加命中同一来源，且 id 不含 token）；展示名与错误文案一律脱敏（`host + path`，查询串省略）；
-- 刷新服务 `webcal/webcal-refresh.ts`：条件 GET（`If-None-Match` / `If-Modified-Since`）→ 304 复用缓存 / 200 解析 → 标准化 → 按（sourceId, UID, RECURRENCE-ID）求差集替换（消失的事件才删除，未变事件保留增强结果）→ 更新来源状态与校验值；服务端不再返回校验值时清掉旧值，避免用过期 ETag 永远拿不到新内容；同一来源的并发刷新合并为一次请求；
+- 刷新服务 `webcal/webcal-refresh.ts`：条件 GET（`If-None-Match` / `If-Modified-Since`）→ 304 复用缓存 / 200 解析 → 标准化 → 按（sourceId, UID, RECURRENCE-ID）求差集替换（只有批次里消失的事件才删除，仍在的保持同一个持久化身份、不产生副本）→ 更新来源状态与校验值；重新入库的事件按“内容可能已变”处理，旧增强结果失效并由刷新后的重建恢复（SC-021 的链路测试覆盖）→ 服务端不再返回校验值时清掉旧值，避免用过期 ETag 永远拿不到新内容；同一来源的并发刷新合并为一次请求；
 - 失败降级（§13）：网络 / 超时 / HTTP 错误 / 内容无法解析 / 空内容都只标记 `lastSyncStatus: "error"` 与脱敏后的 `lastSyncError`，**不删除已有事件**，`lastSyncAt` 保留上次成功时间；事件级解析错误按 ICS-005 隔离计数；空日历（合法但没有 VEVENT）在已有缓存时同样按失败处理并保留缓存——服务端维护页、中间代理的空壳与真正清空的订阅无法区分，而清空事件的代价高于保留一份可能过期的缓存（P-01 可靠性优先）；来源本就没有事件时，空日历按正常刷新处理；
 - 抓取期间来源被删除时丢弃结果（不留无主事件记录）；
 - 低频后台刷新 `webcal/refresh-scheduler.ts`：常规间隔是设置项（`webcal.refreshIntervalMinutes`，默认 6 小时，SC-018），失败后固定 30 分钟重试；只维护**一个** `setTimeout` 指向最近到期时刻（不用 `setInterval`，无到期订阅时不持有定时器，空闲零唤醒，§12），触发后串行刷新到期来源并重算下一次；应用启动、手动刷新、到达刷新时间三类触发之外没有轮询；间隔以供应商（`intervalMs`）注入，设置改动只要 `reschedule()` 就立即生效，不需要重建调度器；
@@ -520,7 +531,7 @@ SC-018 的边界：设置页没有自己的存储——读写全走 `CalendarSto
 
 - 脱敏原语 `reliability/redact.ts`：地址保留**原文协议**（`webcal://` 不会被改写成 `https://`——脱敏不该改变读者对“这是什么地址”的认识）/ 主机 / 路径，省略查询串与账号信息；`token=…` 这类没被识别成 URL 的裸凭据按一份保守的参数名白名单抹掉值（`redactCredentials`）；事件正文（标题 / 标准化标题 / 描述 / 地点）替换为 `〔事件正文〕`；文案折叠空白并截断到 300 字符。地址的展示形态只有这一处实现，`data/webcal/webcal-url.ts` 的 `redactWebcalUrl` 是它的语境包装（换占位词）；同一模块的 `redactSensitiveText` 管的是另一件事——把**已知地址**的裸查询串也抹掉，两者互不重复。`describeSafeError` / `describeEventError` 把上述步骤合成一句可直接打印的文案，调用方不必各自记得走一遍；需要判据时用 `errorNameOf`，需要正文时用 `sanitizeMessage`。**顺序是契约**：正文替换必须在折叠空白与截断之前（折过之后标题里的连续空白就匹配不上，截断之后超长标题会留下没被替换的前缀），`describeEventError` 因此按「原文替换 → 折叠 → 再替换一遍 → 清洗」四步走；
 - 语义失败隔离的结构性保证（§14）：`MatcherErrorReport` / `ResolverErrorReport` 不再携带原始 `error` 对象，只带 `errorName` + 已洗过的 `message`。脱敏发生在报告生成处——引擎与解析链是唯一同时持有异常与事件的地方，因此“日志侧取错字段”这条通道被移除；曾经那条“报告不含事件正文”的测试只能证明 `JSON.stringify(new Error())` 不打印 message（Error 的 message 不可枚举），换成抛出 `无法解析「<标题>」：<带 token 的地址>` 的实现就漏了，现在的用例直接这么抛；
-- 数据层状态 `layout/data-layer-status.ts`：`loading` / `ready` / `preview` / `unavailable` 四态，**没有桌面壳**与**桌面壳在但快照打不开**（磁盘错误、权限、迁移链缺失）分开说——后者的状态行给原因与后果（「本地数据层不可用（<脱敏原因>）：日历可浏览，导入、订阅与设置更改不会保存」），导入 / 订阅动作各自回答“这次动作会不会保存”，设置页顶部同样说明改动不写盘。状态是**一个联合类型**（原因只在不可用时有意义），因此“已就绪却还带着上次的失败原因”这种组合写不出来；此前这条路径只有一句“本地数据层初始化失败”，而后续动作会拿预览模式的文案回答用户（说不一致），现在说的是“无法导入 / 无法添加订阅”——动作被直接拒绝，没有“发生了但没保存”这回事；
+- 数据层状态 `layout/data-layer-status.ts`：`loading` / `ready` / `preview` / `unavailable` 四态，**没有桌面壳**与**桌面壳在但快照打不开**（磁盘错误、权限、迁移链缺失）分开说——后者的状态行给原因与后果（「本地数据层不可用（<脱敏原因>）：日历可浏览，导入与订阅不可用，设置更改不会保存」），导入 / 订阅动作各自回答“这次动作会不会保存”，设置页顶部同样说明改动不写盘。状态是**一个联合类型**（原因只在不可用时有意义），因此“已就绪却还带着上次的失败原因”这种组合写不出来；此前这条路径只有一句“本地数据层初始化失败”，而后续动作会拿预览模式的文案回答用户（说不一致），现在说的是“无法导入 / 无法添加订阅”——动作被直接拒绝，没有“发生了但没保存”这回事；
 - 落盘失败不静默（§13 数据库异常提示）：App 的写路径统一经过一个 `saveStore(label)` 出口——内存里的更改照常生效（界面按新状态显示），同时给出「<动作>未能写入本地文件：<原因>（界面已按新状态显示，重启后可能丢失）」，侧栏底部与设置页顶部各显示一次；任何一次成功写入即清除该提示，所以它陈述的是最近一次写入的结果而不是一段历史。此前 `store.save()` 在多数写路径上不接错误，写盘失败会变成无人处理的 rejection（订阅 / 导入那条还会把“已写入内存”的成功说成失败）；
 - 快照坏记录隔离（验收：单个坏事件被隔离）：`data/store/schema.ts` 的 `narrowStoredEvent` / `narrowStoredSource` 在读取边界逐条收窄。快照是本地 JSON 文件，可能被手工编辑或被同步工具改坏，而结构级校验只看到“events 是数组”——一条缺 `start` 的记录会一路进到月格展开（`occurrences.ts` 的 `localDayKey` 读 `iso.endsWith`），把整个日历打掉（实测：白屏）。现在必需字段（uid / sourceId / title / start / allDay，日期只要求 `YYYY-MM-DD` 形态）不合格的事件整条隔离，可选字段（描述 / 地点 / EXDATE / VALARM 条目）类型不对只丢该字段，缺地址的订阅来源整条丢弃——它的事件保留在数据层（不删用户数据），只是暂时不可达。被隔离记录的**原文另存**为 `<快照名>.rejected-<时间戳>`（与整份快照损坏时的 `.corrupt-` 同一口径：数据留在磁盘上供人工检查，写备份失败也不阻断启动），条数报给界面（「已跳过 N 个无法读取的事件」）——只报条数不报名字，因为被隔离的记录字段本身就不可信，从里面取名字展示等于把坏数据放进界面；主文件在下一次落盘时重新变干净；
 - 其余验收项由既有链条与既有测试提供（本次只在同一份说明里对齐，没有重复补测试）：网络失败只标记来源状态、保留旧事件与上次成功时间（SC-007，`data/webcal/webcal-refresh.ts`）；Matcher / Resolver 抛错只降级自身、事件按普通事件继续显示（SC-009）；队徽 / Logo 缺失降级为球队代码 / 联赛短标签，图片加载失败同样换 fallback（SC-016 / `semantic/marks.ts`）；ICS 事件级解析错误进导入报告而不阻塞其余事件（SC-006 / ICS-005）；网络超时、连接失败、重定向与响应体读取失败在 Rust 侧就翻译成中文原因，且错误文案不含请求地址与 token（`src-tauri/src/webcal.rs`，含一条“连接失败不泄露地址”的 Rust 测试）；Provider 数据缺失按 §13 处理——识别不出就是普通事件、未收录的队徽 / 联赛 Logo 走 fallback、v0.1 没有可靠来源的天气不显示，而不是补一个看起来合理的值（`semantic/marks.test.ts`、`metadata-resolver.test.ts`，以及 App 集成里“比赛详情不含天气”的断言）；
@@ -539,3 +550,12 @@ SC-019 的边界：v0.1 不加全局离线横幅或网络状态探测——§13 
 - 测试：格式化器缓存与降级在 `format/time.test.ts`，让出主线程与无轮询守卫在 `scheduling/`，分片与同步入口结果一致、以及「重叠重建不留旧快照产物」在 `semantic/enrich.test.ts`（去掉队列这条用例会失败），三条新展开用例（跨窗口 `COUNT`、`UNTIL` 快路径、改期例外指向窗口前实例）在 `normalize/occurrences.test.ts`。
 
 SC-020 的边界：月切换仍是一次同步计算（10,000 条 152 ms 对「感知即时」偏高，1,000 条的常见规模 16.2 ms 已在阈值内）——它发生在渲染路径的 `useMemo` 里，拆成增量渲染会改变月格更新方式，属于 v0.1 之后的设计；导入的解析 + 落库段（10,000 条约 83 ms）不拆分，解析是单趟文本处理，要让它不占主线程需要把整条管线搬进 Web Worker，那是架构变化而不是优化；因此「大量事件不阻塞 UI 线程」按可安全分片的那一段落实（增强），剩余的不中断时长在 performance.md §6 如实记录，没有假装整条链路都是非阻塞的。性能门槛也没有在这一单里写死：§15 的顺序是「先建立基线，再根据实测锁定硬指标」，本单交付的是前半句。
+
+测试与人工验收（SC-021）把各单的测试对齐成一处可检查的清单，并补上三处真实缺口。验收清单与记录在 [docs/ui-acceptance.md](docs/ui-acceptance.md)：§26 的 18 条逐项给出判据、自动证据（测试文件与用例名）与人工记录，附 4 张整屏截图（浅色 / 深色 / 国庆连休 / 最小窗口），SC-021 的六条验收项也在同一份文档里对齐：
+
+- 垂直链路集成 `semantic/vertical-slice.test.ts` 覆盖 app-spec §17 要求的两条链——`ICS → Normalize → Match → Persist → 月格` 与 `WebCal refresh → dedupe → update → 重新匹配 → 重排提醒`（第二条把刷新前后的提醒计划摆在一起对照：改期那场不再按比赛提醒、新增那场按新时间提醒、消失的那场没有残留）。它跑的是 `createAppSemanticStack()` 装配出来的那一套 Matcher / Resolver，不是测试自建的替身：注册表掉一个 Matcher、Matcher 与 Resolver 的接口对不上、增强分区写不进快照，都会在这里失败。展示载荷经 `displayMetadataOf` 取值（UI 的真实读取边界），断言停在该边界交给月格的数据形态；真正渲染那一段由 `App.test.tsx` 承担。与 `normalize/pipeline.test.ts` 不重叠——后者到 Matcher 之前为止（SC-008 的范围），且带一条「快照往返后展开结果一致」的持久化断言；
+- 存储层差集语义 `data/store/calendar-store.test.ts`「replaceSourceEvents 删掉消失事件的增强记录，重新入库的那份等待重建」：`replaceSourceEvents` 只删批次里消失的事件（连同其增强记录），仍在的事件保持同一个持久化身份、不产生副本。这条口径此前写在 `replaceSourceEvents` 的注释里但**与实现不符**（注释说「未变事件保留增强结果」，实际 `upsertEvents` 会把重新入库的每一条的增强记录删掉）：按实现改正注释与本文 WebCal 一段。差别不是行为缺陷——重建是确定性的，刷新链路紧随其后就会重跑匹配，用户看到的语义与刷新前一致；改的是说法；
+- 浏览器预览判据 `ipc/tauri-ipc.ts` + `ipc/tauri-ipc.test.ts`：这条判据决定用户看到的是「浏览器预览模式」还是「本地数据层不可用（原因）」（app-spec §13 要求两者分开说）。原先只认文案里带 `__TAURI_INTERNALS__` 的错误，而 `@tauri-apps/api` 2.11 的 `invoke` 在 Chromium 上抛的是 `Cannot read properties of undefined (reading 'invoke')`——真实浏览器里的预览模式因此被判成「数据层不可用」，并把内部报错原文显示给用户。现在判据是「环境里确实没有桌面壳」（能力事实，桌面壳会在页面脚本之前注入 `__TAURI_INTERNALS__`）**且**「错误形状符合缺失 IPC」两条同时成立，因此只看文案会把「桌面壳在、失败恰好提到 invoke」读成预览的漏洞也不成立。这是本单唯一的生产行为改动，理由是它挡在人工验收的路径上（不改它，按 §6 打开的浏览器会显示内部报错而不是预览模式），而判据本身要写成什么样在 app-spec §13 里已经定死了；两个方向都有用例：真实故障（EACCES、JSON 解析失败、桌面壳在时的同款 TypeError）都不算预览；
+- 人工验收发现一条不通过：默认窗口尺寸（1180×760）且左右栏展开时，比赛格的「队标 VS 队标」放不下（可用 62px / 内容需要 81px），第二个队标被格子裁掉一截。jsdom 没有布局，`MonthView.test.tsx` 只能断言「格子里只有队标与 VS」，而 `cell-visual-contract.test.ts` 断言的正是「格子必须裁切」（§10.1 对狮标的要求）——裁切恰好是这里把队标切掉的原因，因此只有真实渲染能看出来。另一条只能算部分通过：中秋 / 寒露 / 霜降的照片型背景在本次画面里不存在（仓库不分发图片资源，渲染走文字降级），能力由 `DayBackdrop.test.tsx` 覆盖，画面要等 SC-022 接入资源包。两条的现象、量化与建议方向记在 `docs/ui-acceptance.md` §5，前者另行开单修复，不计入本单完成。
+
+SC-021 的边界：不引入浏览器驱动的截图回归——§26 里必须用眼睛看的只有布局、观感与整屏构图（4 项），其余 14 项在 jsdom 与 CSS 契约层面就能判定，多一层截图基线要维护的是渲染噪音而不是产品行为；截图是人工验收的记录，不是回归门。测试数量本身不是目标，本案只补链路、差集与预览判据这三处真实缺口，其余验收项用既有测试对齐（各单记录的「测试」一段就是索引）。覆盖不到的仍然是「观感」这一类判断：字重、留白、渐变是否舒服，靠人看，不靠断言。图片型背景（中秋 / 寒露 / 霜降的照片层）的能力由 `display/DayBackdrop.test.tsx` 覆盖，但仓库不分发图片资源，默认渲染走文字降级——资源接入与许可审查仍在 SC-022。

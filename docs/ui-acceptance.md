@@ -1,0 +1,160 @@
+# Semantic Calendar v0.1 UI 验收记录
+
+> [ui-design.md](ui-design.md) §26 的逐项验收清单，以及 SC-021 这一次的验收记录。
+> 产品侧的测试策略见 [app-spec.md](app-spec.md) §17，Ticket 见 [tickets.md](tickets.md)。
+
+## 1. 怎么读这份记录
+
+每条验收项给三样东西：
+
+- **判据**：这条验收在问什么（把 §26 的一句口号还原成可检查的事实）；
+- **自动**：可执行的回归证据（测试文件与用例名）。改坏了会红，不依赖人记性；
+- **人工**：必须在真实渲染里看的部分，附截图文件名（见 §6）。
+
+「自动」一栏不是装饰：§26 里超过四分之三的条目在 jsdom 与 CSS 契约层面就能判定
+（裁切、优先级、只渲染一次、层级可读），只有布局、观感与整屏构图必须用眼睛看。
+两类证据都有的条目，以人工记录为准——测试能证明结构，证明不了「看起来对不对」。
+
+## 2. 本次验收环境
+
+| 项 | 取值 |
+| --- | --- |
+| 日期 | 2026-09-25 |
+| 前端 | Vite dev server（`npm run dev`，`apps/desktop`），Chromium |
+| 窗口 | 1180×760（`tauri.conf.json` 的默认尺寸），另测最小 820×560 |
+| 主题 | 浅色（默认）与深色各一遍 |
+| 数据 | 内置中国日历（2026 年节假日 / 节气 / 农历）+ 一份导入的 ICS（比赛与普通事件） |
+| 记录方式 | 整屏截图，文件见 `docs/examples/ui/acceptance-2026-09-25/` |
+
+验收用的 ICS（与 §5 的现象一一对应）：
+
+```text
+BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:match-sep@example.com
+SUMMARY:Arsenal vs Manchester City
+LOCATION:Emirates Stadium
+DTSTART:20260926T203000
+DTEND:20260926T223000
+END:VEVENT
+BEGIN:VEVENT
+UID:match-oct@example.com
+SUMMARY:Liverpool vs Chelsea
+LOCATION:Anfield
+DTSTART:20261004T203000
+DTEND:20261004T223000
+END:VEVENT
+BEGIN:VEVENT
+UID:normal-oct@example.com
+SUMMARY:季度复盘
+DTSTART:20261006T140000
+DTEND:20261006T153000
+END:VEVENT
+END:VCALENDAR
+```
+
+## 3. SC-021 的验收项
+
+| 验收项 | 判据 | 证据 | 结果 |
+| --- | --- | --- | --- |
+| 核心时间逻辑有固定样例 | 时区换算、重复展开、ICS 时间形态的预期值写死，不随运行机器时区变化 | `normalize/timezone.test.ts`（BST/GMT/上海/纽约/悉尼与回拨日前后）；`normalize/occurrences.test.ts`（DAILY/WEEKLY/MONTHLY/YEARLY、`COUNT`、`UNTIL`、EXDATE、例外、跨夏令时）；`ics/parse-ics.test.ts`（全天与时间格式）；`providers/china/lunar.test.ts`（73,049 天对照官方年表，29 个固定样例） | 通过 |
+| ICS → Normalize → Match → Persist 集成测试可运行 | 应用真正装配的语义栈跑完整链路，重启后语义仍在 | `semantic/vertical-slice.test.ts`「导入的 ICS 经真实 Matcher 落库…」「重启后语义仍在…」——断言到月格消费的数据形态（分桶 + 展示载荷读取边界）；渲染那一段由 `App.test.tsx`「导入的比赛在月格显示队标 VS 队标，点击后进入比赛详情」承担。数据层到月格的分桶另有 `normalize/pipeline.test.ts`（Matcher 之前的半程） | 通过 |
+| WebCal refresh → dedupe → update 有集成覆盖 | 差集替换、消失即删除、改动就地更新、语义随刷新重建、提醒计划随之重排（app-spec §17 写到 reschedule notification） | `semantic/vertical-slice.test.ts`「刷新按 UID 去重更新…」（含刷新前后的提醒计划对照：改期那场不再按比赛提醒、新增那场按新时间提醒）「304 之后语义不变…」；服务层分支见 `data/webcal/webcal-refresh.test.ts`；存储层差集语义见 `data/store/calendar-store.test.ts`「replaceSourceEvents 删掉消失事件的增强记录…」 | 通过 |
+| 关键 Matcher 有正例与反例 | 命中要给出可解释的语义与实体，不命中要有明确理由（不误伤） | `providers/football/football-matcher.test.ts`：正例覆盖分隔符变体、别名与全角、联赛明示与名单推断、主客顺序；反例覆盖对手不在字典、三支球队、比分与连接词、球队名藏在更长单词里、展览与火车这类「包含球队名的短语」 | 通过 |
+| UI 按 ui-design.md §26 验收 | 18 条逐项看过，见 §4 | §4 清单 + `docs/examples/ui/acceptance-2026-09-25/` | **1 条不通过、1 条部分通过**（见 §5） |
+| 测试命令纳入开发文档 | 单测 / 单文件 / 性能基线 / 静态检查都有可复制的命令 | README「开发环境」的常用命令一段 | 通过 |
+| 范围里的其余高风险逻辑 | Ticket「范围」列出但不在上面六条验收里的项 | 提醒时间与去重：`notifications/reminder-plan.test.ts`（提前量 / 当天上午 / 前一天晚上 / 事后不提醒 / 去重键）、`notifications/notification-scheduler.test.ts`、`notifications/fired-reminders.test.ts`；China provider：`providers/china/` 下的 `lunar` / `holidays` / `festivals` / `solar-terms` 四组（数据校验、连休分组、范围外安静降级）；去重：`data/store/calendar-store.test.ts` 的「事件去重（ICS-001）」一组 | 通过 |
+
+## 4. ui-design.md §26 逐项
+
+| # | 验收项 | 自动证据 | 人工记录 | 结果 |
+| --- | --- | --- | --- | --- |
+| 1 | 浅色 / 深色主题均可用 | `theme/theme.test.ts`（规范化、`data-theme`、持久化、localStorage 不可用降级）；`calendar/cell-visual-contract.test.ts`「浅色与深色都定义了底色浓度与背景遮罩」；`App.test.tsx`「明暗主题」 | 浅色与深色各走一遍完整界面（含设置页），两套取值都不是简单反色 | 通过 |
+| 2 | 左侧栏可收起 | `App.test.tsx`「侧栏可折叠 / 展开，月历始终保留」 | 收起后侧栏变为竖排 rail，月历区从 620px 扩到整宽 1140px | 通过 |
+| 3 | 右侧详情栏可收起 | `App.test.tsx`「详情栏可折叠 / 展开」 | 同上，rail 提供「展开详情」 | 通过 |
+| 4 | 主月历在默认窗口尺寸下占据主要空间 | —（布局事实，jsdom 无布局） | 1180×760 下三栏为 232 / 620 / 288：月历是唯一无内边距、全高的面板 | 通过 |
+| 5 | 缩到最小窗口尺寸时月历主体仍完整可访问（SC-002） | `layout/window-size-contract.test.ts`（最小尺寸落在折叠阈值内、最小高度容得下六行） | 820×560：两侧自动收成 rail，网格 780×487 完整可见，无页面滚动 | 通过 |
+| 6 | 国庆连续假期视觉连续 | `calendar/MonthView.test.tsx`「一次连休的每一天是同一个主背景、同一支语义色」；`calendar/cell-backdrop.test.ts` | 10-01 … 10-07 同底色相连、大字各自被格裁切，跨行不断 | 通过 |
+| 7 | 假日不显示重复小「休」徽标 | `calendar/MonthView.test.tsx`「不再出现第二个「休」标记：整个格子里「休」只渲染一次（§7.3）」 | 每个休假格只有一处大字，右上角无小徽标 | 通过 |
+| 8 | 补班日使用淡蓝 / 深蓝语义背景 | `calendar/cell-backdrop.test.ts`「没有节日也没有比赛时，休假 / 补班的底色与大字成为主背景」；`cell-visual-contract.test.ts` | 10-10「补」为蓝色语义底色，与休假的红橙一眼可分 | 通过 |
+| 9 | 「休」「补」大字均被日期格裁切 | `calendar/cell-visual-contract.test.ts`「格子是裁切容器」「大字落在右下、半透明、不吃鼠标事件」 | 大字压在格子右下并被格边界切掉，不越到相邻格 | 通过 |
+| 10 | 中秋、寒露、霜降等可显示专属背景 | `display/DayBackdrop.test.tsx`（图片 + 遮罩、缺图与加载失败降级、资源包抛错不外泄）；`calendar/MonthView.test.tsx`「节日专属背景：图片被格子裁切，假期视觉整体让位」 | 仓库不分发图片资源，**本次看到的是降级形态**：语义文字与节气标签（10-08「寒露」、10-23「霜降」、09-25「中秋节」），照片背景未渲染 | 部分通过（能力由测试覆盖，图片背景待 SC-022 接入资源包后才能看到） |
+| 11 | 比赛日狮标不溢出格子 | `calendar/cell-visual-contract.test.ts`；`calendar/MonthView.test.tsx`「联赛背景是日期格的直接子元素（由格子裁切，不溢出到相邻格）」 | 10-04 的狮标水印按 `right/bottom` 负偏移铺出格边界后被裁，未越到 10-03 / 10-11 | 通过 |
+| 12 | 比赛格只显示「队标 VS 队标」 | `calendar/MonthView.test.tsx`「格内只显示队标 VS 队标：队名、开赛时间都不进格子」「整块比赛区域给出对阵与开赛时间的 hover / 读屏描述」 | 内容确实只有队标与 VS；但默认窗口尺寸下第二个队标被格边界裁掉约 19px（截图 01 / 03 的 09-26、10-04，放大件见 §5） | **不通过** |
+| 13 | 点击比赛后右侧显示完整比赛信息 | `App.test.tsx`「导入的比赛在月格显示队标 VS 队标，点击后进入比赛详情」；`layout/MatchdayInspector.test.tsx`（一级/二级/三级信息、缺字段不渲染、天气永不出现） | 点击 09-26 / 10-04 后详情栏给出对阵、联赛、开赛、场地与提醒文案 | 通过 |
+| 14 | 普通日期右侧允许简洁留白 | `layout/InspectorPanel.test.tsx`「普通日期不进入比赛模式：结构与留白不变（§12）」 | 10-19 的详情栏只有「MONDAY / 10月19日 / 2026 / 农历九月初十」，其余留白 | 通过 |
+| 15 | 多语义日期不会出现视觉元素堆叠失控 | `calendar/cell-backdrop.test.ts`（§16.1 优先级逐条）；`calendar/MonthView.test.tsx`（节日 + 假期 + 比赛、休假 + 比赛）；`layout/InspectorPanel.test.tsx`「比赛日与节气同日时两个标签都在」 | 10-04（休假 + 比赛）：只画联赛视觉，不叠假期底色与大字；10-06（假期 + 用户事件）：底色在、事件摘要照常 | 通过 |
+| 16 | 浅色模式赛事详情栏与主界面自然融合 | `layout/MatchdayInspector.test.tsx`；色值集中在 `--bg-matchday-*` | 详情栏是降饱和的蓝灰渐变 + 左缘柔和过渡，与主界面同属一套底板 | 通过 |
+| 17 | 深色模式不存在大面积纯黑断层 | `calendar/cell-visual-contract.test.ts`「深色主题的底色底板要比浅色主题暗得多」（并断言亮度低于 5%） | 页面底 / 格子 / 侧栏 / 详情栏四层灰阶可分，无纯黑块 | 通过 |
+| 18 | 应用品牌使用中文「语义日历」 | `App.test.tsx`「渲染侧栏、月历主区域与详情栏三个区域」（`getByText("语义日历")`）；`index.html` 的 `<title>语义日历</title>` | 侧栏品牌区、窗口标题均为中文 | 通过 |
+
+## 5. 本次发现的问题
+
+两条：一条不通过（5.1，已另开 SC-023），一条只能算部分通过（5.2，等 SC-022 的资源包）。
+
+### 5.1 默认窗口尺寸下比赛格裁掉第二个队标（不通过，另开 SC-023）
+
+**现象**：1180×760（应用默认窗口）且左右栏展开时，比赛格里的「队标 VS 队标」放不下，
+第二个队标被格子的裁切边界切掉一截（能看到 `MC` 与半个 `E`），读不出是哪支球队。
+
+**量化**：对阵块可用宽度 62px（格子 82px 减去内边距），内容需要 81px（两个 26px 队标
++ `gap: 6px` ×2 + 「VS」）。缩到 820×560（两侧 rail 折叠、格子回到 111px）时完整显示。
+
+**为什么测试没拦住**：jsdom 没有布局，`calendar/MonthView.test.tsx` 只能断言「格子里
+只有队标与 VS」；`cell-visual-contract.test.ts` 断言的是格子必须裁切（§10.1 对狮标的要求），
+而裁切恰好是这里把队标切掉的原因。这条只有真实渲染能看出来。
+
+**性质**：不是本次改动引入的回归——既有实现（SC-016）在默认窗口尺寸下就是这个样子。
+裁切本身按 §10.1 是对的（狮标必须裁在格内），问题是对阵块没有随格子宽度收缩。
+
+**影响范围**：对阵块需要 81px 内容 + 20px 格内边距（`padding: 8px 10px`）= 101px 的格子，
+即月历区约 753px、窗口约 1310px 以上才放得下。因此窗口窄于约 1310px 且左右栏展开时
+都会出现——包括应用自己的默认尺寸 1180×760 与 1280 宽的窗口（1366 宽时格子约 108px，
+刚好够放下）。
+
+**建议方向**（留给 SC-023）：让对阵块随格子宽度收缩（格子做容器查询，窄格子里
+队标与间距取小值），或调整详情栏宽度与格子内边距的组合使内容能放下；
+不改变 §22「Logo 不能决定布局」的口径。
+
+### 5.2 节日 / 节气的照片背景本次看不到（部分通过，等 SC-022）
+
+§26 第 10 项与参考示例图里，中秋、寒露、霜降这类日子有照片型背景（月亮、结霜的草）。
+本次验收看到的只有语义文字与节气标签——仓库不分发图片资源（开发原则的版权边界，
+SC-014 / SC-016 都记着这件事），`display/DayBackdrop.tsx` 在没有资源时按「不画背景」
+降级，这正是 `DayBackdrop.test.tsx` 覆盖的行为。因此这一条的能力成立、画面未达参考图，
+差异的来源不是本次的实现而是资源接入，判为部分通过；资源包接入与许可审查在 SC-022，
+那一单完成后需要按本文 §6A 再看一眼 2026 年 10 月（寒露 10-08）与 9 月（中秋节 09-25）。
+
+## 6. 复现方式
+
+### A. 不需要数据（主题、假期、节气、折叠、最小窗口）
+
+```bash
+cd apps/desktop
+npm run dev
+```
+
+浏览器打开 `http://localhost:1420/`，用主导航切到 2026 年 10 月（国庆连休与补班）、
+点侧栏「设置」→「外观」切深色、点左右栏底部的「收起」、把窗口缩到 820×560。
+无桌面壳时状态行会写明「浏览器预览模式：本地数据层仅桌面壳可用」，属预期。
+
+### B. 需要数据（比赛格与比赛详情）
+
+```bash
+cd apps/desktop
+npm run tauri -- dev
+```
+
+在桌面窗口里用侧栏「导入 ICS 文件…」导入 §2 的 ICS，切到对应月份并点击比赛日。
+比赛日视觉与 Matchday Inspector 需要事件数据，浏览器预览模式下没有本地数据层，
+因此这一组必须在桌面壳里做。
+
+## 7. 截图清单
+
+| 文件 | 内容 |
+| --- | --- |
+| `01-light-september-matchday.png` | 浅色 / 2026 年 9 月 / 选中 09-26 比赛日（比赛格、中秋连休、比赛详情栏） |
+| `02-light-october-holiday-run.png` | 浅色 / 2026 年 10 月 / 国庆连休 10-01…07、补班 10-10、寒露 10-08、休假与比赛同日 10-04 |
+| `03-dark-october-matchday.png` | 深色 / 同上（层级与语义色在深色主题下的取值） |
+| `04-min-window-820x560.png` | 最小窗口 820×560：两侧收成 rail，六行网格完整可见 |

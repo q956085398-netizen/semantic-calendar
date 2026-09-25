@@ -239,6 +239,48 @@ describe("数据源状态持久化（SRC-003）", () => {
       "new-event@semantic-calendar",
     ]);
   });
+
+  it("replaceSourceEvents 删掉消失事件的增强记录，重新入库的那份等待重建", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+    store.upsertSource(makeSource());
+    const kept = makeEvent();
+    const gone = makeEvent({ uid: "gone-event@semantic-calendar" });
+    store.upsertEvents("source-1", [kept, gone]);
+    for (const uid of [
+      "event-1@semantic-calendar",
+      "gone-event@semantic-calendar",
+    ]) {
+      store.saveEnrichment(
+        { sourceId: "source-1", uid },
+        {
+          semantic: fixtureSemantic,
+        },
+      );
+    }
+
+    // 全量刷新：服务端只剩其中一个 UID，内容原样。
+    const result = store.replaceSourceEvents("source-1", [kept]);
+
+    expect(result).toEqual({ inserted: 0, updated: 1, removed: 1 });
+    expect(
+      store.getEnrichment({
+        sourceId: "source-1",
+        uid: "gone-event@semantic-calendar",
+      }),
+    ).toBeUndefined();
+    // 刷新批次里的记录一律按“内容可能已变”处理，旧增强结果失效，
+    // 由刷新后的重建恢复（SC-007 → SEM-004），因此不会留下过期语义。
+    expect(
+      store.getEnrichment({
+        sourceId: "source-1",
+        uid: "event-1@semantic-calendar",
+      }),
+    ).toBeUndefined();
+    // 事件记录本身保持同一个持久化身份：刷新不产生副本。
+    expect(store.listEvents().map((e) => e.uid)).toEqual([
+      "event-1@semantic-calendar",
+    ]);
+  });
 });
 
 describe("WebCal 订阅状态与缓存（SC-007 / SRC-003 / SRC-004）", () => {

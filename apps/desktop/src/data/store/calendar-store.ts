@@ -264,8 +264,13 @@ export class CalendarStore {
    * 用一批新事件替换某来源的事件（WebCal 全量刷新场景）。
    *
    * 按持久化键求差集，而不是“先清空再写入”：
-   * - 批次中仍存在的事件保持原记录，增强结果不会因刷新被整体丢弃；
-   * - 只有批次中消失的事件才被删除。
+   * - 批次里仍存在的事件保持同一个持久化键（来源 / UID / occurrence 身份
+   *   不因刷新变化），因此刷新不产生副本；
+   * - 只有批次中消失的事件才被删除，连同它的增强记录。
+   *
+   * 增强结果不在这一层区分“内容是否真的变了”：重新入库的记录一律按旧结果
+   * 失效处理（见 `upsertEvents`），由刷新后的重建恢复（SC-007 → SEM-004）。
+   * 匹配是确定性的，因此重建结果与刷新前一致，用户不会因为一次刷新丢语义。
    */
   replaceSourceEvents(sourceId: string, events: StoredEvent[]): ReplaceResult {
     const nextKeys = new Set(
