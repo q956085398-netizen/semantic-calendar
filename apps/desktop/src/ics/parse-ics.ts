@@ -16,6 +16,7 @@
 
 import type { EventAlarm, ExdateValue, RawCalendarEvent } from "../data/model";
 import { isChunkBoundary } from "../scheduling/chunk-boundary";
+import { drain } from "../scheduling/drain";
 
 /** 单个坏事件的说明；eventIndex 为 1 基 VEVENT 序号，undefined 表示文件级问题。 */
 export interface IcsParseIssue {
@@ -492,12 +493,7 @@ function* extractVeventBlocksInChunks(
  * 不同的语义（与 normalize/occurrences.ts 的分片入口同一形状）。
  */
 export function parseIcsCalendar(text: string): IcsParseResult {
-  const steps = parseIcsCalendarInChunks(text);
-  let step = steps.next();
-  while (!step.done) {
-    step = steps.next();
-  }
-  return step.value;
+  return drain(parseIcsCalendarInChunks(text));
 }
 
 /**

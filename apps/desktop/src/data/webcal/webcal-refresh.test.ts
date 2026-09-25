@@ -506,3 +506,85 @@ describe("并发刷新（§12：避免不必要的重复下载）", () => {
     expect(http.requests).toHaveLength(3);
   });
 });
+
+/**
+ * SC-024：200 刷新走与本地导入同一组分片原语（解析 / 标准化 / 差集替换）。
+ * 被测的是「真的让出了主线程」而不是「结果碰巧一样」：注入一个极小的分片粒度
+ * 与一个记录调用的让出函数，304 与失败路径一次都不该让出。
+ */
+describe("200 刷新的分片执行（SC-024）", () => {
+  it("200 刷新在解析、标准化与替换之间让出主线程，结果与不切片时相同", async () => {
+    const summaries = Array.from(
+      { length: 300 },
+      (_unused, index) => `分片刷新事件 ${index}`,
+    );
+    // 两个变体都用阈值 0（一个任务只跑一片）：差别因此只来自事件粒度，
+    // 不来自「谁跑得慢」。解析段有自己的粒度（VEVENT 块 / 文本行），
+    // 两个变体都一样，不参与这条对照。
+    const variants = [
+      { label: "sliced", deps: { eventsPerChunk: 8, yieldAfterMs: 0 } },
+      { label: "sync", deps: { eventsPerChunk: 0, yieldAfterMs: 0 } },
+    ] as const;
+    const outcomes: Record<string, unknown> = {};
+
+    for (const variant of variants) {
+      const { store } = await openStore();
+      const http = stubHttp(okResponse(icsBody(...summaries)));
+      const added = await addWebcalSubscription(
+        store,
+        { url: SECRET_URL },
+        http,
+      );
+      let yields = 0;
+      const outcome = await refreshWebcalSource(
+        store,
+        added.sourceId!,
+        stubHttp(okResponse(icsBody(...summaries, "新增的一场"))),
+        {
+          ...variant.deps,
+          yieldToMain: async () => {
+            yields += 1;
+          },
+        },
+      );
+
+      expect(outcome.status).toBe("updated");
+      expect(store.listEvents()).toHaveLength(301);
+      outcomes[variant.label] = {
+        yields,
+        inserted: outcome.inserted,
+        updated: outcome.updated,
+        removed: outcome.removed,
+      };
+    }
+
+    // 事件粒度 0 = 不切片：标准化与替换两段一次算完，让出只可能来自解析段
+    // （它对两个变体一样）。因此「分片变体让出得更多」只可能来自事件粒度。
+    const sliced = outcomes.sliced as { yields: number; inserted: number };
+    const sync = outcomes.sync as { yields: number; inserted: number };
+    expect(sliced.yields).toBeGreaterThan(sync.yields + 10);
+    expect(sliced.inserted).toBe(sync.inserted);
+    expect(sliced.inserted).toBe(1);
+  });
+
+  it("304 与失败刷新不让出：没有分片工作可做", async () => {
+    const { store } = await openStore();
+    const http = stubHttp(okResponse(icsBody("Standup")));
+    const added = await addWebcalSubscription(store, { url: SECRET_URL }, http);
+
+    let yields = 0;
+    const outcome = await refreshWebcalSource(
+      store,
+      added.sourceId!,
+      stubHttp({ status: 304, notModified: true }),
+      {
+        yieldToMain: async () => {
+          yields += 1;
+        },
+      },
+    );
+
+    expect(outcome.status).toBe("not-modified");
+    expect(yields).toBe(0);
+  });
+});

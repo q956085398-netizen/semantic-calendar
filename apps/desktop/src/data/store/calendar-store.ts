@@ -12,6 +12,7 @@ import {
 } from "../model";
 import { migrateAndValidate, readVersion } from "./migrations";
 import { isChunkBoundary } from "../../scheduling/chunk-boundary";
+import { drain, NO_SLICES } from "../../scheduling/drain";
 import {
   runYielding,
   type RunYieldingDeps,
@@ -293,41 +294,42 @@ export class CalendarStore {
 
   // ---- 事件（ICS-001 去重）----
 
-  /** sourceId 以调用方声明为准，防止跨来源数据污染。 */
+  /**
+   * 同步入口：**不切片**（chunkEvents = 0，一次算完），因此与改动前完全一致——
+   * 含版本号只推进一次。切片与否是调用方声明的（见 upsertEventsInChunks），
+   * 不是「生成器有没有 yield 过」推出来的。
+   */
   upsertEvents(sourceId: string, events: StoredEvent[]): UpsertResult {
-    const steps = this.upsertEventsInChunks(sourceId, events);
-    let step = steps.next();
-    while (!step.done) {
-      step = steps.next();
-    }
-    return step.value;
+    return drain(this.upsertEventsInChunks(sourceId, events, NO_SLICES));
   }
 
   /**
-   * 分片落库（SC-024 / app-spec §15）：每 chunkEvents 条给一个让出点，
-   * 同步入口 `upsertEvents` 就是这个生成器的一次排空，结果逐条相同。
+   * 分片落库（SC-024 / app-spec §15）：每 chunkEvents 条给一个让出点，结果与
+   * 同步入口逐条相同（`upsertEvents` 就是这个生成器在 chunkEvents = 0 下的一次排空）。
    *
-   * **分片期间版本号推进两次**（开始一次、结束一次），这是与同步入口唯一的
-   * 可观察差异，也是必须的：分片让出主线程后，读取方（App 的 refreshFromStore）
-   * 可能在落库进行到一半时读到事件集合，并把当时的版本号记成“已读过”。若结束
-   * 时的版本号与半途读到的一样，读取方会认为集合没变、跳过重读——界面就永远
-   * 停在半份事件上。中间让出过才补第二个推进：小批量数据一次跑完，行为与
-   * 改动前完全一致（版本号只 +1）。
+   * **切片时版本号推进两次**（开始一次、结束一次），这是与同步入口唯一的可观察
+   * 差异，也是必须的：分片让出主线程后，读取方（App 的 refreshFromStore）可能在
+   * 落库进行到一半时读到事件集合，并把当时的版本号记成“已读过”。若结束时的版本号
+   * 与半途读到的一样，读取方会认为集合没变、跳过重读——界面就永远停在半份事件上。
+   *
+   * 两次推进的判据是**调用方的分片粒度**而不是「生成器有没有 yield 过」：一次
+   * 同步排空同样会经过让出点（只是立刻恢复），那样判会把「没有读取方可能插进来」
+   * 的同步入口也变成推两次。粒度非正 = 不切片 = 一个任务里算完，读取方不可能
+   * 读到半份，推一次就够。
    */
   *upsertEventsInChunks(
     sourceId: string,
     events: StoredEvent[],
     chunkEvents: number = STORE_CHUNK_EVENTS,
   ): Generator<void, UpsertResult, void> {
+    const sliced = chunkEvents > 0;
     if (events.length > 0) {
       this.eventsRevisionValue += 1;
     }
     let inserted = 0;
     let updated = 0;
-    let sliced = false;
     for (let index = 0; index < events.length; index += 1) {
       if (isChunkBoundary(index, chunkEvents)) {
-        sliced = true;
         yield;
       }
       const stamped = { ...events[index], sourceId };
@@ -341,19 +343,14 @@ export class CalendarStore {
       }
       this.events.set(key, stamped);
     }
-    if (sliced) {
+    if (sliced && events.length > 0) {
       this.eventsRevisionValue += 1;
     }
     return { inserted, updated };
   }
 
   listEvents(sourceId?: string): StoredEvent[] {
-    const steps = this.listEventsInChunks(sourceId);
-    let step = steps.next();
-    while (!step.done) {
-      step = steps.next();
-    }
-    return step.value;
+    return drain(this.listEventsInChunks(sourceId, NO_SLICES));
   }
 
   /**
@@ -423,12 +420,7 @@ export class CalendarStore {
    * 匹配是确定性的，因此重建结果与刷新前一致，用户不会因为一次刷新丢语义。
    */
   replaceSourceEvents(sourceId: string, events: StoredEvent[]): ReplaceResult {
-    const steps = this.replaceSourceEventsInChunks(sourceId, events);
-    let step = steps.next();
-    while (!step.done) {
-      step = steps.next();
-    }
-    return step.value;
+    return drain(this.replaceSourceEventsInChunks(sourceId, events, NO_SLICES));
   }
 
   /**
@@ -508,12 +500,7 @@ export class CalendarStore {
    * （normalizedTitle 回退口径见 asNormalizedEvent）。
    */
   listEnrichedEvents(sourceId?: string): EnrichedEvent[] {
-    const steps = this.listEnrichedEventsInChunks(sourceId);
-    let step = steps.next();
-    while (!step.done) {
-      step = steps.next();
-    }
-    return step.value;
+    return drain(this.listEnrichedEventsInChunks(sourceId, NO_SLICES));
   }
 
   /**

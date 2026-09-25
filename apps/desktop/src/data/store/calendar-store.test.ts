@@ -950,6 +950,26 @@ describe("分片落库、读取与序列化（SC-024）", () => {
     expect(store.eventsRevision()).toBe(1);
   });
 
+  it("推进两次的判据是「调用方的粒度」而不是「生成器有没有让出过」", async () => {
+    const syncStore = await CalendarStore.open(fileIO, storePath);
+    const chunkedStore = await CalendarStore.open(fileIO, storePath);
+    for (const { store } of [syncStore, chunkedStore]) {
+      store.upsertSource(makeSource());
+    }
+
+    // 同步入口即使超过一个分片粒度也只推一次：它在一个任务里算完，
+    // 读取方不可能读到半份集合。
+    syncStore.store.upsertEvents("source-1", seededEvents());
+    expect(syncStore.store.eventsRevision()).toBe(1);
+
+    // 分片入口（生产路径）推两次：开始一次让半途读到的旧值失效、结束一次
+    // 让半途读到的新值也失效。
+    drain(
+      chunkedStore.store.upsertEventsInChunks("source-1", seededEvents(), 4),
+    );
+    expect(chunkedStore.store.eventsRevision()).toBe(2);
+  });
+
   it("保存的快照文本与旧路径（toSnapshot + stringify）逐字节相同", async () => {
     const { store } = await CalendarStore.open(fileIO, storePath);
     store.upsertSource(makeSource());

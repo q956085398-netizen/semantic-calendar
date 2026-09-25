@@ -56,12 +56,8 @@ function seed(): void {
   ]);
 }
 
-function inputWith(chunkEvents?: number): EnrichedEventsLoadInput {
-  return {
-    store,
-    enabledSourceIds: new Set(["source-a"]),
-    ...(chunkEvents === undefined ? {} : { chunkEvents }),
-  };
+function inputWith(): EnrichedEventsLoadInput {
+  return { store, enabledSourceIds: new Set(["source-a"]) };
 }
 
 describe("分片读取界面事件集合（SC-024）", () => {
@@ -79,14 +75,14 @@ describe("分片读取界面事件集合（SC-024）", () => {
 
     for (const chunkEvents of [1, 2, 1000]) {
       await expect(
-        runYielding(enrichedEventsInChunks(inputWith(chunkEvents))),
+        runYielding(enrichedEventsInChunks(inputWith(), chunkEvents)),
       ).resolves.toEqual(expected);
     }
   });
 
   it("读完之前拿不到结果：让出发生在结果产生之前", async () => {
     seed();
-    const steps = enrichedEventsInChunks(inputWith(1));
+    const steps = enrichedEventsInChunks(inputWith(), 1);
     // 粒度 1：第一个任务只处理一条事件，因此远未读完。
     expect(steps.next().done).toBe(false);
 

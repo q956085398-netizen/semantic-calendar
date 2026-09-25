@@ -72,8 +72,11 @@ export interface WebcalDeps {
   yieldToMain?: () => Promise<void>;
   /** 让出阈值；只供测试注入更小的值。 */
   yieldAfterMs?: number;
-  /** 分片粒度（事件条数）；只供测试注入更小的值。 */
-  chunkEvents?: number;
+  /**
+   * 事件粒度（标准化与替换共用，与本地导入同一口径）；
+   * 只供测试注入更小的值，0 表示不切片（一次算完）。
+   */
+  eventsPerChunk?: number;
 }
 
 /** 分片注入项：字段名与 WebcalDeps 的 `now` 冲突，逐项映射而不是整体透传。 */
@@ -247,11 +250,11 @@ async function performRefresh(
   // 与本地导入同一组分片原语（SC-024）：标准化与按批次替换各自分片，
   // 10,000 条的订阅刷新因此也不再整段占着主线程（性能文档 §3.5）。
   const stored = await runYielding(
-    normalizeEventsInChunks(parsed.events, sourceId, deps.chunkEvents),
+    normalizeEventsInChunks(parsed.events, sourceId, deps.eventsPerChunk),
     sliceOptions(deps),
   );
   const { inserted, updated, removed } = await runYielding(
-    store.replaceSourceEventsInChunks(sourceId, stored, deps.chunkEvents),
+    store.replaceSourceEventsInChunks(sourceId, stored, deps.eventsPerChunk),
     sliceOptions(deps),
   );
   store.updateSourceStatus(sourceId, {

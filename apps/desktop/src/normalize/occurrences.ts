@@ -18,6 +18,7 @@ import {
 } from "../calendar/date-keys";
 import { formatDateKey, todayKeyFromDate } from "../calendar/month-grid";
 import { localTimeOfDayLabel } from "../format/time";
+import { drain } from "../scheduling/drain";
 import { parseIcsCompactDate } from "./ics-dates";
 import { parseRrule, type ParsedRrule } from "./rrule";
 import { wallClockToUtcIso } from "./timezone";
@@ -38,12 +39,7 @@ export function expandEventOccurrences(
   events: EnrichedEvent[],
   window: OccurrenceWindow,
 ): EnrichedEvent[] {
-  const steps = expandEventOccurrencesInChunks(events, window, NO_SLICES);
-  let step = steps.next();
-  while (!step.done) {
-    step = steps.next();
-  }
-  return step.value;
+  return drain(expandEventOccurrencesInChunks(events, window, NO_SLICES));
 }
 
 /** 分片粒度为 0：中间不让出，一次跑完（同步入口）。 */

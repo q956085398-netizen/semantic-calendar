@@ -10,42 +10,38 @@
  *   几帧内反复变化，比晚几帧更难解释；
  * - **停用来源不进结果**（SRC-003）：过滤在克隆之后做（与改动前同一顺序），
  *   过滤本身是常数开销（10,000 条约 0.3 ms）；
- * - **同步入口**就是分片生成器的一次排空，两者结果逐条相同。
+ * - **同步入口不切片**（`NO_SLICES`）或分片生成器的一次排空，两者结果逐条相同。
  */
 
 import type { EnrichedEvent } from "../model";
+import { drain, NO_SLICES } from "../../scheduling/drain";
 import type { CalendarStore } from "./calendar-store";
 
 export interface EnrichedEventsLoadInput {
   store: CalendarStore;
   /** 参与界面的来源：停用来源的事件不进结果（SRC-003）。 */
   enabledSourceIds: ReadonlySet<string>;
-  /** 分片粒度（事件条数）；缺省用存储的读取粒度，只供测试注入更小的值。 */
-  chunkEvents?: number;
 }
 
-/** 同步入口：一次排空（测试与短列表用，生产路径走分片入口）。 */
+/** 同步入口：不切片，一次算完（测试与短列表用，生产路径走分片入口）。 */
 export function loadEnrichedEvents(
   input: EnrichedEventsLoadInput,
 ): EnrichedEvent[] {
-  const steps = enrichedEventsInChunks(input);
-  let step = steps.next();
-  while (!step.done) {
-    step = steps.next();
-  }
-  return step.value;
+  return drain(enrichedEventsInChunks(input, NO_SLICES));
 }
 
 /**
  * 分片读取：先按存储顺序逐条克隆并连接增强结果（分片），再按启用集合过滤。
- * 调用方用 `runYielding` 把它跑完，任务之间让出主线程。
+ * 调用方用 `runYielding` 把它跑完，任务之间让出主线程；粒度的默认值来自存储的
+ * 读取粒度（`STORE_CHUNK_EVENTS`）。
  */
 export function* enrichedEventsInChunks(
   input: EnrichedEventsLoadInput,
+  chunkEvents?: number,
 ): Generator<void, EnrichedEvent[], void> {
   const events = yield* input.store.listEnrichedEventsInChunks(
     undefined,
-    input.chunkEvents,
+    chunkEvents,
   );
   return events.filter((event) => input.enabledSourceIds.has(event.sourceId));
 }

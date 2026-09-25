@@ -1,7 +1,9 @@
 import {
+  ICS_CHUNK_LINES,
   parseIcsCalendarInChunks,
   type IcsParseIssue,
 } from "../../ics/parse-ics";
+import { drain, NO_SLICES } from "../../scheduling/drain";
 import {
   NORMALIZE_CHUNK_EVENTS,
   normalizeEventsInChunks,
@@ -47,9 +49,13 @@ export interface LocalIcsImportOutcome {
   issues: IcsParseIssue[];
 }
 
-/** 分片导入的注入点；chunkEvents 只供测试注入更小的值。 */
+/** 分片导入的注入点；eventsPerChunk 只供测试注入更小的值。 */
 export interface LocalIcsImportDeps extends RunYieldingDeps {
-  chunkEvents?: number;
+  /**
+   * 事件粒度（标准化与落库共用）：两条都是逐条遍历、每条代价同量级，
+   * 因此共用一个粒度而不是各持一套（解析的粒度由 parse-ics 自己持有）。
+   */
+  eventsPerChunk?: number;
 }
 
 const SOURCE_TYPE = "local-ics";
@@ -66,17 +72,12 @@ export function sourceIdForLocalIcsFile(fileName: string): string {
   return `local-ics:${slug || "import"}`;
 }
 
-/** 同步入口：分片生成器的一次排空（结果逐条相同）。 */
+/** 同步入口：不切片，一次算完（结果与分片入口逐条相同）。 */
 export async function importLocalIcs(
   store: CalendarStore,
   input: LocalIcsImportInput,
 ): Promise<LocalIcsImportOutcome> {
-  const steps = importLocalIcsInChunks(store, input);
-  let step = steps.next();
-  while (!step.done) {
-    step = steps.next();
-  }
-  return step.value;
+  return drain(importLocalIcsInChunks(store, input, NO_SLICES));
 }
 
 /**
@@ -96,7 +97,7 @@ export function importLocalIcsYielding(
     importLocalIcsInChunks(
       store,
       input,
-      deps.chunkEvents ?? NORMALIZE_CHUNK_EVENTS,
+      deps.eventsPerChunk ?? NORMALIZE_CHUNK_EVENTS,
     ),
     deps,
   );
@@ -107,7 +108,12 @@ function* importLocalIcsInChunks(
   input: LocalIcsImportInput,
   chunkEvents: number = NORMALIZE_CHUNK_EVENTS,
 ): Generator<void, LocalIcsImportOutcome, void> {
-  const parsed = yield* parseIcsCalendarInChunks(input.contents);
+  // 行扫描与逐块解析共用同一个「切片 / 不切片」决定（同步入口整段不切片）。
+  const parsed = yield* parseIcsCalendarInChunks(
+    input.contents,
+    chunkEvents > 0 ? ICS_CHUNK_LINES : NO_SLICES,
+    chunkEvents,
+  );
   const skipped = parsed.issues.filter(
     (issue) => issue.eventIndex !== undefined,
   ).length;

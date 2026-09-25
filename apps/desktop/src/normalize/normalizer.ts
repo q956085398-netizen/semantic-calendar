@@ -11,6 +11,7 @@
 
 import type { RawCalendarEvent, StoredEvent } from "../data/model";
 import { isChunkBoundary } from "../scheduling/chunk-boundary";
+import { drain, NO_SLICES } from "../scheduling/drain";
 import { normalizeEventTitle } from "./title";
 
 export function normalizeEventForStorage(event: RawCalendarEvent): StoredEvent {
@@ -37,12 +38,7 @@ export function normalizeEventsForStorage(
   events: readonly Omit<RawCalendarEvent, "sourceId">[],
   sourceId: string,
 ): StoredEvent[] {
-  const steps = normalizeEventsInChunks(events, sourceId);
-  let step = steps.next();
-  while (!step.done) {
-    step = steps.next();
-  }
-  return step.value;
+  return drain(normalizeEventsInChunks(events, sourceId, NO_SLICES));
 }
 
 /**

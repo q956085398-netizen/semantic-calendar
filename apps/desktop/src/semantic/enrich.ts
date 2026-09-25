@@ -1,5 +1,7 @@
 import { asNormalizedEvent, identityOfEvent } from "../data/model";
 import type { CalendarStore } from "../data/store/calendar-store";
+import { isChunkBoundary } from "../scheduling/chunk-boundary";
+import { drain, NO_SLICES } from "../scheduling/drain";
 import { yieldToMain as defaultYieldToMain } from "../scheduling/yield-to-main";
 import type { MatcherEngine } from "./matcher-engine";
 import type { MetadataResolverStack } from "./metadata-resolver";
@@ -78,7 +80,7 @@ function* enrichStoreInChunks(
     }
     processed += 1;
     // 末尾不空转：没有下一条事件时不必再让出一次。
-    if (processed % chunkSize === 0 && processed < events.length) {
+    if (processed < events.length && isChunkBoundary(processed, chunkSize)) {
       yield;
     }
   }
@@ -93,12 +95,7 @@ export function reEnrichStore(
   store: CalendarStore,
   stack: SemanticStack,
 ): EnrichmentStats {
-  const steps = enrichStoreInChunks(store, stack);
-  let step = steps.next();
-  while (!step.done) {
-    step = steps.next();
-  }
-  return step.value;
+  return drain(enrichStoreInChunks(store, stack, NO_SLICES));
 }
 
 /**
