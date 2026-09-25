@@ -45,7 +45,7 @@ interface MatchdayInspectorProps {
   followedTeamIds: readonly string[];
   /** 比赛提醒提前量的用户设置（SC-017）；缺省表示跟随默认建议。 */
   matchReminder?: MatchReminderSetting;
-  /** 资源包：默认不携带图片（SC-022 接入）。 */
+  /** 资源包：默认不携带图片（SC-022 口径：仓库不分发图片资源，默认走 fallback，见 docs/third-party-assets.md）。 */
   assets?: MarkAssetSource;
 }
 

@@ -55,7 +55,7 @@ interface InspectorPanelProps {
   followedTeamIds?: readonly string[];
   /** 比赛提醒提前量的用户设置（SC-017）；提醒行据此说明会不会提醒。 */
   matchReminder?: MatchReminderSetting;
-  /** 队徽 / 联赛 Logo 资源包（SC-022 接入；默认不携带图片）。 */
+  /** 队徽 / 联赛 Logo 资源包（默认不携带图片，SC-022 口径）。 */
   assets?: MarkAssetSource;
 }
 

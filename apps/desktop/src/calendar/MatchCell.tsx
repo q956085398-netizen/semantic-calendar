@@ -24,7 +24,7 @@ import { eventTimeLabel, type FixtureEvent } from "./event-display";
 interface MatchCellProps {
   fixture: FixtureDisplay;
   event: FixtureEvent["event"];
-  /** 资源包：默认不携带图片（SC-022 接入）。 */
+  /** 资源包：默认不携带图片（SC-022 口径：仓库不分发图片资源，默认走 fallback，见 docs/third-party-assets.md）。 */
   assets?: MarkAssetSource;
 }
 

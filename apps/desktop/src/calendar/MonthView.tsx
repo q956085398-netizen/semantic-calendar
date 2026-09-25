@@ -93,7 +93,7 @@ interface MonthViewProps {
   /** 按日期键分桶的传统节日 / 节气载荷（SC-012；普通日期缺省）。 */
   chinaSemanticByDate?: Map<string, ChinaDaySemanticLabel>;
   /**
-   * 队徽 / 联赛 Logo 与节日 / 节气专属背景的资源包（SC-022 接入；默认不携带图片）。
+   * 队徽 / 联赛 Logo 与节日 / 节气专属背景的资源包（默认不携带图片，SC-022 口径）。
    * 两种背景各有一套缺省语义（标记有文字 fallback，背景没有），但资源包接口
    * 恰好同形（urlFor），因此一个 prop 同时交给两者，不需要在装配处拆成两份。
    */

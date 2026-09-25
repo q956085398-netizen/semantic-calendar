@@ -21,7 +21,7 @@ import {
 interface DayBackdropProps {
   /** 专属背景逻辑引用（`bg.festival.*` / `bg.solar-term.*`）。 */
   ref: string;
-  /** 背景资源包（SC-022 接入；默认不携带图片）。 */
+  /** 背景资源包（默认不携带图片，SC-022 口径）。 */
   assets?: DayBackdropSource;
 }
 

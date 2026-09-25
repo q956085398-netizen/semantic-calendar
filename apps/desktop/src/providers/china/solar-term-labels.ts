@@ -14,7 +14,8 @@ import { SOLAR_TERMS, type SolarTerm } from "./solar-terms";
  * 背景资源引用是逻辑引用（bg.solar-term.cold-dew），仓库里没有任何图片二进制
  * （开发原则 §10）。引用由部署时装入的资源包解析，取不到就是没有背景——
  * 节气名与释义照常显示，界面不会因为缺图而破相。解析接口见
- * semantic/day-backdrop.ts，接入与许可审查由 SC-022 处理。
+ * semantic/day-backdrop.ts；SC-022 的结论是 v0.1 不接入照片资源（无可随应用
+ * 分发的图片许可），因此默认构建下背景引用只具备能力、不产生图片。
  */
 
 /** 释义：一句白话，取自节气含义本身（寒露一句与 ui-design §9.2 示例一致）。 */
