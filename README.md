@@ -226,12 +226,14 @@ semantic-calendar/
 - [x] 二十四节气（SC-012：1901–2100；月格标签、详情栏与背景引用接口，专属背景渲染见 SC-013）
 - [x] 英超事件识别
 - [x] 英超球队元数据
-- [x] 球队徽标展示（fallback 口径，资源包由 SC-022 接入）
+- [x] 球队徽标展示（fallback 口径：仓库不分发徽标二进制，见 [third-party-assets.md](docs/third-party-assets.md) §3）
 - [x] 主队识别（SC-015）与关注球队设置（SC-016）
 - [x] 事件提醒（SC-017：系统通知权限、事件 alarm、比赛默认提醒、用户覆盖、去重与重启恢复）
-- [x] 设置页（SC-018：外观、区域预留、内置来源显示开关、来源管理与删除、WebCal 刷新间隔、关注球队、通知、窗口行为）
+- [x] 设置页（SC-018：外观、区域预留、内置来源显示开关、来源管理与删除、WebCal 刷新间隔、关注球队、通知、窗口行为、关于）
 - [x] 明暗主题（SC-004 / THEME-001–003）
-- [ ] 基础性能测试
+- [x] 基础性能测试（SC-020，基线与缓存策略见 [performance.md](docs/performance.md)）
+- [x] Windows 安装包与发布检查（SC-022：NSIS 安装包、正式图标、MIT License、资产与许可清单、发布门槛逐项核对）
+- [x] 测试与人工验收（SC-021 / SC-023，见 [ui-acceptance.md](docs/ui-acceptance.md)）
 
 ## v0.1 暂不考虑
 
@@ -307,6 +309,8 @@ semantic-calendar/
 - [Tickets](docs/tickets.md)：v0.1 工作单、依赖关系、批次和关键路径。
 - [性能基线与缓存策略](docs/performance.md)：v0.1 首个性能基线（可重复的测量方法与实测数字）、缓存失效清单、后台唤醒约束（SC-020）。
 - [UI 验收记录](docs/ui-acceptance.md)：ui-design.md §26 的逐项验收清单、自动证据与人工验收记录（SC-021）。
+- [发布门槛与安装包验收](docs/release.md)：app-spec §20 的逐项核对、Windows 安装 / 启动 / 卸载记录、升级策略（SC-022）。
+- [第三方组件、数据与资产清单](docs/third-party-assets.md)：依赖许可、数据来源、球队徽标与图片的使用策略（SC-022）。
 - [项目愿景](docs/vision.md)：说明我们想解决什么问题、产品边界和长期方向。
 - [架构草案](docs/architecture.md)：描述数据源、标准化、Matcher、元数据和 UI 的分层关系。
 - [开发原则与建议做法](docs/development-principles.md)：约束早期开发方式，避免过度设计和资源浪费。
@@ -323,7 +327,10 @@ semantic-calendar/
 
 ## License
 
-暂未决定。在首次公开发布前确定。
+本项目以 [MIT License](LICENSE) 分发：`bundle.license` 是 SPDX 标识（`MIT`），安装包里的 License 页取自 `bundle.licenseFile` 指向的同一份 `LICENSE` 文件。
+
+第三方组件、数据与商标不在 MIT 的覆盖范围内：依赖许可、数据来源、球队徽标与联赛 Logo 的使用策略
+逐项记在 [docs/third-party-assets.md](docs/third-party-assets.md)。
 
 ## 开发环境
 
@@ -358,13 +365,23 @@ npm run tauri -- build
 
 改动一条链路时不必每次跑全量：在 `apps/desktop` 下用 `npx vitest run <文件>` 只跑相关文件
 （例如 `npx vitest run src/ics/parse-ics.test.ts`），改动完成后在仓库根目录跑一次
-`npm run test` 与 `npm run lint`。当前全量是 68 个文件、800 个用例，本机约 25–45 秒
+`npm run test` 与 `npm run lint`。当前全量是 70 个文件、818 个用例，本机约 30–45 秒
 （波动主要在 `App.test.tsx` 一组：它是界面接线的集成层，单文件先跑它最省时间）。
-`npm run format` 会把 `src-tauri/gen/schemas/` 下由 Tauri 生成的 JSON 一并报为未格式化
-（该目录不进版本库），因此只看 `src/` 的结果：`npx prettier --check src`。
 
 测试与人工验收的分工写在 [docs/ui-acceptance.md](docs/ui-acceptance.md)：哪些 §26 验收项
-由测试判定、哪些必须在真实渲染里看，以及可复现的验收步骤。
+由测试判定、哪些必须在真实渲染里看，以及可复现的验收步骤。`src-tauri/gen/`（Tauri 生成的
+ACL / schema）与 `dist/`、`src-tauri/target/` 一样被 Prettier 跳过，因此 `npm run format`
+的结论就是源码的结论。
+
+构建与发布（SC-022）：
+
+- 安装包：`npm run tauri build` 产出 `apps/desktop/src-tauri/target/release/bundle/nsis/Semantic Calendar_0.1.0_x64-setup.exe`（当前用户安装，不需要管理员）。安装 / 启动 / 卸载的实机验收记录与发布门槛逐项核对在 [docs/release.md](docs/release.md)；
+- 只产出 NSIS：`bundle.targets = ["nsis"]`。v0.1 只分发一个经过验收的安装包，需要 MSI 的企业场景再单独开单；
+- 升级：同 `identifier` 的安装包再次运行即就地覆盖，`allowDowngrades = false` 挡住降级；`createUpdaterArtifacts = false`，v0.1 不做自动更新（接入自动更新需要什么，见 release.md §5）；
+- 名称：界面用中文名「语义日历」（窗口标题、侧栏品牌、托盘提示），系统集成用英文名「Semantic Calendar」（安装包、安装目录、开始菜单与桌面快捷方式、卸载项），可执行文件保持 ASCII 的 `semantic-calendar.exe`；
+- 版本：只有一个来源 `apps/desktop/package.json`，构建时注入界面（设置页「关于」显示它），Cargo.toml 与 tauri.conf.json 的版本由 `src/packaging.test.ts` 要求一致；
+- 图标：`apps/desktop/src-tauri/app-icon.svg`（设计稿）与 `app-icon.png` 由 `apps/desktop/tools/render-app-icon.mjs` 生成，`npm run icon` 从图标源派生 `icons/` 下的各平台尺寸与 `.ico` / `.icns`；Tauri CLI 顺带产出的 `android/` 与 `ios/` 由 `tools/prune-mobile-icons.mjs` 清掉（本仓库只做桌面端），因此重跑不会在仓库里留下未登记的图片。重跑是稳定的：PNG 与 `.ico` 逐字节相同（脚本确定性生成），`icon.icns` 由 Tauri CLI 生成、两次的字节可能不同（Windows 打包不使用它，换图标时一起提交即可）。图标是脚本产物而不是外来素材，因此仓库里的图片资产只剩自有产物——`packaging.test.ts` 守住这条；
+- 资产与许可：[docs/third-party-assets.md](docs/third-party-assets.md) 记录依赖许可、数据来源与球队徽标 / 联赛 Logo 的使用策略（v0.1 的决定是不随应用分发任何徽标二进制，界面走 fallback）。
 
 前后端 IPC 由 `data_store_read` / `data_store_write` / `data_store_rename` 三个数据命令、`webcal_fetch` 一个网络命令与 `shell_set_close_behavior` 一个窗口行为命令承载（读取快照、原子写入、损坏隔离改名、订阅抓取、关闭语义下发）。
 
@@ -448,7 +465,7 @@ v0.1 已知限制：同一文件改名后再次导入会视为新来源（新增
 - 读取边界 `displayMetadataOf` 同步收窄嵌套的 `fixture` 载荷：磁盘 JSON 被改写时逐字段校验、畸形字段丢弃，两侧凑不齐时整块丢弃，UI 拿不到半张卡片；
 - UI 不承载领域知识：`ui-boundary.test.ts` 把“UI 源码不出现任何球队名称 / 别名 / 稳定 ID，也不直接 import Provider 目录”变成可执行断言（扫描用排除法覆盖 `src/` 下所有 UI 目录），UI 只消费 Resolver 的输出。
 
-SC-014 的数据边界：赛季名单是数据维护动作——当前登记的是 2025/26 已确认名单，`latestSeason()` 表示“已登记名单里最新的一季”，不等于“今天正在进行的一季”，2026/27 名单确认后追加条目即可；球队色是用于低透明度背景的近似值；队徽与联赛 Logo 资源不随仓库分发（版权），默认全部走 fallback，资源包接入与许可审查由 SC-022 处理。
+SC-014 的数据边界：赛季名单是数据维护动作——当前登记的是 2025/26 已确认名单，`latestSeason()` 表示“已登记名单里最新的一季”，不等于“今天正在进行的一季”，2026/27 名单确认后追加条目即可；球队色是用于低透明度背景的近似值；队徽与联赛 Logo 资源不随仓库分发（版权），默认全部走 fallback；这是 SC-022 定下的 v0.1 口径——策略与将来接入资源包时必须满足的条件见 [docs/third-party-assets.md](docs/third-party-assets.md) §3。
 
 英超比赛标题 Matcher（SC-015）位于 `apps/desktop/src/providers/football/football-matcher.ts`，把标题文本变成 `sport.fixture` 语义（SPORT-002 / SPORT-003）：
 
@@ -472,7 +489,7 @@ SC-015 的边界：v0.1 只登记英超，因此“两队都在英超名单内�
 - 浅色主题的赛事详情栏用降低饱和度的蓝灰渐变 + 左缘柔和过渡（§14 “它是主界面的一部分”），深色主题用深蓝渐变与联赛字形水印（§15.4），信息架构与浅色完全一致；主题差异全部由 `--bg-matchday-*` 变量承担；
 - 关注状态的可见效果：比赛详情里对应球队带“关注”标记。月格不因关注改变（§10.2 只显示队标 VS 队标），赛前提醒由 SC-017 消费同一份关注状态；关注球队的入口在侧栏（ui-design §4 第 3 项）与设置页两处，同一个组件、同一份状态。
 
-SC-016 的边界：赛季名单更新时，已经不在名单内的球队会同时从可关注集合与关注列表消失——这是名单登记的显式后果（只在登记新赛季时发生），而不是运行期静默丢数据；球队徽标 / 联赛 Logo 二进制仍不随仓库分发，默认全部走 fallback，资源包接入由 SC-022 处理；比赛日详情中的天气字段等可靠来源接入后再显示。
+SC-016 的边界：赛季名单更新时，已经不在名单内的球队会同时从可关注集合与关注列表消失——这是名单登记的显式后果（只在登记新赛季时发生），而不是运行期静默丢数据；球队徽标 / 联赛 Logo 二进制仍不随仓库分发（v0.1 口径，见 [docs/third-party-assets.md](docs/third-party-assets.md) §3），默认全部走 fallback；比赛日详情中的天气字段等可靠来源接入后再显示。
 
 农历（SC-010）位于 `apps/desktop/src/providers/china/`，为月格与详情栏提供农历日期（CN-001）：
 
@@ -556,6 +573,6 @@ SC-020 的边界：月切换仍是一次同步计算（10,000 条 152 ms 对「�
 - 垂直链路集成 `semantic/vertical-slice.test.ts` 覆盖 app-spec §17 要求的两条链——`ICS → Normalize → Match → Persist → 月格` 与 `WebCal refresh → dedupe → update → 重新匹配 → 重排提醒`（第二条把刷新前后的提醒计划摆在一起对照：改期那场不再按比赛提醒、新增那场按新时间提醒、消失的那场没有残留）。它跑的是 `createAppSemanticStack()` 装配出来的那一套 Matcher / Resolver，不是测试自建的替身：注册表掉一个 Matcher、Matcher 与 Resolver 的接口对不上、增强分区写不进快照，都会在这里失败。展示载荷经 `displayMetadataOf` 取值（UI 的真实读取边界），断言停在该边界交给月格的数据形态；真正渲染那一段由 `App.test.tsx` 承担。与 `normalize/pipeline.test.ts` 不重叠——后者到 Matcher 之前为止（SC-008 的范围），且带一条「快照往返后展开结果一致」的持久化断言；
 - 存储层差集语义 `data/store/calendar-store.test.ts`「replaceSourceEvents 删掉消失事件的增强记录，重新入库的那份等待重建」：`replaceSourceEvents` 只删批次里消失的事件（连同其增强记录），仍在的事件保持同一个持久化身份、不产生副本。这条口径此前写在 `replaceSourceEvents` 的注释里但**与实现不符**（注释说「未变事件保留增强结果」，实际 `upsertEvents` 会把重新入库的每一条的增强记录删掉）：按实现改正注释与本文 WebCal 一段。差别不是行为缺陷——重建是确定性的，刷新链路紧随其后就会重跑匹配，用户看到的语义与刷新前一致；改的是说法；
 - 浏览器预览判据 `ipc/tauri-ipc.ts` + `ipc/tauri-ipc.test.ts`：这条判据决定用户看到的是「浏览器预览模式」还是「本地数据层不可用（原因）」（app-spec §13 要求两者分开说）。原先只认文案里带 `__TAURI_INTERNALS__` 的错误，而 `@tauri-apps/api` 2.11 的 `invoke` 在 Chromium 上抛的是 `Cannot read properties of undefined (reading 'invoke')`——真实浏览器里的预览模式因此被判成「数据层不可用」，并把内部报错原文显示给用户。现在判据是「环境里确实没有桌面壳」（能力事实，桌面壳会在页面脚本之前注入 `__TAURI_INTERNALS__`）**且**「错误形状符合缺失 IPC」两条同时成立，因此只看文案会把「桌面壳在、失败恰好提到 invoke」读成预览的漏洞也不成立。这是本单唯一的生产行为改动，理由是它挡在人工验收的路径上（不改它，按 §6 打开的浏览器会显示内部报错而不是预览模式），而判据本身要写成什么样在 app-spec §13 里已经定死了；两个方向都有用例：真实故障（EACCES、JSON 解析失败、桌面壳在时的同款 TypeError）都不算预览；
-- 人工验收发现一条不通过：默认窗口尺寸（1180×760）且左右栏展开时，比赛格的「队标 VS 队标」放不下（可用 62px / 内容需要 81px），第二个队标被格子裁掉一截。jsdom 没有布局，`MonthView.test.tsx` 只能断言「格子里只有队标与 VS」，而 `cell-visual-contract.test.ts` 断言的正是「格子必须裁切」（§10.1 对狮标的要求）——裁切恰好是这里把队标切掉的原因，因此只有真实渲染能看出来。另一条只能算部分通过：中秋 / 寒露 / 霜降的照片型背景在本次画面里不存在（仓库不分发图片资源，渲染走文字降级），能力由 `DayBackdrop.test.tsx` 覆盖，画面要等 SC-022 接入资源包。两条的现象、量化与建议方向记在 `docs/ui-acceptance.md` §5，前者另行开单修复，不计入本单完成。
+- 人工验收发现一条不通过：默认窗口尺寸（1180×760）且左右栏展开时，比赛格的「队标 VS 队标」放不下（可用 62px / 内容需要 81px），第二个队标被格子裁掉一截。jsdom 没有布局，`MonthView.test.tsx` 只能断言「格子里只有队标与 VS」，而 `cell-visual-contract.test.ts` 断言的正是「格子必须裁切」（§10.1 对狮标的要求）——裁切恰好是这里把队标切掉的原因，因此只有真实渲染能看出来。另一条只能算部分通过：中秋 / 寒露 / 霜降的照片型背景在本次画面里不存在（仓库不分发图片资源，渲染走文字降级），能力由 `DayBackdrop.test.tsx` 覆盖；SC-022 的口径是 v0.1 不接入照片资源（无可用许可），这一条按「能力成立、默认走文字降级」收尾，见 `docs/ui-acceptance.md` §5.2。两条的现象、量化与建议方向记在 `docs/ui-acceptance.md` §5，前者另行开单修复，不计入本单完成。
 
-SC-021 的边界：不引入浏览器驱动的截图回归——§26 里必须用眼睛看的只有布局、观感与整屏构图（4 项），其余 14 项在 jsdom 与 CSS 契约层面就能判定，多一层截图基线要维护的是渲染噪音而不是产品行为；截图是人工验收的记录，不是回归门。测试数量本身不是目标，本案只补链路、差集与预览判据这三处真实缺口，其余验收项用既有测试对齐（各单记录的「测试」一段就是索引）。覆盖不到的仍然是「观感」这一类判断：字重、留白、渐变是否舒服，靠人看，不靠断言。图片型背景（中秋 / 寒露 / 霜降的照片层）的能力由 `display/DayBackdrop.test.tsx` 覆盖，但仓库不分发图片资源，默认渲染走文字降级——资源接入与许可审查仍在 SC-022。
+SC-021 的边界：不引入浏览器驱动的截图回归——§26 里必须用眼睛看的只有布局、观感与整屏构图（4 项），其余 14 项在 jsdom 与 CSS 契约层面就能判定，多一层截图基线要维护的是渲染噪音而不是产品行为；截图是人工验收的记录，不是回归门。测试数量本身不是目标，本案只补链路、差集与预览判据这三处真实缺口，其余验收项用既有测试对齐（各单记录的「测试」一段就是索引）。覆盖不到的仍然是「观感」这一类判断：字重、留白、渐变是否舒服，靠人看，不靠断言。图片型背景（中秋 / 寒露 / 霜降的照片层）的能力由 `display/DayBackdrop.test.tsx` 覆盖，但仓库不分发图片资源，默认渲染走文字降级——v0.1 按此口径收尾（SC-022 的决定，见 [docs/third-party-assets.md](docs/third-party-assets.md) §1、§3）。
