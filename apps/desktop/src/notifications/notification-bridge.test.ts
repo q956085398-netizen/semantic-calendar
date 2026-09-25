@@ -94,4 +94,21 @@ describe("通知端口（NOTIFY-001 / app-spec §13）", () => {
       "通知发送失败：boom",
     );
   });
+
+  it("系统回传的失败正文经过脱敏与截断（SC-019 / §14）", () => {
+    // 插件错误可能把触发它的内容原样回显：地址查询串与超长正文都不进界面。
+    const failure = describeNotificationFailure({
+      kind: "send-failed",
+      message: "https://example.com/a?token=SECRET\n拒绝",
+    });
+
+    expect(failure).not.toContain("SECRET");
+    expect(failure).toBe("系统通知未能弹出：https://example.com/a?… 拒绝");
+
+    const long = describeNotificationFailure({
+      kind: "send-failed",
+      message: "x".repeat(500),
+    });
+    expect(long.length).toBeLessThan(400);
+  });
 });

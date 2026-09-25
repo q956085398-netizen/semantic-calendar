@@ -7,6 +7,7 @@ import {
   semanticTypeDefaults,
   sportFixtureMetadataDefaults,
   type MetadataResolver,
+  type ResolverErrorReport,
 } from "./metadata-resolver";
 
 function semantic(type: SemanticEvent["type"]): SemanticEvent {
@@ -162,6 +163,29 @@ describe("组合 Resolver：Metadata 可独立替换", () => {
     expect(onResolverError).toHaveBeenCalledWith(
       expect.objectContaining({ resolverId: "exploding" }),
     );
+  });
+
+  it("Resolver 的错误报告同样只带洗过的文案（SC-019 / §14）", () => {
+    const reports: ResolverErrorReport[] = [];
+    const exploding: MetadataResolver = {
+      id: "exploding",
+      resolve: () => {
+        throw new Error(
+          `元数据缺失：「${EVENT.normalizedTitle}」https://example.com/a?token=SECRET`,
+        );
+      },
+    };
+    const composite = createMetadataResolver([exploding], {
+      onResolverError: (report) => reports.push(report),
+    });
+
+    composite.resolve(semantic("sport.fixture"), EVENT);
+
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).not.toHaveProperty("error");
+    expect(reports[0].message).not.toContain("任意标题");
+    expect(reports[0].message).not.toContain("SECRET");
+    expect(reports[0].message).toContain("元数据缺失");
   });
 });
 

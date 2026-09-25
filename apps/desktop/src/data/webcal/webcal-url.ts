@@ -7,6 +7,8 @@
  * - 脱敏：日志、错误文案与 UI 只使用脱敏形式（host + path，查询串省略）。
  */
 
+import { redactUrl } from "../../reliability/redact";
+
 export type WebcalUrlError = "empty" | "unsupported-scheme" | "invalid";
 
 export type WebcalUrlResult =
@@ -93,15 +95,12 @@ export function webcalDisplayName(url: string): string {
 /**
  * 脱敏地址：保留协议 / 主机 / 路径，查询串与账号信息一律省略。
  * 无法解析时返回不带任何原文的占位串。
+ *
+ * 规则本体在 `reliability/redact.ts`（SC-019）：日志、语义错误报告与本模块
+ * 共用同一实现，因此“不对劲的地址长什么样”只有一处定义。
  */
 export function redactWebcalUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    const query = parsed.search === "" ? "" : "?…";
-    return `${parsed.protocol}//${parsed.host}${parsed.pathname}${query}`;
-  } catch {
-    return "订阅地址";
-  }
+  return redactUrl(url, "订阅地址");
 }
 
 /**

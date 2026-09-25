@@ -3,6 +3,7 @@ import type {
   SemanticEvent,
   SemanticEventType,
 } from "../data/model";
+import { describeEventError, type SanitizedError } from "../reliability/redact";
 import { assertUniqueIds } from "./unique-ids";
 
 /**
@@ -108,9 +109,8 @@ export interface MetadataResolver {
   ): EventDisplayMetadata | null;
 }
 
-export interface ResolverErrorReport {
+export interface ResolverErrorReport extends SanitizedError {
   resolverId: string;
-  error: unknown;
 }
 
 export interface MetadataResolverHooks {
@@ -142,7 +142,11 @@ export function createMetadataResolver(
           metadata = resolver.resolve(semantic, event);
         } catch (error) {
           // Resolver 失败只降级展示元数据，绝不能让事件消失（app-spec §6）。
-          hooks.onResolverError?.({ resolverId: resolver.id, error });
+          // 脱敏在这里做：只有这里同时持有异常与事件（SC-019 / §14）。
+          hooks.onResolverError?.({
+            resolverId: resolver.id,
+            ...describeEventError(error, event),
+          });
           continue;
         }
         if (metadata !== null) {

@@ -22,7 +22,6 @@ import {
   type MatchReminderSetting,
 } from "../notifications/notification-settings";
 import type { NotificationPermissionState } from "../notifications/notification-bridge";
-import { previewHintOf } from "./preview-mode";
 import {
   describeSourceRemoval,
   sourceColor,
@@ -84,8 +83,13 @@ interface SettingsViewProps {
   onChangeTheme: (theme: Theme) => void;
   /** 数据源一节的全部输入（内置开关 + 来源管理 + 刷新间隔）。 */
   dataSources: SettingsDataSourcesProps;
-  /** 是否处于没有桌面壳的预览模式（提示不必伪装成可持久化）。 */
-  previewMode: boolean;
+  /**
+   * 数据层提示（SC-019）：预览模式 / 初始化失败各有说法，正常运行时不传
+   * ——措辞由 `layout/data-layer-status.ts` 统一给出，这里只负责显示。
+   */
+  dataLayerHint?: string;
+  /** 最近一次落盘失败说明（SC-019）：改动没写进磁盘时要说出来。 */
+  storeProblem?: string;
   followableTeams: FixtureTeamDisplay[];
   followedTeamIds: readonly string[];
   onToggleFollowedTeam: (teamId: string, followed: boolean) => void;
@@ -119,7 +123,8 @@ export function SettingsView({
   theme,
   onChangeTheme,
   dataSources,
-  previewMode,
+  dataLayerHint,
+  storeProblem,
   followableTeams,
   followedTeamIds,
   onToggleFollowedTeam,
@@ -128,7 +133,6 @@ export function SettingsView({
   onChangeCloseBehavior,
   closeBehaviorStatus,
 }: SettingsViewProps) {
-  const previewHint = previewHintOf(previewMode);
   const {
     hiddenBuiltinSourceIds,
     onToggleBuiltinSource,
@@ -153,9 +157,16 @@ export function SettingsView({
       <header className="settings-header">
         <div className="settings-heading">
           <h2 className="settings-title">设置</h2>
-          {previewHint && (
+          {dataLayerHint && (
             <p className="store-status" role="status">
-              {previewHint}
+              {dataLayerHint}
+            </p>
+          )}
+          {/* 落盘失败与数据层状态并列：设置页是大部分写操作的入口，
+              “改了但没写进磁盘”必须在这里也能看到（SC-019）。 */}
+          {storeProblem && (
+            <p className="store-status" role="status">
+              {storeProblem}
             </p>
           )}
         </div>

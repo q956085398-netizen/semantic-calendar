@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { sanitizeMessage } from "../reliability/redact";
 
 /**
  * 本地通知端口（SC-017 / NOTIFY-001、app-spec §13）。
@@ -74,9 +75,11 @@ export function isPermissionDeniedFailure(error: unknown): boolean {
 /**
  * 发送失败 → 用户可读文案（§13）。
  * 只陈述系统给的事实与下一步，不猜测原因；未知形状按通用失败处理。
+ * 系统回传的正文经脱敏原语再进状态行（SC-019 / §14）：通知内容里带着
+ * 事件标题，插件错误若把它原样回显也不应该出现在界面上。
  */
 export function describeNotificationFailure(error: unknown): string {
-  const message = failureMessage(error);
+  const message = sanitizeMessage(failureMessage(error));
   switch (failureKind(error)) {
     case "permission-denied":
       return "系统通知权限被拒绝：提醒未能弹出，日历其他功能不受影响";

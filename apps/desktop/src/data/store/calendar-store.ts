@@ -14,6 +14,8 @@ import { migrateAndValidate, readVersion } from "./migrations";
 import {
   CURRENT_SCHEMA_VERSION,
   isValidSnapshotShape,
+  narrowStoredEvent,
+  narrowStoredSource,
   type EventEnrichment,
   type StoreSnapshotV1,
 } from "./schema";
@@ -31,6 +33,19 @@ export interface StoreRecovery {
 export interface StoreOpenResult {
   store: CalendarStore;
   recovery?: StoreRecovery;
+  /**
+   * 读取时被隔离的坏记录（SC-019）：既不进内存，也不影响其余记录。
+   * 调用方据此说明“少了几条”，而不是静默丢掉用户数据。
+   */
+  dropped?: DroppedRecords;
+}
+
+/** 快照读取时被隔离的记录数；两者都为 0 时不出现在结果里。 */
+export interface DroppedRecords {
+  /** 无法读取、已被隔离的事件数。 */
+  events: number;
+  /** 无法读取、已被隔离的来源数（其事件保留，只是暂时不可达）。 */
+  sources: number;
 }
 
 export interface SourceStatusPatch {
@@ -105,7 +120,13 @@ export class CalendarStore {
     }
 
     const store = new CalendarStore(fileIO, filePath);
-    store.loadSnapshot(migrated);
+    const { dropped, rejected } = store.loadSnapshot(migrated);
+    if (dropped !== undefined) {
+      // 坏记录另存一份再丢弃：与整份快照损坏时隔离原文件同一口径——
+      // 数据留在磁盘上供人工检查，而不是被下一次落盘悄悄抹掉（SC-019）。
+      await quarantineRejectedRecords(fileIO, filePath, rejected);
+      return { store, dropped };
+    }
     return { store };
   }
 
@@ -334,9 +355,7 @@ export class CalendarStore {
     filePath: string,
     reason: StoreRecoveryReason,
   ): Promise<StoreOpenResult> {
-    const quarantinedTo = `${filePath}.corrupt-${new Date()
-      .toISOString()
-      .replace(/[^0-9A-Za-z]+/g, "-")}`;
+    const quarantinedTo = `${filePath}.corrupt-${quarantineSuffix()}`;
     await fileIO.renameFile(filePath, quarantinedTo);
     return {
       store: new CalendarStore(fileIO, filePath),
@@ -344,16 +363,40 @@ export class CalendarStore {
     };
   }
 
-  private loadSnapshot(data: Record<string, unknown>): void {
+  /**
+   * 载入快照；返回被隔离的坏记录与它们的原文（SC-019：坏记录不进内存）。
+   * 全部合法时 `dropped` 为 undefined，调用方不必判断“0 条被丢弃”。
+   */
+  private loadSnapshot(data: Record<string, unknown>): {
+    dropped?: DroppedRecords;
+    rejected: unknown[];
+  } {
     if (!isValidSnapshotShape(data)) {
       throw new Error("快照形态未通过校验，不应到达此处");
     }
     const snapshot = data as unknown as StoreSnapshotV1;
+    const rejected: unknown[] = [];
+    let droppedSources = 0;
     for (const source of snapshot.sources) {
-      this.sources.set(source.id, source);
+      // 逐条收窄：不可读取的记录被隔离在这里，后面的侧栏渲染不会遇到它。
+      const narrowed = narrowStoredSource(source);
+      if (narrowed === null) {
+        rejected.push(source);
+        droppedSources += 1;
+        continue;
+      }
+      this.sources.set(narrowed.id, narrowed);
     }
+    let droppedEvents = 0;
     for (const event of snapshot.events) {
-      this.events.set(eventKey(identityOfEvent(event)), event);
+      // 事件同理：月格展开拿到的一定是字段齐全的记录。
+      const narrowed = narrowStoredEvent(event);
+      if (narrowed === null) {
+        rejected.push(event);
+        droppedEvents += 1;
+        continue;
+      }
+      this.events.set(eventKey(identityOfEvent(narrowed)), narrowed);
     }
     for (const [key, enrichment] of Object.entries(snapshot.enrichments)) {
       this.enrichments.set(key, enrichment);
@@ -361,7 +404,45 @@ export class CalendarStore {
     for (const [key, value] of Object.entries(snapshot.settings)) {
       this.settings.set(key, value);
     }
+    return droppedSources === 0 && droppedEvents === 0
+      ? { rejected }
+      : {
+          dropped: { events: droppedEvents, sources: droppedSources },
+          rejected,
+        };
   }
+}
+
+/**
+ * 被隔离记录的另存文件（SC-019）：与整份快照损坏时的 `.corrupt-` 同一形状，
+ * 文件名只含字母数字与连字符（Rust 侧的白名单校验）。
+ *
+ * 写失败不阻断启动——那时原文仍在主文件里，直到下一次落盘为止；
+ * 界面只报告条数，不承诺“已备份”（写没写成不是界面能断言的事）。
+ */
+async function quarantineRejectedRecords(
+  fileIO: FileIO,
+  filePath: string,
+  records: readonly unknown[],
+): Promise<void> {
+  const target = `${filePath}.rejected-${quarantineSuffix()}`;
+  try {
+    await fileIO.writeFile(
+      target,
+      JSON.stringify(
+        { rejectedAt: new Date().toISOString(), records },
+        null,
+        2,
+      ),
+    );
+  } catch {
+    // 见上：启动不因为备份失败而失败。
+  }
+}
+
+/** 隔离文件的时间戳后缀：ISO 里的分隔符换成连字符，便于做文件名。 */
+function quarantineSuffix(): string {
+  return new Date().toISOString().replace(/[^0-9A-Za-z]+/g, "-");
 }
 
 function parseSnapshot(text: string): Record<string, unknown> | null {

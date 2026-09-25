@@ -4,6 +4,7 @@ import type {
   SemanticEvent,
   SemanticEventType,
 } from "../data/model";
+import { describeEventError, type SanitizedError } from "../reliability/redact";
 import { assertUniqueIds } from "./unique-ids";
 
 /**
@@ -44,12 +45,15 @@ export interface EventMatcher {
   match(event: NormalizedEvent): MatchOutput | null;
 }
 
-/** 错误报告只含 Matcher 身份与事件持久化身份，不含事件正文（§14）。 */
-export interface MatcherErrorReport {
+/**
+ * 错误报告只含 Matcher 身份、事件持久化身份与**已脱敏**的失败文案（§14）。
+ * 报告里刻意没有原始 `error`：日志侧拿不到未处理的消息正文，
+ * 把标题拼进 message 的实现也就不会把事件正文打进控制台（SC-019）。
+ */
+export interface MatcherErrorReport extends SanitizedError {
   matcherId: string;
   sourceId: string;
   uid: string;
-  error: unknown;
 }
 
 export interface MatcherEngineHooks {
@@ -85,12 +89,13 @@ export function createMatcherEngine(
           output = matcher.match(event);
         } catch (error) {
           // Matcher 失败只降级该 Matcher，事件继续走后续判定，
-          // 无论如何不能让事件消失（app-spec §6）。
+          // 无论如何不能让事件消失（app-spec §6）。脱敏在这里做：
+          // 只有这里同时持有异常与事件（SC-019 / §14）。
           hooks.onMatcherError?.({
             matcherId: matcher.id,
             sourceId: event.sourceId,
             uid: event.uid,
-            error,
+            ...describeEventError(error, event),
           });
           continue;
         }

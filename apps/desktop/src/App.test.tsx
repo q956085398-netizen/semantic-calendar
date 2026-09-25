@@ -26,6 +26,8 @@ function asPromise(value: unknown): Promise<unknown> {
 function mockBackend(
   overrides: {
     dataStoreRead?: string | null | Error;
+    /** 落盘结果（SC-019）：默认成功，可注入磁盘错误。 */
+    dataStoreWrite?: unknown;
     webcalFetch?: (args: Record<string, unknown>) => unknown;
     shellSetCloseBehavior?: unknown;
     /** 通知权限状态（SC-017）；默认已允许。 */
@@ -38,6 +40,9 @@ function mockBackend(
     (cmd: string, args?: Record<string, unknown>) => {
       if (cmd === "data_store_read") {
         return asPromise(overrides.dataStoreRead ?? null);
+      }
+      if (cmd === "data_store_write") {
+        return asPromise(overrides.dataStoreWrite ?? null);
       }
       if (cmd === "webcal_fetch") {
         return asPromise(
@@ -2208,5 +2213,170 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     );
     expect(within(sidebar()).queryByText("team.ics")).toBeNull();
     expect(writtenSnapshots().at(-1)!.events).toEqual([]);
+  });
+});
+
+/**
+ * SC-019 集成：外部与本地失败都不破坏日历，且失败的说法必须与真实情况一致
+ * ——不冒充预览模式、不假装写进了磁盘、不把订阅地址写进日志。
+ */
+describe("错误降级与可解释状态（SC-019 / app-spec §13–14）", () => {
+  it("快照打不开：给出原因与后果，不冒充预览模式，月视图照常可用", async () => {
+    freezeClock();
+    mockBackend({ dataStoreRead: new Error("磁盘只读（os error 13）") });
+
+    render(<App />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/本地数据层不可用（磁盘只读/)).toBeTruthy(),
+    );
+    // 状态行同时说明“为什么”和“会失去什么”。
+    const status = within(sidebar()).getByText(/本地数据层不可用/).textContent;
+    expect(status).toContain("磁盘只读（os error 13）");
+    expect(status).toContain("日历可浏览");
+    expect(status).toContain("导入与订阅不可用");
+    expect(status).toContain("设置更改不会保存");
+    // 日历继续可用：降级不是不可用。
+    expect(screen.getByRole("grid", { name: "2026年9月" })).toBeTruthy();
+    // 也没有被打扮成浏览器预览模式。
+    expect(within(sidebar()).queryByText(/浏览器预览模式/)).toBeNull();
+
+    // 导入与订阅各自说明这次动作不会发生（不是“发生了但没保存”）。
+    chooseImportFile(icsFile(IMPORT_ICS));
+    await waitFor(() =>
+      expect(
+        within(sidebar()).getByText(
+          "本地数据层不可用：无法导入（需要可以写入的本地文件）",
+        ),
+      ).toBeTruthy(),
+    );
+    fireEvent.change(within(sidebar()).getByLabelText(/订阅 ICS/), {
+      target: { value: SUBSCRIBE_URL },
+    });
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "添加" }));
+    await waitFor(() =>
+      expect(
+        within(sidebar()).getByText(
+          "本地数据层不可用：无法添加订阅（需要可以写入的本地文件）",
+        ),
+      ).toBeTruthy(),
+    );
+    // 数据层不可用时不会真的去联网。
+    expect(
+      invokeMock.mock.calls.filter(([cmd]) => cmd === "webcal_fetch"),
+    ).toHaveLength(0);
+
+    // 设置页顶部说的是同一份状态（改动不写盘）。
+    const pane = openSettings();
+    expect(
+      within(pane).getByText(
+        /本地数据层不可用（磁盘只读（os error 13））：改动不写入本地设置/,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("落盘失败不静默：界面已按新状态显示，状态行说明没写进磁盘，恢复后自动清除", async () => {
+    await renderReadyApp();
+    mockBackend({ dataStoreWrite: new Error("磁盘已满") });
+
+    const pane = openSettings();
+    fireEvent.click(within(pane).getByRole("button", { name: "深色" }));
+
+    await waitFor(() =>
+      expect(within(sidebar()).getByText(/未能写入本地文件/)).toBeTruthy(),
+    );
+    // 两件事同时为真，说法也要同时给出：主题已经生效，但没落盘。
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    const problem = within(sidebar()).getByText(/未能写入本地文件/).textContent;
+    expect(problem).toContain("设置未能写入本地文件：磁盘已满");
+    expect(problem).toContain("重启后可能丢失");
+
+    // 写盘恢复后，任何一次成功写入都会清掉这条提示（说的是当前事实）。
+    mockBackend();
+    fireEvent.click(within(pane).queryByRole("button", { name: "浅色" })!);
+    await waitFor(() =>
+      expect(within(sidebar()).queryByText(/未能写入本地文件/)).toBeNull(),
+    );
+  });
+
+  it("落盘失败的文案与日志都脱敏（订阅地址不进状态行）", async () => {
+    await renderReadyApp();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mockBackend({
+      webcalFetch: () => webcalOk(SUBSCRIBE_ICS),
+      dataStoreWrite: new Error(`写入失败：${SUBSCRIBE_URL}`),
+    });
+
+    fireEvent.change(within(sidebar()).getByLabelText(/订阅 ICS/), {
+      target: { value: SUBSCRIBE_URL },
+    });
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "添加" }));
+
+    await waitFor(() =>
+      expect(within(sidebar()).getByText(/未能写入本地文件/)).toBeTruthy(),
+    );
+    // 落盘失败的原因来自系统，可能带上地址；状态行与日志都只留脱敏形式。
+    const problem = within(sidebar()).getByText(/未能写入本地文件/).textContent;
+    expect(problem).not.toContain("SECRET-TOKEN");
+    expect(problem).toContain("?…");
+    const logged = warn.mock.calls.flat().map(String).join(" ");
+    expect(logged).toContain("落盘失败");
+    expect(logged).not.toContain("SECRET-TOKEN");
+    warn.mockRestore();
+  });
+
+  it("快照里的坏记录被隔离：月视图照常，状态行说明少了几条", async () => {
+    freezeClock();
+    mockBackend({
+      dataStoreRead: JSON.stringify({
+        schemaVersion: 1,
+        sources: [
+          {
+            id: "local-ics:team",
+            type: "local-ics",
+            name: "team.ics",
+            enabled: true,
+          },
+          { name: "读不出来的来源" },
+        ],
+        events: [
+          // 缺 start：以前会让整个月格展开抛错，日历直接白屏。
+          {
+            uid: "bad",
+            sourceId: "local-ics:team",
+            title: "坏事件",
+            allDay: false,
+          },
+          {
+            uid: "good",
+            sourceId: "local-ics:team",
+            title: "好事件",
+            start: "2026-09-23T19:00:00",
+            allDay: false,
+          },
+        ],
+        enrichments: {},
+        settings: {},
+      }),
+    });
+
+    render(<App />);
+
+    // 好事件照常进月格，坏记录只是不出现。
+    await waitFor(() => expect(screen.getByText(/已跳过/)).toBeTruthy());
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    expect(
+      within(grid.querySelector('[data-date="2026-09-23"]')!).getByText(
+        "19:00 好事件",
+      ),
+    ).toBeTruthy();
+    expect(within(sidebar()).getByText("team.ics")).toBeTruthy();
+    // 被隔离的是哪几类记录，状态行要说清楚。
+    const status = within(sidebar()).getByText(/已跳过/).textContent;
+    expect(status).toContain("1 个无法读取的事件");
+    expect(status).toContain("1 个无法读取的来源");
+    // 坏记录不会跟着落盘，文件里不会一直留着它们。
+    expect(writtenSnapshots().at(-1)!.events).toHaveLength(1);
+    expect(writtenSnapshots().at(-1)!.sources).toHaveLength(1);
   });
 });

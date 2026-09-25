@@ -481,6 +481,174 @@ describe("异常恢复（app-spec §11）", () => {
   );
 });
 
+/**
+ * SC-019：快照是本地 JSON 文件，可能被手工编辑或同步工具改坏。
+ * 一条读不出来的记录只隔离自己，不带崩整个数据层。
+ */
+describe("坏记录隔离（SC-019 / app-spec §13）", () => {
+  function snapshotWith(records: {
+    sources?: unknown[];
+    events?: unknown[];
+  }): string {
+    return JSON.stringify({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      sources: records.sources ?? [],
+      events: records.events ?? [],
+      enrichments: {},
+      settings: {},
+    });
+  }
+
+  it("事件缺必需字段时被丢弃，其余事件照常读出", async () => {
+    await writeFile(
+      storePath,
+      snapshotWith({
+        sources: [makeSource()],
+        events: [
+          // start 缺失：月格展开会在这里炸掉。
+          { uid: "bad-1", sourceId: "source-1", title: "坏", allDay: false },
+          // allDay 类型不对。
+          { ...makeEvent(), uid: "bad-2", allDay: "yes" },
+          makeEvent(),
+        ],
+      }),
+      "utf8",
+    );
+
+    const { store, dropped } = await CalendarStore.open(fileIO, storePath);
+
+    expect(dropped).toEqual({ events: 2, sources: 0 });
+    expect(store.listEvents().map((event) => event.uid)).toEqual([
+      "event-1@semantic-calendar",
+    ]);
+  });
+
+  it("可选字段类型不对时只丢该字段，事件照常显示", async () => {
+    await writeFile(
+      storePath,
+      snapshotWith({
+        sources: [makeSource()],
+        events: [
+          {
+            ...makeEvent(),
+            description: 42,
+            location: { name: "球场" },
+            // EXDATE 里混进坏条目：好条目保留，坏条目丢弃。
+            recurrence: {
+              rrule: "FREQ=WEEKLY;COUNT=3",
+              exdates: [{ value: "20261004T163000Z" }, { value: 7 }],
+            },
+            alarms: [
+              { minutes: 30, direction: "before", related: "start" },
+              { minutes: -5, direction: "before", related: "start" },
+              { minutes: 10, direction: "sideways", related: "start" },
+            ],
+          },
+        ],
+      }),
+      "utf8",
+    );
+
+    const [event] = (
+      await CalendarStore.open(fileIO, storePath)
+    ).store.listEvents();
+
+    expect(event.description).toBeUndefined();
+    expect(event.location).toBeUndefined();
+    expect(event.recurrence).toEqual({
+      rrule: "FREQ=WEEKLY;COUNT=3",
+      exdates: [{ value: "20261004T163000Z" }],
+    });
+    expect(event.alarms).toEqual([
+      { minutes: 30, direction: "before", related: "start" },
+    ]);
+    expect(event.title).toBe("Arsenal vs Manchester City");
+  });
+
+  it("来源读不出来时整条丢弃并报数，事件保留（不删用户数据）", async () => {
+    await writeFile(
+      storePath,
+      snapshotWith({
+        sources: [
+          makeSource(),
+          { name: "没有 id", type: "local-ics", enabled: true },
+          makeSource({ id: "source-2", type: "webcal", webcal: undefined }),
+        ],
+        events: [
+          makeEvent(),
+          makeEvent({ uid: "event-2", sourceId: "source-2" }),
+        ],
+      }),
+      "utf8",
+    );
+
+    const { store, dropped } = await CalendarStore.open(fileIO, storePath);
+
+    // 缺 webcal 缓存的订阅来源同样读不出来：没有地址就没有可刷新的事实。
+    expect(dropped).toEqual({ events: 0, sources: 2 });
+    expect(store.listSources().map((source) => source.id)).toEqual([
+      "source-1",
+    ]);
+    expect(store.listEvents()).toHaveLength(2);
+  });
+
+  it("落盘只写回读得出来的记录，坏记录不会一直留在文件里", async () => {
+    await writeFile(
+      storePath,
+      snapshotWith({
+        sources: [makeSource(), { name: "坏来源" }],
+        events: [
+          { uid: "bad", sourceId: "source-1", title: "坏" },
+          makeEvent(),
+        ],
+      }),
+      "utf8",
+    );
+
+    const { store } = await CalendarStore.open(fileIO, storePath);
+    await store.save();
+
+    const onDisk = JSON.parse(await readFile(storePath, "utf8"));
+    expect(onDisk.sources).toHaveLength(1);
+    expect(onDisk.events).toHaveLength(1);
+  });
+
+  it("被隔离的记录另存为备份文件，原文不因落盘消失", async () => {
+    await writeFile(
+      storePath,
+      snapshotWith({
+        sources: [{ name: "坏来源", type: "local-ics" }],
+        events: [{ uid: "bad", sourceId: "source-1", title: "坏事件" }],
+      }),
+      "utf8",
+    );
+
+    const { dropped } = await CalendarStore.open(fileIO, storePath);
+    expect(dropped).toEqual({ events: 1, sources: 1 });
+
+    // 与整份快照损坏时的 .corrupt- 同一口径：原文留在磁盘上供人工检查。
+    const files = await readdir(dataDir);
+    const backup = files.find((f) => f.startsWith(`${STORE_FILE}.rejected-`));
+    expect(backup).toBeDefined();
+    const rejected = JSON.parse(
+      await readFile(path.join(dataDir, backup!), "utf8"),
+    );
+    expect(rejected.rejectedAt).toEqual(expect.any(String));
+    expect(rejected.records).toEqual([
+      { name: "坏来源", type: "local-ics" },
+      { uid: "bad", sourceId: "source-1", title: "坏事件" },
+    ]);
+  });
+
+  it("全部合法时不给 dropped（调用方不必判断“0 条被丢弃”）", async () => {
+    const { dropped } = await CalendarStore.open(fileIO, storePath);
+
+    expect(dropped).toBeUndefined();
+    // 没有坏记录就没有备份文件（不给每次启动留下空文件）。
+    expect(await readdir(dataDir)).toEqual([]);
+  });
+});
+
 describe("schema migration", () => {
   it("缺失 schemaVersion 的历史快照迁移到当前版本并保留数据", async () => {
     const legacy = {

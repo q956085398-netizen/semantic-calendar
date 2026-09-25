@@ -4,6 +4,7 @@ import {
   createMatcherEngine,
   type EventMatcher,
   type MatchOutput,
+  type MatcherErrorReport,
 } from "./matcher-engine";
 
 /** 构造最小可匹配事件；Matcher 只应依赖标准化后的字段。uid 与正文无关。 */
@@ -164,7 +165,7 @@ describe("Matcher 失败隔离（app-spec §6 Matcher 失败）", () => {
     );
   });
 
-  it("错误报告不携带事件正文（app-spec §14）", () => {
+  it("错误报告只带洗过的文案，原始异常不出报告（app-spec §14 / SC-019）", () => {
     const reports: unknown[] = [];
     const engine = createMatcherEngine(
       [
@@ -183,5 +184,36 @@ describe("Matcher 失败隔离（app-spec §6 Matcher 失败）", () => {
 
     expect(reports).toHaveLength(1);
     expect(JSON.stringify(reports[0])).not.toContain("机密标题");
+    // 报告里没有 error 字段：日志侧无法“顺手取一下 message”。
+    // （只断言字符串包含是不足以证明这一点的——Error 的 message 不可枚举，
+    //  JSON.stringify 本来就不打印它。）
+    expect(reports[0]).not.toHaveProperty("error");
+  });
+
+  it("把标题与地址拼进 message 的 Matcher 也泄露不了正文（SC-019）", () => {
+    const reports: MatcherErrorReport[] = [];
+    const secretUrl = "https://calendar.example.com/feed.ics?token=SECRET";
+    const engine = createMatcherEngine(
+      [
+        {
+          id: "boom",
+          priority: 1,
+          match: (candidate) => {
+            // 最坏情况：实现方把事件正文与地址一起拼进异常文案。
+            throw new TypeError(
+              `无法解析「${candidate.normalizedTitle}」：${secretUrl}`,
+            );
+          },
+        },
+      ],
+      { onMatcherError: (report) => reports.push(report) },
+    );
+
+    engine.match(event("机密标题"));
+
+    expect(reports[0].errorName).toBe("TypeError");
+    expect(reports[0].message).not.toContain("机密标题");
+    expect(reports[0].message).not.toContain("SECRET");
+    expect(reports[0].message).toContain("无法解析");
   });
 });

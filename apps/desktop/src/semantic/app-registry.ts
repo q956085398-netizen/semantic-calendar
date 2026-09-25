@@ -43,22 +43,27 @@ const APP_METADATA_RESOLVERS: readonly MetadataResolver[] = [
 
 /**
  * 失败可观测（app-spec §6 / §14）：Matcher / Resolver 抛错只降级自身，
- * 这里把错误交给控制台留痕。报告只含注册项 id 与事件持久化身份
- * （sourceId / uid），不含事件正文。
+ * 这里把错误交给控制台留痕。
+ *
+ * 报告里的文案在生成处（引擎 / 解析链）就已脱敏——地址查询串与事件正文
+ * 都已被替换，因此这里可以整体打印而不必再判断什么能写、什么不能写
+ * （SC-019：日志不泄露完整私密事件或 URL token）。
  */
 function reportMatcherError(report: MatcherErrorReport): void {
   console.warn(
     `[semantic] Matcher ${report.matcherId} 失败`,
     report.sourceId,
     report.uid,
-    report.error instanceof Error ? report.error.message : report.error,
+    report.errorName,
+    report.message,
   );
 }
 
 function reportResolverError(report: ResolverErrorReport): void {
   console.warn(
     `[semantic] MetadataResolver ${report.resolverId} 失败`,
-    report.error instanceof Error ? report.error.message : report.error,
+    report.errorName,
+    report.message,
   );
 }
 

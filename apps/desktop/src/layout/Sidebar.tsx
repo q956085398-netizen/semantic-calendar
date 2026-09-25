@@ -42,6 +42,11 @@ import type { FixtureTeamDisplay } from "../semantic/metadata-resolver";
 interface SidebarProps {
   /** 本地数据层状态（含预览模式 / 恢复提示），保证降级可见（app-spec §13）。 */
   storeStatus: string;
+  /**
+   * 最近一次落盘失败（SC-019）：内存已生效但没写进磁盘。
+   * 与 storeStatus 是两件事，因此两行并列而不是互相覆盖。
+   */
+  storeProblem?: string;
   /** 小月历（SC-005）：与主视图联动的导航件。 */
   miniCalendar: ReactNode;
   /** 真实数据源（SC-006 导入的 local-ics 源与 SC-007 订阅）。 */
@@ -80,6 +85,7 @@ interface SidebarProps {
 
 export function Sidebar({
   storeStatus,
+  storeProblem,
   miniCalendar,
   sources,
   onImportIcs,
@@ -274,6 +280,13 @@ export function Sidebar({
         <p className="store-status" role="status">
           {storeStatus}
         </p>
+        {/* 落盘失败（SC-019）：数据层“能用”与“写得进去”是两件事，
+            因此单独一行；任何一次成功写入后 App 会把它清掉。 */}
+        {storeProblem && (
+          <p className="store-status" role="status">
+            {storeProblem}
+          </p>
+        )}
       </div>
     </div>
   );

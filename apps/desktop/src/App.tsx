@@ -32,7 +32,10 @@ import {
   normalizeWebcalUrl,
 } from "./data/webcal/webcal-url";
 import type { CalendarStore } from "./data/store/calendar-store";
-import type { StoreRecoveryReason } from "./data/store/calendar-store";
+import type {
+  StoreOpenResult,
+  StoreRecoveryReason,
+} from "./data/store/calendar-store";
 import { reEnrichStore } from "./semantic/enrich";
 import { createAppSemanticStack } from "./semantic/app-registry";
 import { gateEventsForBuiltinSources } from "./semantic/app-builtin-sources";
@@ -107,9 +110,14 @@ import { InspectorPanel } from "./layout/InspectorPanel";
 import { SettingsView } from "./layout/SettingsView";
 import { Sidebar } from "./layout/Sidebar";
 import {
-  PREVIEW_IMPORT_HINT,
-  PREVIEW_SUBSCRIBE_HINT,
-} from "./layout/preview-mode";
+  dataLayerActionHint,
+  dataLayerFailureStatus,
+  dataLayerHintOf,
+  droppedRecordsNote,
+  storeWriteFailureStatus,
+  type DataLayerState,
+} from "./layout/data-layer-status";
+import { describeSafeError } from "./reliability/redact";
 import { formatDateTime } from "./format/time";
 import {
   CLOSE_BEHAVIOR_SETTING_KEY,
@@ -245,9 +253,10 @@ function describeError(error: unknown, url: string): string {
   );
 }
 
-/** IPC 失败 → 可展示文案；桌面壳不可用以外的失败都要让用户看到（§13）。 */
+/** IPC 失败 → 可展示文案；桌面壳不可用以外的失败都要让用户看到（§13）。
+ *  文案同样经脱敏原语，避免某条 IPC 错误把地址带进状态行（§14）。 */
 function describeIpcError(prefix: string, error: unknown): string {
-  return `${prefix}：${error instanceof Error ? error.message : String(error)}`;
+  return `${prefix}：${describeSafeError(error)}`;
 }
 
 export default function App() {
@@ -255,8 +264,15 @@ export default function App() {
   const [storeStatus, setStoreStatus] = useState("正在初始化本地数据层…");
   const storeRef = useRef<CalendarStore | null>(null);
   const [today] = useState(() => new Date());
-  /** 没有桌面壳（浏览器预览）：设置可改但写不进快照，提示必须说清楚。 */
-  const [previewMode, setPreviewMode] = useState(false);
+  /**
+   * 本地数据层状态（SC-019）：预览模式与“桌面壳在但文件打不开”必须分开说
+   * ——前者本来就没有本地文件，后者是真实故障，界面不能把故障说成预览。
+   */
+  const [dataLayer, setDataLayer] = useState<DataLayerState>({
+    kind: "loading",
+  });
+  /** 最近一次落盘失败说明：内存已生效但没写进磁盘（§13 数据库异常提示）。 */
+  const [storeProblem, setStoreProblem] = useState<string | undefined>();
   /** 设置页是否打开（SC-018）：纯 UI 状态，不持久化——月历是主界面（P-05）。 */
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -494,17 +510,45 @@ export default function App() {
   }, []);
 
   /**
-   * 写入一个用户设置并立即落盘；没有数据层（预览模式）时只改内存状态。
-   * 主题、关注球队与关闭行为共用这一条路径。
+   * 落盘（SC-019）：所有写路径共用这一条，失败不静默。
+   *
+   * “写盘失败”不等于“操作失败”——内存里的更改已经生效，界面也照新状态
+   * 显示；但用户必须知道它没落到磁盘上（§13 数据库异常提示），否则
+   * “改过的东西重启后消失”会毫无解释。任何一次成功写入都会清掉该提示，
+   * 因此它陈述的是“最近一次写入的结果”，不是一段历史。没有数据层时
+   * 直接返回：那种情况的说法由数据层状态给出，不由每个动作各写一遍。
    */
-  const persistSetting = useCallback(async (key: string, value: unknown) => {
+  const saveStore = useCallback(async (label: string) => {
     const store = storeRef.current;
     if (!store) {
       return;
     }
-    store.setSetting(key, value);
-    await store.save();
+    try {
+      await store.save();
+      setStoreProblem(undefined);
+    } catch (error) {
+      const reason = describeSafeError(error);
+      setStoreProblem(storeWriteFailureStatus(label, reason));
+      // 留痕便于排障；文案已脱敏，订阅地址不会进日志（§14）。
+      console.warn("[store] 落盘失败", reason);
+    }
   }, []);
+
+  /**
+   * 写入一个用户设置并立即落盘；没有数据层（预览模式 / 数据层不可用）时
+   * 只改内存状态——此时侧栏与设置页的状态行已经说明改动不会保存。
+   */
+  const persistSetting = useCallback(
+    async (key: string, value: unknown) => {
+      const store = storeRef.current;
+      if (!store) {
+        return;
+      }
+      store.setSetting(key, value);
+      await saveStore("设置");
+    },
+    [saveStore],
+  );
 
   /**
    * 刷新一个订阅并落盘（手动刷新与后台调度共用同一条路径）。
@@ -521,14 +565,16 @@ export default function App() {
         if (outcome.status === "updated") {
           reEnrichStore(store, semanticStack);
         }
-        await store.save();
+        // 落盘失败不影响本次刷新的结论：内存里的事件与来源状态都是新的，
+        // 提示由 saveStore 给出，调用方拿到的 outcome 仍然如实。
+        await saveStore("订阅刷新结果");
         refreshFromStore(store);
         return outcome;
       } finally {
         markRefreshing(sourceId, false);
       }
     },
-    [markRefreshing, refreshFromStore],
+    [markRefreshing, refreshFromStore, saveStore],
   );
 
   /**
@@ -564,7 +610,8 @@ export default function App() {
 
   /**
    * 记一条提醒为已处理（NOTIFY-004）：内存 + 快照一起更新。
-   * 落盘失败只影响下次启动的去重，因此不阻塞、也不向用户报错。
+   * 落盘失败不影响本次会话（内存去重仍在），但会经 saveStore 记一条
+   * “没写进磁盘”的说明——反复写不进去是用户需要知道的事。
    */
   const markReminderProcessed = useCallback(
     (reminder: PlannedReminder, outcome: ReminderOutcome) => {
@@ -577,21 +624,43 @@ export default function App() {
       const store = storeRef.current;
       if (store) {
         store.setSetting(FIRED_REMINDERS_SETTING_KEY, nextLog);
-        store.save().catch(() => undefined);
+        void saveStore("提醒去重状态");
       }
     },
-    [],
+    [saveStore],
   );
+
+  /**
+   * 数据层不可用（SC-019）：打开失败与启动装配意外共用这一条。
+   * 状态与状态行一起给出，因此“说的”与“界面记得的”不会分叉。
+   */
+  const failDataLayer = useCallback((error: unknown) => {
+    const reason = describeSafeError(error);
+    setDataLayer({ kind: "unavailable", reason });
+    setStoreStatus(dataLayerFailureStatus(reason));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
 
     async function initStore() {
-      const opened = await openDesktopCalendarStore();
+      let opened: StoreOpenResult | null;
+      try {
+        opened = await openDesktopCalendarStore();
+      } catch (error) {
+        if (cancelled) return;
+        // 桌面壳在，但快照打不开（磁盘错误 / 权限 / 迁移链）：不是预览模式。
+        // 说清原因与后果，并让导入 / 订阅给出正确说法（§13 数据库异常提示）。
+        failDataLayer(error);
+        // 通知权限读取不依赖数据层：照常给出真实状态，而不是让设置页
+        // 一直停在“正在读取系统通知权限…”（§13 可解释状态）。
+        await refreshNotificationPermission();
+        return;
+      }
       if (cancelled) return;
 
       if (!opened) {
-        setPreviewMode(true);
+        setDataLayer({ kind: "preview" });
         setStoreStatus("浏览器预览模式：本地数据层仅桌面壳可用");
         // 没有桌面壳就没有系统通知：状态直接说明，而不是停在“正在读取”（§13）。
         setNotificationPermission("unsupported");
@@ -600,6 +669,7 @@ export default function App() {
 
       const { store, recovery } = opened;
       storeRef.current = store;
+      setDataLayer({ kind: "ready" });
       // 语义增强（SC-009）：用当前 Matcher 注册表重建后再进入 UI。
       reEnrichStore(store, semanticStack);
       refreshFromStore(store);
@@ -622,11 +692,12 @@ export default function App() {
         },
         intervalMs: () => webcalIntervalMs(webcalIntervalRef.current),
         onError: (error, sourceId) => {
-          // 错误正文可能来自网络栈并带上订阅地址，这里只留来源标识（§14）。
+          // 后台刷新的失败在来源行里已经写成“刷新失败：<脱敏原因>”，
+          // 这里只留诊断线索：来源标识 + 脱敏后的文案（§14）。
           console.warn(
             "[webcal] 后台刷新失败",
             sourceId,
-            error instanceof Error ? error.name : "unknown",
+            describeSafeError(error),
           );
         },
       });
@@ -714,7 +785,7 @@ export default function App() {
         LAST_OPENED_SETTING,
       );
       store.setSetting(LAST_OPENED_SETTING, new Date().toISOString());
-      await store.save();
+      await saveStore("启动记录");
       if (cancelled) return;
 
       if (recovery) {
@@ -724,16 +795,25 @@ export default function App() {
         return;
       }
       const version = `schema v${store.schemaVersion}`;
+      const base = previous
+        ? `本地数据层就绪（${version}），上次启动 ${formatDateTime(previous)}`
+        : `本地数据层就绪（${version}），首次启动`;
+      // 坏记录被隔离时说出来：少了几条日程是用户要知道的事实，
+      // 而不是悄悄消失（SC-019「单个坏事件被隔离」）。
+      const droppedNote =
+        opened.dropped === undefined
+          ? undefined
+          : droppedRecordsNote(opened.dropped);
       setStoreStatus(
-        previous
-          ? `本地数据层就绪（${version}），上次启动 ${formatDateTime(previous)}`
-          : `本地数据层就绪（${version}），首次启动`,
+        droppedNote === undefined ? base : `${base}；${droppedNote}`,
       );
     }
 
-    initStore().catch(() => {
+    // 这里兜住的是启动装配本身的意外（打开失败已在上面单独处理）：
+    // 月视图照常渲染，状态行说明数据层没装配上而不是留一句笼统的失败。
+    initStore().catch((error) => {
       if (!cancelled) {
-        setStoreStatus("本地数据层初始化失败");
+        failDataLayer(error);
       }
     });
 
@@ -753,6 +833,8 @@ export default function App() {
     markReminderProcessed,
     refreshNotificationPermission,
     buildReminderPlan,
+    saveStore,
+    failDataLayer,
   ]);
 
   /**
@@ -762,7 +844,7 @@ export default function App() {
   async function handleAddSubscription(url: string): Promise<boolean> {
     const store = storeRef.current;
     if (!store) {
-      setSubscriptionStatus(PREVIEW_SUBSCRIBE_HINT);
+      setSubscriptionStatus(dataLayerActionHint(dataLayer, "subscribe"));
       return false;
     }
     setSubscribeBusy(true);
@@ -775,7 +857,7 @@ export default function App() {
       if (outcome.refresh?.status === "updated") {
         reEnrichStore(store, semanticStack);
       }
-      await store.save();
+      await saveStore("订阅");
       refreshFromStore(store);
       schedulerRef.current?.reschedule();
       const name = outcome.source?.name ?? "订阅";
@@ -799,7 +881,7 @@ export default function App() {
   async function handleRefreshSubscription(sourceId: string) {
     const store = storeRef.current;
     if (!store) {
-      setSubscriptionStatus(PREVIEW_SUBSCRIBE_HINT);
+      setSubscriptionStatus(dataLayerActionHint(dataLayer, "subscribe"));
       return;
     }
     const source = store.getSource(sourceId);
@@ -825,7 +907,7 @@ export default function App() {
     if (!store.setSourceEnabled(sourceId, enabled)) {
       return;
     }
-    await store.save();
+    await saveStore("来源显示状态");
     refreshFromStore(store);
     schedulerRef.current?.reschedule();
     setSubscriptionStatus(
@@ -841,7 +923,7 @@ export default function App() {
     }
     const name = store.getSource(sourceId)?.name ?? "来源";
     store.removeSource(sourceId);
-    await store.save();
+    await saveStore("删除结果");
     refreshFromStore(store);
     schedulerRef.current?.reschedule();
     setSubscriptionStatus(`已删除「${name}」及其事件`);
@@ -969,7 +1051,7 @@ export default function App() {
   async function handleImportIcs(file: File) {
     const store = storeRef.current;
     if (!store) {
-      setImportStatus(PREVIEW_IMPORT_HINT);
+      setImportStatus(dataLayerActionHint(dataLayer, "import"));
       return;
     }
     setImportBusy(true);
@@ -980,17 +1062,22 @@ export default function App() {
         contents,
       });
       reEnrichStore(store, semanticStack);
-      await store.save();
+      await saveStore("导入结果");
       refreshFromStore(store);
       setImportStatus(formatImportStatus(outcome));
     } catch (error) {
-      setImportStatus(
-        `导入失败：${error instanceof Error ? error.message : String(error)}`,
-      );
+      // 异常文案统一经脱敏与截断再进状态行（§14）。
+      setImportStatus(`导入失败：${describeSafeError(error)}`);
     } finally {
       setImportBusy(false);
     }
   }
+
+  /**
+   * 数据层提示（SC-019）：设置页顶部与侧栏底部说的是同一份状态，
+   * 因此提示在这里算一次，界面只负责显示。
+   */
+  const dataLayerHint = dataLayerHintOf(dataLayer);
 
   /**
    * 通知设置与权限状态（SC-017）：设置页与调度链路共用同一份载荷，
@@ -1054,6 +1141,7 @@ export default function App() {
           onToggleFollowedTeam={handleToggleFollowedTeam}
           settingsOpen={settingsOpen}
           onOpenSettings={() => setSettingsOpen(true)}
+          {...(storeProblem === undefined ? {} : { storeProblem })}
         />
       }
       inspector={
@@ -1086,7 +1174,8 @@ export default function App() {
               ? {}
               : { sourceStatus: subscriptionStatus }),
           }}
-          previewMode={previewMode}
+          {...(dataLayerHint === undefined ? {} : { dataLayerHint })}
+          {...(storeProblem === undefined ? {} : { storeProblem })}
           followableTeams={followableTeams}
           followedTeamIds={followedTeamIds}
           onToggleFollowedTeam={handleToggleFollowedTeam}
