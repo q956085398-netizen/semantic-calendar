@@ -538,6 +538,20 @@ button:focus-visible {
   gap: 10px;
 }
 
+/* 整理事件的状态行（SC-020）：与导航同一行、同样式族的次要文字。
+   行高低于 30px 的导航按钮，表头高度不变——最小窗口下网格仍完整（§26 第 5 项）。
+   极端窄窗下裁切而不是撑走右侧视图切换。 */
+.month-status {
+  margin: 0;
+  max-width: 240px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .month-nav-button {
   display: grid;
   place-items: center;

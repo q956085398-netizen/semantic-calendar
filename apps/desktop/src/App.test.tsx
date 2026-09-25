@@ -8,6 +8,8 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { buildIcsFixture } from "./bench/fixtures";
+import { CalendarStore } from "./data/store/calendar-store";
 import {
   APP_LICENSE,
   APP_NAME_EN,
@@ -143,6 +145,7 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("三栏布局与月视图（SC-004 / CAL-001 / CAL-004）", () => {
@@ -2407,5 +2410,97 @@ describe("错误降级与可解释状态（SC-019 / app-spec §13–14）", () =
     // 坏记录不会跟着落盘，文件里不会一直留着它们。
     expect(writtenSnapshots().at(-1)!.events).toHaveLength(1);
     expect(writtenSnapshots().at(-1)!.sources).toHaveLength(1);
+  });
+});
+
+describe("月切换的分片读取（SC-020 / app-spec §15）", () => {
+  it("大数据量导入后月格照常显示，整理状态不残留", async () => {
+    await renderReadyApp();
+
+    // 真实规模的混合形态（含重复规则与例外），走完整的导入 → 标准化 →
+    // 匹配 → 落库 → 读取路径。读取这一段现在由 use-month-occurrences
+    // 分片执行，界面在整理期间给出状态行、而不是整段卡住。
+    chooseImportFile(icsFile(buildIcsFixture(1_500), "big.ics"));
+
+    await waitFor(() => expect(screen.getByText(/新增 \d+/)).toBeTruthy(), {
+      timeout: 10_000,
+    });
+
+    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    await waitFor(
+      () =>
+        expect(
+          grid.querySelectorAll("[data-date] .cell-event").length,
+        ).toBeGreaterThan(0),
+      { timeout: 10_000 },
+    );
+    // 整理完成后状态行消失：界面上的说法与真正发生的事一致。
+    expect(screen.queryByText(/正在整理事件/)).toBeNull();
+  });
+
+  it("304 刷新不重算月格：事件集合没变就不重新读取", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    await renderReadyApp();
+    mockBackend({
+      webcalFetch: (args) => {
+        calls.push(args);
+        return calls.length === 1
+          ? webcalOk(SUBSCRIBE_ICS, { etag: 'W/"v1"' })
+          : WEBCAL_NOT_MODIFIED;
+      },
+    });
+    await subscribeToFeed();
+
+    // 读取事件的代价是逐条克隆（10,000 条约 37 ms），而读取方拿到新数组就会
+    // 重算月格。304 什么都没改，因此不该再读一遍（SC-020 的缓存失效）。
+    const reads = vi.spyOn(CalendarStore.prototype, "listEnrichedEvents");
+    const before = reads.mock.calls.length;
+
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "刷新" }));
+    await waitFor(() =>
+      expect(within(sidebar()).getByText(/没有变化/)).toBeTruthy(),
+    );
+
+    expect(reads.mock.calls.length).toBe(before);
+    // 事件仍在界面上（来源行更新了，月格没被清空）。
+    expect(
+      screen
+        .getByRole("grid", { name: "2026年9月" })
+        .querySelectorAll("[data-date] .cell-event").length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("整理未完成时切月：新月份不会显示上个月的月格数据", async () => {
+    await renderReadyApp();
+    chooseImportFile(icsFile(buildIcsFixture(1_500), "big.ics"));
+    await waitFor(() => expect(screen.getByText(/新增 \d+/)).toBeTruthy(), {
+      timeout: 10_000,
+    });
+
+    // 9 月的事件落格之后切到 10 月：切换后的月格必须只含 10 月的日期。
+    const september = screen.getByRole("grid", { name: "2026年9月" });
+    await waitFor(
+      () =>
+        expect(
+          september.querySelectorAll("[data-date] .cell-event").length,
+        ).toBeGreaterThan(0),
+      { timeout: 10_000 },
+    );
+    fireEvent.click(
+      within(screen.getByRole("main")).getByRole("button", { name: "下一月" }),
+    );
+
+    const october = await screen.findByRole("grid", { name: "2026年10月" });
+    await waitFor(
+      () =>
+        expect(
+          october.querySelectorAll("[data-date] .cell-event").length,
+        ).toBeGreaterThan(0),
+      { timeout: 10_000 },
+    );
+    for (const cell of october.querySelectorAll("[data-date]")) {
+      expect(cell.getAttribute("data-date")).toMatch(/^2026-(09|10|11)-/);
+    }
+    expect(screen.queryByText(/正在整理事件/)).toBeNull();
   });
 });

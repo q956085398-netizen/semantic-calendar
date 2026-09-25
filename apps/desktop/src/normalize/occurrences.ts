@@ -38,46 +38,99 @@ export function expandEventOccurrences(
   events: EnrichedEvent[],
   window: OccurrenceWindow,
 ): EnrichedEvent[] {
-  // RECURRENCE-ID 例外按 (sourceId, uid) 归组，交给对应 master 消费。
-  const exceptionsByMaster = new Map<string, EnrichedEvent[]>();
-  for (const event of events) {
-    if (event.occurrenceId !== undefined) {
-      const key = `${event.sourceId}\u0000${event.uid}`;
-      const bucket = exceptionsByMaster.get(key);
-      if (bucket) {
-        bucket.push(event);
-      } else {
-        exceptionsByMaster.set(key, [event]);
-      }
-    }
+  const steps = expandEventOccurrencesInChunks(events, window, NO_SLICES);
+  let step = steps.next();
+  while (!step.done) {
+    step = steps.next();
   }
+  return step.value;
+}
 
+/** 分片粒度（chunkEvents）为 0：中间不让出，一次跑完（同步入口）。 */
+const NO_SLICES = 0;
+
+/**
+ * 分片展开（SC-020 / app-spec §15「大量事件不应阻塞 UI 线程」）。
+ *
+ * 输出与 expandEventOccurrences 逐条相同，只是每处理 chunkEvents 条事件让出
+ * 一次控制权：调用方在 yield 处决定怎么让（读取路径见 calendar/month-occurrences
+ * ——按时间预算让出主线程，界面才能重绘、点击才有响应）。同步入口就是这个
+ * 生成器的一次排空，因此两条路径不可能各自演化出不同的语义。
+ *
+ * 三趟扫描的先后不能交换：第二趟要用第一趟汇总的例外表，第三趟要用第二趟
+ * 记下的 handledExceptions（哪些例外已被对应 master 消费）。
+ */
+export function* expandEventOccurrencesInChunks(
+  events: readonly EnrichedEvent[],
+  window: OccurrenceWindow,
+  chunkEvents: number,
+): Generator<void, EnrichedEvent[], void> {
+  // 第一趟：RECURRENCE-ID 例外按 (sourceId, uid) 归组，交给对应 master 消费。
+  const exceptionsByMaster = new Map<string, EnrichedEvent[]>();
+  yield* forEachInChunks(events, chunkEvents, (event) => {
+    if (event.occurrenceId === undefined) {
+      return;
+    }
+    const key = `${event.sourceId}\u0000${event.uid}`;
+    const bucket = exceptionsByMaster.get(key);
+    if (bucket) {
+      bucket.push(event);
+    } else {
+      exceptionsByMaster.set(key, [event]);
+    }
+  });
+
+  // 第二趟：master 展开。
   const occurrences: EnrichedEvent[] = [];
   const handledExceptions = new Set<EnrichedEvent>();
-  for (const event of events) {
+  yield* forEachInChunks(events, chunkEvents, (event) => {
     if (event.occurrenceId !== undefined) {
-      continue;
+      return;
     }
     const exceptions =
       exceptionsByMaster.get(`${event.sourceId}\u0000${event.uid}`) ?? [];
     occurrences.push(
       ...expandMaster(event, exceptions, window, handledExceptions),
     );
-  }
-  // 无对应 master 的孤儿例外（master 被停用 / 不在输入中）按自身时间展示。
-  for (const event of events) {
+  });
+
+  // 第三趟：无对应 master 的孤儿例外（master 被停用 / 不在输入中）按自身时间展示。
+  yield* forEachInChunks(events, chunkEvents, (event) => {
     if (event.occurrenceId === undefined || handledExceptions.has(event)) {
-      continue;
+      return;
     }
     if (event.cancelled) {
-      continue;
+      return;
     }
     const occurrence = canonicalizeTimezones(event);
     if (overlapsWindow(occurrence, window)) {
       occurrences.push(occurrence);
     }
-  }
+  });
+
   return occurrences;
+}
+
+/**
+ * 按条数分片遍历：每 chunkEvents 条让出一次，每趟结束再让出一次（调用方
+ * 因此也能在趟与趟之间重绘）。chunkEvents <= 0 表示中间不让出。
+ */
+function* forEachInChunks<T>(
+  items: readonly T[],
+  chunkEvents: number,
+  visit: (item: T) => void,
+): Generator<void, void, void> {
+  let index = 0;
+  for (const item of items) {
+    visit(item);
+    index += 1;
+    if (chunkEvents > 0 && index % chunkEvents === 0 && index < items.length) {
+      yield;
+    }
+  }
+  if (chunkEvents > 0) {
+    yield;
+  }
 }
 
 /** 单个 master（无 occurrenceId 的事件）→ 窗口内 occurrence 列表。 */

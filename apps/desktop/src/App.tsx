@@ -7,10 +7,11 @@ import {
   todayKeyFromDate,
   type YearMonth,
 } from "./calendar/month-grid";
-import { bucketEventsByDateKey } from "./calendar/event-buckets";
 import { expandEventOccurrences } from "./normalize/occurrences";
 import { MiniMonth } from "./calendar/MiniMonth";
 import { MonthView } from "./calendar/MonthView";
+import { monthOccurrencePendingText } from "./calendar/month-occurrences";
+import { useMonthOccurrences } from "./calendar/use-month-occurrences";
 import { openDesktopCalendarStore } from "./data/desktop-store";
 import type { CalendarSource, EnrichedEvent } from "./data/model";
 import {
@@ -288,6 +289,8 @@ export default function App() {
   // 数据源与事件（SC-006）：从本地数据层读出，导入后刷新。
   const [sources, setSources] = useState<CalendarSource[]>([]);
   const [events, setEvents] = useState<EnrichedEvent[]>([]);
+  /** 最近一次读事件时的存储版本（SC-020）：相同就不必再读一遍，见 refreshFromStore。 */
+  const eventsRevisionRef = useRef(-1);
   const [importStatus, setImportStatus] = useState<string | undefined>();
   const [importBusy, setImportBusy] = useState(false);
 
@@ -362,18 +365,19 @@ export default function App() {
   );
 
   /**
-   * 可见 occurrence（SC-008）：按当前网格范围展开重复规则并完成时区
-   * 规范化，再进入日期分桶。原始事件列表不由此改动。
+   * 可见 occurrence（SC-008）→ 日期分桶（SC-006）：按当前网格范围展开重复
+   * 规则并完成时区规范化，再进入日期分桶。原始事件列表不由此改动。
+   *
+   * SC-020：这一步在数据量大时是读取路径上最贵的一段（10,000 条约 164 ms），
+   * 因此由 use-month-occurrences 分片执行——约 200 条以下仍在一个任务内算完，
+   * 更大的日历每约 5 ms 让出一次主线程，期间 pending 为 true，月格用状态行
+   * 说明“正在整理”，而不是让界面整段卡住（见 calendar/month-occurrences）。
+   * 整理期间详情栏也没有用户事件（日级语义载荷不在这条路径上，照常显示）：
+   * 它不写“今天没有事件”这类断言，因此不需要第二条状态行。
    */
-  const visibleOccurrences = useMemo(() => {
-    const first = grid.weeks[0][0].dateKey;
-    const lastWeek = grid.weeks[grid.weeks.length - 1];
-    const last = lastWeek[lastWeek.length - 1].dateKey;
-    return expandEventOccurrences(visibleEvents, { from: first, to: last });
-  }, [visibleEvents, grid]);
-  const eventsByDate = useMemo(
-    () => bucketEventsByDateKey(visibleOccurrences),
-    [visibleOccurrences],
+  const { eventsByDate, pending: monthPending } = useMonthOccurrences(
+    visibleEvents,
+    grid,
   );
   const selectedEvents = eventsByDate.get(selectedDateKey) ?? [];
 
@@ -464,13 +468,24 @@ export default function App() {
   /**
    * 从本地数据层重建 UI 状态；只显示启用来源的事件（SRC-003）。
    * useCallback：供启动 effect 与后台调度长期持有，身份必须稳定。
+   *
+   * 事件集合没变时**不重新读取事件**（SC-020）：`listEnrichedEvents` 会逐条
+   * 克隆（10,000 条约 37 ms），而读取方拿到新数组就会重算月格——一次 304
+   * 刷新或一次失败刷新本来什么都没改，却会白读一遍、让月格闪一次“整理中”。
+   * 判断依据是存储的 `eventsRevision()`（只在事件集合真的会变时推进），
+   * 不是“数组换了新对象”。来源行照常更新：304 也要反映最近一次成功时间。
    */
   const refreshFromStore = useCallback((store: CalendarStore) => {
     const nextSources = store.listSources();
+    setSources(nextSources);
+    const revision = store.eventsRevision();
+    if (revision === eventsRevisionRef.current) {
+      return;
+    }
+    eventsRevisionRef.current = revision;
     const enabled = new Set(
       nextSources.filter((source) => source.enabled).map((source) => source.id),
     );
-    setSources(nextSources);
     setEvents(
       store.listEnrichedEvents().filter((event) => enabled.has(event.sourceId)),
     );
@@ -1198,6 +1213,9 @@ export default function App() {
           lunarByDate={lunarByDate}
           chinaDayByDate={visibleChinaDayByDate}
           chinaSemanticByDate={visibleChinaSemanticByDate}
+          {...(monthPending
+            ? { status: monthOccurrencePendingText(visibleEvents.length) }
+            : {})}
         />
       )}
     </AppShell>

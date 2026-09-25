@@ -12,6 +12,7 @@
  */
 
 import { shiftDayKey } from "../calendar/date-keys";
+import { occurrenceWindowOf } from "../calendar/month-occurrences";
 import { buildMonthGrid, formatDateKey } from "../calendar/month-grid";
 import type { EventAlarm, RawCalendarEvent, StoredEvent } from "../data/model";
 import type { OccurrenceWindow } from "../normalize/occurrences";
@@ -273,18 +274,14 @@ export function buildIcsFixture(eventCount: number): string {
   return `${lines.join("\r\n")}\r\n`;
 }
 
-/** 月视图实际展开的窗口（含前后补格），与 App 的计算口径一致。 */
+/**
+ * 月视图实际展开的窗口（含前后补格）。口径只有一处：直接问 App 用的那个
+ * 函数（calendar/month-occurrences），夹具不另抄一份。
+ */
 export function monthWindow(year: number, month: number): OccurrenceWindow {
-  const grid = buildMonthGrid({
-    year,
-    month,
-    today: formatDateKey(year, month, 1),
-  });
-  const lastWeek = grid.weeks[grid.weeks.length - 1];
-  return {
-    from: grid.weeks[0][0].dateKey,
-    to: lastWeek[lastWeek.length - 1].dateKey,
-  };
+  return occurrenceWindowOf(
+    buildMonthGrid({ year, month, today: formatDateKey(year, month, 1) }),
+  );
 }
 
 function rawEventOf(event: FixtureEvent, sourceId: string): RawCalendarEvent {

@@ -83,6 +83,8 @@ export class CalendarStore {
   private readonly settings = new Map<string, unknown>();
   /** save() 的串行队列，见 save() 注释。 */
   private saveChain: Promise<void> = Promise.resolve();
+  /** 可见事件集合的版本号，见 eventsRevision()。 */
+  private eventsRevisionValue = 0;
 
   private constructor(
     private readonly fileIO: FileIO,
@@ -91,6 +93,22 @@ export class CalendarStore {
 
   get schemaVersion(): number {
     return CURRENT_SCHEMA_VERSION;
+  }
+
+  /**
+   * 可见事件集合的版本号：**只在集合真的会变时推进**（事件的增删改、来源启停、
+   * 来源删除），来源状态 / 校验值这类不动事件的改动不推进。
+   *
+   * 读取方（App）用它决定要不要重新读取事件。快照里的事件是逐条克隆出来的
+   * （10,000 条约 37 ms，performance.md §2.1），而 304 刷新与失败刷新都不会
+   * 改变事件集合——没有这个信号，读取方只能靠“事件数组换了新对象”判断，
+   * 于是每次后台刷新都白读一遍、白算一遍月格（SC-020）。
+   *
+   * 版本号是实例内的单调计数，不落盘：它的用途只是“与上一次读到的比一比”，
+   * 因此新实例从 0 开始，与任何旧值都不相等，读取方会保守地重读一次。
+   */
+  eventsRevision(): number {
+    return this.eventsRevisionValue;
   }
 
   static async open(
@@ -199,6 +217,10 @@ export class CalendarStore {
     if (!source) {
       return false;
     }
+    if (source.enabled !== enabled) {
+      // 可见集合变了：停用 / 启用会改变哪些事件进入界面（SRC-003）。
+      this.eventsRevisionValue += 1;
+    }
     this.sources.set(id, { ...source, enabled });
     return true;
   }
@@ -227,6 +249,9 @@ export class CalendarStore {
 
   /** sourceId 以调用方声明为准，防止跨来源数据污染。 */
   upsertEvents(sourceId: string, events: StoredEvent[]): UpsertResult {
+    if (events.length > 0) {
+      this.eventsRevisionValue += 1;
+    }
     let inserted = 0;
     let updated = 0;
     for (const event of events) {
@@ -252,11 +277,16 @@ export class CalendarStore {
 
   removeEvents(sourceId: string): void {
     const prefix = eventKeyPrefix(sourceId);
+    let removed = 0;
     for (const key of [...this.events.keys()]) {
       if (key.startsWith(prefix)) {
         this.events.delete(key);
         this.enrichments.delete(key);
+        removed += 1;
       }
+    }
+    if (removed > 0) {
+      this.eventsRevisionValue += 1;
     }
   }
 
@@ -284,6 +314,9 @@ export class CalendarStore {
         this.enrichments.delete(key);
         removed += 1;
       }
+    }
+    if (removed > 0) {
+      this.eventsRevisionValue += 1;
     }
     const { inserted, updated } = this.upsertEvents(sourceId, events);
     return { inserted, updated, removed };

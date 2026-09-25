@@ -734,3 +734,65 @@ describe("eventKey", () => {
     );
   });
 });
+
+describe("可见事件集合的版本号（SC-020）", () => {
+  it("只在事件集合真的会变时推进：来源状态与校验值不动它", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+    store.upsertSource(makeSource());
+    expect(store.eventsRevision()).toBe(0);
+
+    // 304 刷新与失败刷新的写入路径：来源状态 / 校验值变了，事件没变。
+    store.updateSourceStatus("source-1", {
+      lastSyncStatus: "ok",
+      lastSyncAt: "2026-09-25T10:00:00.000Z",
+    });
+    store.setSourceCache("source-1", {
+      url: "https://example.com/feed.ics",
+      etag: 'W/"v1"',
+      lastCheckedAt: "2026-09-25T10:00:00.000Z",
+    });
+    expect(store.eventsRevision()).toBe(0);
+
+    store.upsertEvents("source-1", [makeEvent()]);
+    expect(store.eventsRevision()).toBe(1);
+
+    // 启停会改变“哪些事件进入界面”（SRC-003），因此算一次变化；
+    // 重复设置同一个值不算。
+    store.setSourceEnabled("source-1", false);
+    expect(store.eventsRevision()).toBe(2);
+    store.setSourceEnabled("source-1", false);
+    expect(store.eventsRevision()).toBe(2);
+
+    store.removeEvents("source-1");
+    expect(store.eventsRevision()).toBe(3);
+    // 已经没有可删的事件：不再推进。
+    store.removeEvents("source-1");
+    expect(store.eventsRevision()).toBe(3);
+  });
+
+  it("差集替换删掉消失事件时推进（WebCal 200 刷新）", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+    store.upsertSource(makeSource());
+    store.upsertEvents("source-1", [
+      makeEvent(),
+      makeEvent({ uid: "event-2@semantic-calendar" }),
+    ]);
+    const before = store.eventsRevision();
+
+    store.replaceSourceEvents("source-1", [makeEvent()]);
+
+    expect(store.eventsRevision()).toBeGreaterThan(before);
+    expect(store.listEvents("source-1")).toHaveLength(1);
+  });
+
+  it("新实例从 0 开始：读取方会保守地重读一次", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+    store.upsertSource(makeSource());
+    store.upsertEvents("source-1", [makeEvent()]);
+    await store.save();
+
+    const { store: reopened } = await CalendarStore.open(fileIO, storePath);
+    expect(reopened.eventsRevision()).toBe(0);
+    expect(reopened.listEvents()).toHaveLength(1);
+  });
+});

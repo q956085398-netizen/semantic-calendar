@@ -84,8 +84,8 @@ interface MonthViewProps {
   onGoToToday: () => void;
   /** 按天移动当前选择（键盘导航）。 */
   onStepSelection: (days: number) => void;
-  /** 按日期键分桶的事件（SC-006 导入结果）。 */
-  eventsByDate: Map<string, EnrichedEvent[]>;
+  /** 按日期键分桶的事件（SC-006 导入结果）。只读：组件不写这份数据。 */
+  eventsByDate: ReadonlyMap<string, EnrichedEvent[]>;
   /** 按日期键分桶的农历简写（SC-010；范围外的日期缺省，不显示该行）。 */
   lunarByDate?: Map<string, LunarLabel>;
   /** 按日期键分桶的休假 / 补班载荷（SC-011；非假期与未登记年份缺省）。 */
@@ -98,6 +98,12 @@ interface MonthViewProps {
    * 恰好同形（urlFor），因此一个 prop 同时交给两者，不需要在装配处拆成两份。
    */
   assets?: MarkAssetSource;
+  /**
+   * 表头状态行（SC-020）：整理事件期间说明“为什么月格暂时没有事件”。
+   * 文案由调用方给出——业务判断不进 UI，可解释状态的说法也只有一个来源
+   * （§13）。
+   */
+  status?: string;
 }
 
 export function MonthView({
@@ -112,6 +118,7 @@ export function MonthView({
   chinaDayByDate,
   chinaSemanticByDate,
   assets,
+  status,
 }: MonthViewProps) {
   const title = `${grid.year}年${grid.month}月`;
   // roving tabindex 的落点：优先选中格。纯月份导航不移动选择，选中格可能
@@ -177,6 +184,12 @@ export function MonthView({
           <button type="button" className="today-button" onClick={onGoToToday}>
             今天
           </button>
+          {/* 状态行与导航同一行：不新增表头高度，最小窗口下网格不会因此少一行。 */}
+          {status !== undefined && (
+            <p className="month-status" role="status">
+              {status}
+            </p>
+          )}
         </div>
         <div className="segmented" role="group" aria-label="视图切换">
           <button type="button" className="segmented-item" aria-pressed="true">

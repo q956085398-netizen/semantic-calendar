@@ -11,6 +11,7 @@ import path from "node:path";
 import { afterAll, beforeAll, bench, describe } from "vitest";
 import { bucketEventsByDateKey } from "../calendar/event-buckets";
 import { buildMonthGrid } from "../calendar/month-grid";
+import { createMonthOccurrenceLoad } from "../calendar/month-occurrences";
 import type { CalendarSource, EnrichedEvent } from "../data/model";
 import { CalendarStore } from "../data/store/calendar-store";
 import { NodeFileIO } from "../data/store/node-file-io";
@@ -111,4 +112,25 @@ describe("月切换 · 日级语义载荷（农历 / 节假日 / 节日节气）
     },
     { iterations: 10, warmupIterations: 1, time: 0 },
   );
+});
+
+/**
+ * 分片读取（SC-020）：这里只测**单次任务**——主线程上最长的那一段，也是
+ * 「大量事件不阻塞 UI 线程」这条验收的对象。整段总时长刻意不在这里测：
+ * 同一份基线里同步 / 分片两条对照行的差值在两次运行间是 +2.5% 与 −39%，
+ * 测量抖动（±40%）比被测差异大，引用它只会得出错误结论（performance.md §3.3）。
+ */
+describe("月切换 · 分片读取（SC-020：单次任务不越过让出阈值）", () => {
+  for (const count of EVENT_COUNTS) {
+    bench(
+      `第一个任务 · ${count} 条事件`,
+      () => {
+        createMonthOccurrenceLoad({
+          events: visibleEvents.get(count) ?? [],
+          window,
+        }).advance();
+      },
+      { iterations: 5, warmupIterations: 1, time: 0 },
+    );
+  }
 });

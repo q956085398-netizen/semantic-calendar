@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { expandEventOccurrences } from "./occurrences";
+import {
+  expandEventOccurrences,
+  expandEventOccurrencesInChunks,
+} from "./occurrences";
 import type { EnrichedEvent } from "../data/model";
 
 /**
@@ -714,5 +717,100 @@ describe("expandEventOccurrences — 审查修复回归", () => {
     expect(startsOf(expandEventOccurrences([event], WINDOW))).toEqual([
       "2026-10-12T09:00:00",
     ]);
+  });
+});
+
+describe("expandEventOccurrencesInChunks — 分片展开（SC-020）", () => {
+  /**
+   * 覆盖三段扫描各自的边界形态：无重复事件（单次分支）、重复 master、
+   * 取消 / 改期例外（在 master 那一趟被消费）、孤儿例外（第三趟），
+   * 以及窗口外事件。分片不得改变其中任何一条的输出顺序或内容。
+   */
+  function trickyEvents(): EnrichedEvent[] {
+    return [
+      makeEvent({ uid: "plain", start: "2026-10-05T09:00:00" }),
+      makeEvent({
+        uid: "allday",
+        start: "2026-10-06",
+        end: "2026-10-09",
+        allDay: true,
+      }),
+      makeEvent({
+        uid: "outside",
+        start: "2026-12-01T09:00:00",
+      }),
+      makeEvent({
+        uid: "weekly",
+        start: "2026-09-30T09:00:00",
+        recurrence: { rrule: "FREQ=WEEKLY;COUNT=8", exdates: [] },
+      }),
+      makeEvent({
+        uid: "daily",
+        start: "2026-09-28T08:00:00",
+        recurrence: {
+          rrule: "FREQ=DAILY;INTERVAL=2",
+          exdates: [{ value: "20261006T080000" }],
+        },
+      }),
+      makeEvent({
+        uid: "series",
+        start: "2026-10-07T11:00:00",
+        occurrenceId: "2026-10-07T11:00:00",
+        cancelled: true,
+      }),
+      makeEvent({
+        uid: "weekly",
+        start: "2026-10-14T15:00:00",
+        occurrenceId: "2026-10-14T09:00:00",
+      }),
+      // 没有 master 的孤儿例外：第三趟扫描才会产出。
+      makeEvent({
+        uid: "orphan",
+        start: "2026-10-20T10:00:00",
+        occurrenceId: "2026-10-20T10:00:00",
+      }),
+    ];
+  }
+
+  function drain(
+    chunkEvents: number,
+    events: EnrichedEvent[] = trickyEvents(),
+  ): { result: EnrichedEvent[]; yields: number } {
+    const steps = expandEventOccurrencesInChunks(events, WINDOW, chunkEvents);
+    let yields = 0;
+    let step = steps.next();
+    while (!step.done) {
+      yields += 1;
+      step = steps.next();
+    }
+    return { result: step.value, yields };
+  }
+
+  it("结果与同步入口逐条相同（不同分片粒度下都是同一份输出）", () => {
+    const expected = expandEventOccurrences(trickyEvents(), WINDOW);
+    expect(expected.length).toBeGreaterThan(5);
+    for (const chunkEvents of [1, 2, 3, 5, 100]) {
+      expect(drain(chunkEvents).result).toEqual(expected);
+    }
+  });
+
+  it("分片粒度为 0 时中间不让出：一次 next 就结束（同步入口不切片）", () => {
+    const steps = expandEventOccurrencesInChunks(trickyEvents(), WINDOW, 0);
+    const first = steps.next();
+    expect(first.done).toBe(true);
+    expect(first.value).toEqual(expandEventOccurrences(trickyEvents(), WINDOW));
+  });
+
+  it("开启分片后每片之间都有让出点，且最终结果不变", () => {
+    const { result, yields } = drain(2);
+    // 三趟扫描各自至少一次让出（每趟结束时让出一次，趟与趟之间才能重绘）。
+    expect(yields).toBeGreaterThanOrEqual(3);
+    expect(result).toEqual(expandEventOccurrences(trickyEvents(), WINDOW));
+  });
+
+  it("空输入不产生让出点之外的多余工作", () => {
+    const { result, yields } = drain(2, []);
+    expect(result).toEqual([]);
+    expect(yields).toBeGreaterThanOrEqual(1);
   });
 });

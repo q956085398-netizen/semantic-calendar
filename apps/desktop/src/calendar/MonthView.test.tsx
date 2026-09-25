@@ -851,3 +851,38 @@ describe("月格语义视觉与多语义冲突（SC-013 / ui-design §16）", ()
     expect(cell.textContent).toContain("每周站会");
   });
 });
+
+describe("表头状态行（SC-020 / §13）", () => {
+  function renderWithStatus(status?: string) {
+    const grid = buildMonthGrid({ year: 2026, month: 10, today: "2026-10-01" });
+    render(
+      <MonthView
+        grid={grid}
+        selectedDateKey="2026-10-01"
+        onSelectDate={() => {}}
+        onStepMonth={() => {}}
+        onGoToToday={() => {}}
+        onStepSelection={() => {}}
+        eventsByDate={new Map()}
+        {...(status === undefined ? {} : { status })}
+      />,
+    );
+    return screen.getByRole("grid", { name: "2026年10月" });
+  }
+
+  it("整理事件期间显示状态行：说明月格为什么暂时没有事件", () => {
+    renderWithStatus("正在整理事件（10,000 条）…");
+
+    expect(screen.getByRole("status").textContent).toBe(
+      "正在整理事件（10,000 条）…",
+    );
+    // 状态行与月份导航同一行，不新增表头高度（最小窗口下网格不会少一行）。
+    expect(screen.getByRole("status").closest(".month-nav")).toBeTruthy();
+  });
+
+  it("没有整理时表头不留空位（常见规模不会闪一下）", () => {
+    renderWithStatus();
+
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+});
