@@ -62,7 +62,7 @@ END:VCALENDAR
 | ICS → Normalize → Match → Persist 集成测试可运行 | 应用真正装配的语义栈跑完整链路，重启后语义仍在 | `semantic/vertical-slice.test.ts`「导入的 ICS 经真实 Matcher 落库…」「重启后语义仍在…」——断言到月格消费的数据形态（分桶 + 展示载荷读取边界）；渲染那一段由 `App.test.tsx`「导入的比赛在月格显示队标 VS 队标，点击后进入比赛详情」承担。数据层到月格的分桶另有 `normalize/pipeline.test.ts`（Matcher 之前的半程） | 通过 |
 | WebCal refresh → dedupe → update 有集成覆盖 | 差集替换、消失即删除、改动就地更新、语义随刷新重建、提醒计划随之重排（app-spec §17 写到 reschedule notification） | `semantic/vertical-slice.test.ts`「刷新按 UID 去重更新…」（含刷新前后的提醒计划对照：改期那场不再按比赛提醒、新增那场按新时间提醒）「304 之后语义不变…」；服务层分支见 `data/webcal/webcal-refresh.test.ts`；存储层差集语义见 `data/store/calendar-store.test.ts`「replaceSourceEvents 删掉消失事件的增强记录…」 | 通过 |
 | 关键 Matcher 有正例与反例 | 命中要给出可解释的语义与实体，不命中要有明确理由（不误伤） | `providers/football/football-matcher.test.ts`：正例覆盖分隔符变体、别名与全角、联赛明示与名单推断、主客顺序；反例覆盖对手不在字典、三支球队、比分与连接词、球队名藏在更长单词里、展览与火车这类「包含球队名的短语」 | 通过 |
-| UI 按 ui-design.md §26 验收 | 18 条逐项看过，见 §4 | §4 清单 + `docs/examples/ui/acceptance-2026-09-25/` | **17 条通过、1 条部分通过**（第 12 项由 SC-023 修复后复检通过；第 10 项见 §5.2） |
+| UI 按 ui-design.md §26 验收 | 18 条逐项看过，见 §4 | §4 清单 + `docs/examples/ui/acceptance-2026-09-25/` | **17 条通过、1 条部分通过**（第 12 项由 SC-023 修复后复检通过；第 10 项见 §5.2——照片资源不在 v0.1 范围，按「能力成立、默认走文字降级」接受，仍记为部分通过） |
 | 测试命令纳入开发文档 | 单测 / 单文件 / 性能基线 / 静态检查都有可复制的命令 | README「开发环境」的常用命令一段 | 通过 |
 | 范围里的其余高风险逻辑 | Ticket「范围」列出但不在上面六条验收里的项 | 提醒时间与去重：`notifications/reminder-plan.test.ts`（提前量 / 当天上午 / 前一天晚上 / 事后不提醒 / 去重键）、`notifications/notification-scheduler.test.ts`、`notifications/fired-reminders.test.ts`；China provider：`providers/china/` 下的 `lunar` / `holidays` / `festivals` / `solar-terms` 四组（数据校验、连休分组、范围外安静降级）；去重：`data/store/calendar-store.test.ts` 的「事件去重（ICS-001）」一组 | 通过 |
 
@@ -73,7 +73,7 @@ END:VCALENDAR
 | 1 | 浅色 / 深色主题均可用 | `theme/theme.test.ts`（规范化、`data-theme`、持久化、localStorage 不可用降级）；`calendar/cell-visual-contract.test.ts`「浅色与深色都定义了底色浓度与背景遮罩」；`App.test.tsx`「明暗主题」 | 浅色与深色各走一遍完整界面（含设置页），两套取值都不是简单反色 | 通过 |
 | 2 | 左侧栏可收起 | `App.test.tsx`「侧栏可折叠 / 展开，月历始终保留」 | 收起后侧栏变为竖排 rail，月历区从 620px 扩到整宽 1140px | 通过 |
 | 3 | 右侧详情栏可收起 | `App.test.tsx`「详情栏可折叠 / 展开」 | 同上，rail 提供「展开详情」 | 通过 |
-| 4 | 主月历在默认窗口尺寸下占据主要空间 | —（布局事实，jsdom 无布局） | 1180×760 下三栏为 232 / 620 / 288：月历是唯一无内边距、全高的面板 | 通过 |
+| 4 | 主月历在默认窗口尺寸下占据主要空间 | `layout/window-size-contract.test.ts`「默认窗口下三栏都展开，月历比两侧栏加起来还宽、且占窗口一半以上（§26 第 4 项）」「骨架满高，月历区不给自己留内边距与边框」——窗口宽度取自 `tauri.conf.json`，栏宽与间距取自 `index.css` 的 token：1180px 下月历区 620 大于两侧栏之和 520，也大于窗口宽度的一半。**口径**：§2 给的三栏比例是建议值（中央 62%–66%），当前固定 token 是 52.5%，不落在建议区间内；这里锁的是 §26 第 4 项的验收措辞「占据主要空间」（大于两侧之和 + 大于窗口一半），把栏宽调到 §2 的建议比例是另一次 UI 决定 | 1180×760 下三栏为 232 / 620 / 288：月历是唯一无内边距、全高的面板 | 通过 |
 | 5 | 缩到最小窗口尺寸时月历主体仍完整可访问（SC-002） | `layout/window-size-contract.test.ts`（最小尺寸落在折叠阈值内、最小高度容得下六行） | 820×560：两侧自动收成 rail，网格 780×487 完整可见，无页面滚动 | 通过 |
 | 6 | 国庆连续假期视觉连续 | `calendar/MonthView.test.tsx`「一次连休的每一天是同一个主背景、同一支语义色」；`calendar/cell-backdrop.test.ts` | 10-01 … 10-07 同底色相连、大字各自被格裁切，跨行不断 | 通过 |
 | 7 | 假日不显示重复小「休」徽标 | `calendar/MonthView.test.tsx`「不再出现第二个「休」标记：整个格子里「休」只渲染一次（§7.3）」 | 每个休假格只有一处大字，右上角无小徽标 | 通过 |
@@ -175,6 +175,16 @@ SC-014 / SC-016 都记着这件事），`display/DayBackdrop.tsx` 在没有资�
 > 节日 / 节气背景要真的出现，前提是有可随应用分发的图片许可，而 v0.1 没有取得
 > （球队徽标与联赛 Logo 同此口径）。决定与将来接入资源包的条件记在
 > [third-party-assets.md](third-party-assets.md) §1、§3 与 [release.md](release.md) §6。
+
+> **SC-021 的结单（2026-09-25）**：§26 的 18 条至此都有最终判断——17 条通过，
+> 第 10 项保持「部分通过」，按 SC-022 的 v0.1 口径接受（能力成立、默认走文字降级；
+> 画面未达参考图是资源接入的后果，不是本单交付物的缺陷）。照片资源的处理记在
+> [release.md](release.md) §6 的已知项「照片型节日 / 节气背景」与 [app-spec.md](app-spec.md)
+> 的 CN-006 实现口径，通用规则（不随仓库分发图片资产）见
+> [third-party-assets.md](third-party-assets.md) §1。两条遗留也在同一轮里落地：
+> 第 12 项的不通过由 SC-023 修复后复检通过（§5.1），第 4 项原先只有人工记录的布局事实
+> 补上了可执行契约（§4 第 4 项）——默认窗口尺寸进入 `layout/window-size-contract.test.ts`
+> 的断言范围，窗口宽度或栏宽 token 改坏时自动红。
 
 ## 6. 复现方式
 

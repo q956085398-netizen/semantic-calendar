@@ -36,7 +36,7 @@ npm run tauri build        # 仓库根目录；Windows 上产出 NSIS 安装包
 | 本地通知可用且不会明显重复 | `notifications/reminder-plan.test.ts`、`notification-scheduler.test.ts`、`fired-reminders.test.ts` | 通过 |
 | 网络失败有降级 | `data/webcal/webcal-refresh.test.ts`（失败保留旧事件）、`reliability/redact.test.ts`（日志脱敏）、`App.test.tsx` 的「错误降级与可解释状态（SC-019 / app-spec §13–14）」一组 | 通过 |
 | 性能基线已记录 | [performance.md](performance.md)：冷启动中位 282 ms、空闲 CPU 0.0–0.1%、10,000 条月切换 152 ms 等 | 通过 |
-| 核心自动化测试通过 | `npm test`：79 个测试文件 / 894 条用例全绿（2026-09-25；其中 4 个文件、30 条用例来自 SC-020 的读取路径分片、提醒计划分片与事件集合版本号，另有 4 个文件、38 条用例来自 SC-024 的导入链路分片，1 个文件、8 条用例来自 SC-022 的发布文档守卫——前两条都含既有测试文件里新增的用例） | 通过 |
+| 核心自动化测试通过 | `npm test`：79 个测试文件 / 896 条用例全绿（2026-09-25；其中 4 个文件、30 条用例来自 SC-020 的读取路径分片、提醒计划分片与事件集合版本号，另有 4 个文件、38 条用例来自 SC-024 的导入链路分片，1 个文件、8 条用例来自 SC-022 的发布文档守卫，2 条用例来自 SC-021 的默认窗口尺寸契约（`layout/window-size-contract.test.ts` 新增的两条）——前两条都含既有测试文件里新增的用例） | 通过 |
 | 第三方资产 / 数据来源完成发布前审查 | [third-party-assets.md](third-party-assets.md)（含一条留待公开分发前处理的参考图问题） | 通过（带已知项） |
 | README 与真实实现同步 | README「MVP：v0.1」的功能清单逐条对应到 Ticket、「关键实现位置」按模块给出文件与边界、「开发环境」给出可复制命令；跨文件的引用与命令由 `release-docs.test.ts` 守住（见 §7） | 通过 |
 
