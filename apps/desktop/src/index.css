@@ -667,6 +667,12 @@ button:focus-visible {
   /* 比赛格的联赛背景必须裁切在格内（ui-design §10.1），
      因此整格承担裁切职责，背景层不需要自己算尺寸 */
   overflow: hidden;
+  /* 对阵块要随格子宽度收缩（SC-023），所以格子同时是尺寸查询容器。
+     inline-size 包含只约束行内方向：格子宽度仍由网格轨道决定（minmax(0, 1fr)），
+     高度照旧由轨道与内容决定。附带的布局包含会让格子成为层叠上下文与绝对定位的
+     包含块——后者格子早已由 position: relative 承担（联赛背景与休 / 补大字都靠它
+     定位），前者在这里无副作用：格内的层本来就只互相竞争，跨格不比较。 */
+  container-type: inline-size;
 }
 
 .month-cell:hover {
@@ -941,7 +947,9 @@ button:focus-visible {
   display: grid;
   place-items: center;
   min-height: 32px;
-  padding: 3px 4px;
+  /* 水平内边距压到 2px（SC-023）：窄格子里这 4px 与两个队标抢的是同一段宽度，
+     让给对阵块，队标就能少缩一点。 */
+  padding: 3px 2px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--semantic-sport) 8%, transparent);
 }
@@ -949,12 +957,40 @@ button:focus-visible {
 .match-cell-teams {
   display: flex;
   align-items: center;
-  gap: 6px;
+  /* 间距与队标一起随格子收缩（SC-023），理由见下面的尺寸规则。 */
+  gap: clamp(2px, 5cqi, 6px);
+}
+
+/* 队标 / VS 随格子宽度等比收缩（SC-023 / ui-design §10.2、§22）。
+ *
+ * 固定尺寸在应用自己的默认窗口下放不下：1180×760 且左右栏展开时格子 81.7px，
+ * 内容盒 61.7px，减去对阵块内边距只剩 57.7px，而固定尺寸的对阵块需要 77.4px
+ * （两个 26px 队标 + 6px 间距 ×2 + VS），于是第二个队标被格子的裁切边界切掉
+ * （SC-021 验收发现，见 docs/ui-acceptance.md §5.1）。
+ *
+ * cqi 是格子内容盒的 1%（尺寸查询容器的 inline size）。系数取参考图的构图比例
+ * （队标约占格宽 1/5、整块对阵约占 3/5），上下限分别是原来的固定值与
+ * 「3 字母 fallback（ARS / MCI）仍可读」的下限。容器比例不变、素材尺寸依旧不
+ * 参与布局——变的是容器宽度（§22）。
+ *
+ * 格子窄于约 73px（窗口 1080px 上下、左右栏都展开）时下限生效，对阵块不再随格子
+ * 收缩；窄于约 72px 时连「居中」也保不住，退化为从内容盒左端排起（CSS 的溢出
+ * 对齐规则），但仍然完整可见——应用能产生的最窄比赛格是 67.6px（1081px 窗口），
+ * 到那一档也还在格内。裁切因此只在更极端的宽度下作为兜底存在，不溢出到相邻格
+ * （§10.1）。
+ */
+.match-cell .mark-sm {
+  width: clamp(16px, 30cqi, 26px);
+  height: clamp(16px, 30cqi, 26px);
+  /* 圆角与字号跟着队标一起缩：16px 的队标留着 26px 时的 8px 圆角与 10px 字号，
+     会糊成一个读不出队名的圆点。 */
+  border-radius: clamp(5px, 6.5cqi, 8px);
+  font-size: clamp(6.5px, 11.5cqi, 10px);
 }
 
 .match-cell-vs {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: clamp(8px, 13cqi, 10px);
   font-weight: 700;
   letter-spacing: 0.06em;
 }
