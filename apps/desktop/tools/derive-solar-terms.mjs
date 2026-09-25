@@ -110,14 +110,22 @@ for (const file of files) {
   entries.push({ year, days });
 }
 
+// 报告先出、再由退出码决定成败：一年都没通过校验时也要把原因打出来
+// （不能在这里读 entries[0] 崩掉——那样真正的问题会被一段栈顶替）。
 console.log(
-  `覆盖 ${entries.length} 年：${entries[0].year} → ${entries[entries.length - 1].year}`,
+  entries.length === 0
+    ? "覆盖 0 年：没有一年通过校验"
+    : `覆盖 ${entries.length} 年：${entries[0].year} → ${entries[entries.length - 1].year}`,
 );
-const expectedYears = entries[entries.length - 1].year - entries[0].year + 1;
-if (entries.length !== expectedYears) {
-  problems.push(
-    `年份不连续：共 ${entries.length} 年，应有 ${expectedYears} 年`,
-  );
+if (entries.length === 0) {
+  problems.push("没有任何一年的 24 个节气是齐的");
+} else {
+  const expectedYears = entries[entries.length - 1].year - entries[0].year + 1;
+  if (entries.length !== expectedYears) {
+    problems.push(
+      `年份不连续：共 ${entries.length} 年，应有 ${expectedYears} 年`,
+    );
+  }
 }
 console.log(`数据问题 ${problems.length} 条`);
 for (const problem of problems) console.log("  ", problem);
