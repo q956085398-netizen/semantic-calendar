@@ -236,6 +236,7 @@ semantic-calendar/
 - [x] 基础性能测试（SC-020，基线与缓存策略见 [performance.md](docs/performance.md)）
 - [x] 导入链路的分片（SC-024：解析 / 标准化 / 落库 / 读取 / 落盘拆成短任务，10,000 条导入的最长任务 10.4 ms）
 - [x] Windows 安装包与发布检查（SC-022：NSIS 安装包、正式图标、MIT License、资产与许可清单、发布门槛逐项核对；发布文档与真实实现的引用一致性由 `src/release-docs.test.ts` 守住）
+- [ ] V0.1 可靠性与发布收尾（SC-025：修复切月详情丢失、跨午夜今天状态过期和删除订阅后刷新写回残留，补齐请求取消、资产待处理项与当前安装包验收；[规格](docs/specs/sc-025-v01-closeout.md)、[工单 #27](https://github.com/q956085398-netizen/semantic-calendar/issues/27)）
 - [x] 测试与人工验收（SC-021 / SC-023，见 [ui-acceptance.md](docs/ui-acceptance.md)）
 
 ## v0.1 暂不考虑
@@ -368,7 +369,7 @@ npm run tauri -- build
 
 改动一条链路时不必每次跑全量：在 `apps/desktop` 下用 `npx vitest run <文件>` 只跑相关文件
 （例如 `npx vitest run src/ics/parse-ics.test.ts`），改动完成后在仓库根目录跑一次
-`npm run test` 与 `npm run lint`。当前全量是 84 个文件、984 个用例，本机约 35–50 秒
+`npm run test` 与 `npm run lint`。当前全量是 84 个文件、988 个用例，本机约 35–50 秒
 （波动主要在 `App.test.tsx` 一组：它是界面接线的集成层，单文件先跑它最省时间）。
 
 测试与人工验收的分工写在 [docs/ui-acceptance.md](docs/ui-acceptance.md)：哪些 §26 验收项

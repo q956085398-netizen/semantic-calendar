@@ -8,8 +8,8 @@
 
 | 产物        | 路径（构建产出，不随仓库分发）                                                            | 说明                                                                                                                                           |
 | ----------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| NSIS 安装包 | `apps/desktop/src-tauri/target/release/bundle/nsis/Semantic Calendar_0.1.0_x64-setup.exe` | 2,439,632 字节；当前用户安装，不需要管理员。当前候选 SHA-256：`C110CC9F65BDB7B79490387EC610243D86D129A39421A1C629C1223B6F12F5C8` |
-| 可执行文件  | `apps/desktop/src-tauri/target/release/semantic-calendar.exe`                             | 10,742,272 字节；SHA-256：`D886B2FFBD7B92A8C6918299C1A12529486B82FB4E97190B84FF3206033D9F1F`；前端资源已内嵌 |
+| NSIS 安装包 | `apps/desktop/src-tauri/target/release/bundle/nsis/Semantic Calendar_0.1.0_x64-setup.exe` | 2,437,842 字节；当前用户安装，不需要管理员。当前候选 SHA-256：`39A30E8D01ED68E31628F90CEBA4A22ECC1320989CA2D6517A1D93367D6C87DA` |
+| 可执行文件  | `apps/desktop/src-tauri/target/release/semantic-calendar.exe`                             | 10,742,272 字节；SHA-256：`9282B004787875A5B1B7FF3BDBD00F911E80EB11FB3C6C2C911010F8615D6E23`；前端资源已内嵌 |
 | 前端资源    | `apps/desktop/dist/`                                                                      | 由 `beforeBuildCommand` 生成后打进可执行文件                                                                                                   |
 | 图标源      | `apps/desktop/src-tauri/app-icon.svg`、`app-icon.png`                                     | 由 `tools/render-app-icon.mjs` 生成（原创资产）                                                                                                |
 | 应用图标集  | `apps/desktop/src-tauri/icons/`                                                           | 由 `npm run icon` 从图标源派生                                                                                                                 |
@@ -24,7 +24,7 @@ npm run tauri build        # 仓库根目录；Windows 上产出 NSIS 安装包
 
 | 门槛项                               | 证据                                                                                                                                                                          | 结果                   |
 | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| Windows 安装 / 启动 / 卸载可用       | 本文 §3.2：当前候选在登录用户下安装和卸载通过；隔离数据目录下窗口启动通过；托盘与系统级交互尚未验收                                                                          | 基础流程通过，系统级待验收 |
+| Windows 安装 / 启动 / 卸载可用       | 本文 §3.2 为旧候选基础流程；§3.3 为修复后的最新候选，系统级交互尚未验收                                                                          | 新包安装/系统级待验收 |
 | 月视图基础体验稳定                   | [ui-acceptance.md](ui-acceptance.md) §4 第 1–6、14–16 项；`calendar/MonthView.test.tsx`、`calendar/month-grid.test.ts`                                                        | 通过                   |
 | 浅色 / 深色主题可用                  | ui-acceptance.md §4 第 17–18 项（浅色 / 深色各一遍）；`theme/theme.test.ts`                                                                                                   | 通过                   |
 | 本地 ICS 导入可靠                    | `ics/parse-ics.test.ts`、`data/import/import-local-ics.test.ts`；ui-acceptance.md §4 第 7–8 项                                                                                | 通过                   |
@@ -35,8 +35,8 @@ npm run tauri build        # 仓库根目录；Windows 上产出 NSIS 安装包
 | 关注球队可持久化                     | `providers/football/followed-teams.test.ts`、`App.test.tsx` 的「关注球队」一组                                                                                                | 通过                   |
 | 本地通知可用且不会明显重复           | `notifications/reminder-plan.test.ts`、`notification-scheduler.test.ts`、`fired-reminders.test.ts`；系统 Toast 尚未复验                                                       | 自动化通过，实机待验收 |
 | 网络失败有降级                       | `data/webcal/webcal-refresh.test.ts`（失败保留旧事件）、`reliability/redact.test.ts`（日志脱敏）、`App.test.tsx` 的「错误降级与可解释状态（SC-019 / app-spec §13–14）」一组   | 通过                   |
-| 性能基线已记录                       | [performance.md](performance.md)：已有 2026-09-25 基线；本次 10,000 条 WebCal 替换终结任务测得 6.6 ms，桌面空闲资源尚未复测                                                   | 部分完成               |
-| 核心自动化测试通过                   | `npm test`：84 个文件、984 个用例（2026-09-26；含 SC-025 日期、取消、持久化与并发回归）                                                                                       | 通过                   |
+| 性能基线已记录                       | [performance.md](performance.md)：已有 2026-09-25 基线；10,000 条 WebCal 替换终结任务测得 6.6 ms；2026-09-27 最新桌面测量见 §3.3                                                   | 部分完成               |
+| 核心自动化测试通过                   | `npm test`：84 个文件、988 个用例（2026-09-27；含 SC-025 日期、取消、持久化与并发增强发布回归）                                                                                       | 通过                   |
 | 第三方资产 / 数据来源完成发布前审查  | [third-party-assets.md](third-party-assets.md)；未核验的参考图片与设置图标已移除，设置图标改为仓库源码内联 SVG；`packaging.test.ts` 限定截图目录                              | 通过                   |
 | README 与真实实现同步                | README「MVP：v0.1」的功能清单逐条对应到 Ticket、「关键实现位置」按模块给出文件与边界、「开发环境」给出可复制命令；跨文件的引用与命令由 `release-docs.test.ts` 守住（见 §7）   | 通过                   |
 
@@ -73,7 +73,7 @@ npm run tauri build        # 仓库根目录；Windows 上产出 NSIS 安装包
   静默安装走的是同一条安装逻辑，产物与注册表结果已在上面逐项核对。
 - **托盘交互**（左键恢复、右键菜单退出）仍需人工点击，SC-002 已记录过该限制。
 
-### 3.2 SC-025 当前候选（2026-09-26）
+### 3.2 SC-025 首轮候选（2026-09-26，已被 §3.3 替代）
 
 候选于 2026-09-26 15:19 UTC 构建，源代码提交为 `a8d1bc4b39d7`。安装器为 2,439,632 字节，SHA-256
 `C110CC9F65BDB7B79490387EC610243D86D129A39421A1C629C1223B6F12F5C8`；内嵌程序为 10,742,272 字节，SHA-256
@@ -83,11 +83,21 @@ npm run tauri build        # 仓库根目录；Windows 上产出 NSIS 安装包
 `NEWNAME\q9560` 对同一安装器执行 `/S /LANG=2052`：退出码 0，`%LOCALAPPDATA%\Semantic Calendar\` 下生成
 `semantic-calendar.exe`（10,742,272 字节）和 `uninstall.exe`（81,825 字节）。安装前该目录不存在。
 
-启动冒烟检查使用临时 `APPDATA` 与 `LOCALAPPDATA`，窗口标题为「语义日历」；测试后原有快照
+此前执行者记录：启动冒烟检查使用临时 `APPDATA` 与 `LOCALAPPDATA`，窗口标题为「语义日历」；测试后原有快照
 `%APPDATA%\com.semanticcalendar.desktop\store\calendar-store.json` 的修改时间未变。随后运行安装目录的
 `uninstall.exe /S`，退出码 0，安装目录、卸载注册表项、开始菜单与桌面快捷方式均已清除。
 
-当前候选的安装、启动冒烟与卸载基础流程已通过。托盘交互、Windows Toast、真实 WebCal 来源、休眠/跨天、升级后提醒去重状态和安装向导逐页人工检查仍待验收；不能用 §3.1 的 2026-09-25 历史记录代替这些检查。
+该旧候选的安装、启动冒烟与卸载基础流程已通过；不能据此把 §3.3 的新产物记为已验收。托盘交互、Windows Toast、真实 WebCal 来源、休眠/跨天、升级后提醒去重状态和安装向导逐页人工检查仍待验收；不能用 §3.1 的 2026-09-25 历史记录代替这些检查。
+
+### 3.3 并发增强修复后的候选（2026-09-27）
+
+源码提交 `6068322aed4ec7736043505605b43c210c0b0b7d`，构建完成于 2026-09-26 17:40 UTC（本机 2026-09-27 01:40）。安装包 2,437,842 字节，SHA-256 `39A30E8D01ED68E31628F90CEBA4A22ECC1320989CA2D6517A1D93367D6C87DA`；exe 10,742,272 字节，SHA-256 `9282B004787875A5B1B7FF3BDBD00F911E80EB11FB3C6C2C911010F8615D6E23`。修复了并发 304 / 失败刷新提前读取原始事件后，增强结果虽落盘却未使 UI 和提醒输入缓存失效的问题。
+
+实测在已登录 Windows 用户 `NEWNAME\q9560` 会话运行构建出的 exe（尚未对新包执行安装/卸载），Ryzen 7 5700X / 64 GB。沿用 `tools/measure-desktop.ps1`，3 次启动、稳定 10 秒、每段采样 30 秒：进程创建到窗口句柄中位 1,277 ms（938–1,729 ms）；可见两段父进程 CPU 增量 0.188 / 0.469 s，工作集 61 MB、私有 25 MB；发送关闭请求后窗口不可见且进程仍运行，隐藏段 CPU 增量 0.000 s。此处只测应用父进程，不含 WebView2 子进程，也不等同于首屏内容就绪。可见资源高于历史记录，基线环境与输入未固定到一致，因此仅登记数值，不据此宣称性能无回退。
+
+**数据隔离校验未通过：** 更改 `APPDATA` / `LOCALAPPDATA` 不能覆盖 Tauri 在 Windows 使用的已知文件夹 API。本次原账户快照发生启动状态写入（`app.lastOpenedAt` 为 2026-09-26T17:41:03.234Z）；未执行导入、来源增删或设置操作。测试进程已停止，不把它记为隔离数据测试通过。§3.2 的旧环境变量隔离记录也不能作为可靠的隔离方法，后续导入/安装/卸载请按清单使用独立 Windows 测试账户。
+
+988 个前端用例、22 个 Rust 用例、lint、格式检查、生产构建及 NSIS 构建通过。安装包的实际系统结果持续记录在本节；人工步骤及近期通知测试日历生成方式见 [SC-025 实机验收清单](sc-025-machine-acceptance.md)。托盘点击、系统 Toast、真实 WebCal、休眠/跨午夜、覆盖升级去重、向导页面仍未验收，SC-025 不关闭。
 
 ## 4. 名称、版本与图标
 
@@ -150,7 +160,7 @@ v0.1 **不做自动更新**，策略明确如下：
 | 球队徽标 / 联赛 Logo             | 策略为不随应用分发，界面用 3 字母代码 / 联赛短标签兜底                                           | [third-party-assets.md](third-party-assets.md) §3  |
 | 安装器自身文件属性缺 CompanyName | Tauri NSIS 模板行为；安装包元数据、卸载项与可执行文件属性里的发布者都正确                        | 记录备查，不为此引入自定义模板                     |
 | 沙箱里的静默安装未生成文件       | 见 §3.2；同一安装器在已登录 Windows 用户上下文安装成功，归因为执行上下文差异                    | 已诊断；不代表安装器失败                           |
-| 当前 RC 的系统级验收未完成       | 见 §3.2；托盘、通知、真实订阅、休眠恢复、升级及卸载未运行                                        | 安装成功后按 §7 逐项实机验收                       |
+| 当前 RC 的系统级验收未完成       | 见 §3.3；新包安装、托盘点击、通知、真实订阅、休眠恢复、升级及卸载未验收                                        | 按 SC-025 实机清单逐项验收                       |
 | 安装向导页面未逐页人工验收       | 见 §3「未覆盖的部分」                                                                            | 当前候选安装成功后再逐页检查                       |
 
 ## 7. 怎么重跑这些检查
