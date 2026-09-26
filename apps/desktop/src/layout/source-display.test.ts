@@ -8,6 +8,8 @@ import {
   describeSourceRemoval,
   sourceColor,
   sourceStatusText,
+  sourceDisplayName,
+  sourceAddress,
 } from "./source-display";
 
 /**
@@ -20,8 +22,7 @@ import {
  *
  * - 「上次成功」写的是**上次成功**的时间，失败时它也必须在（失败时用户更
  *   需要知道缓存有多旧，SRC-004）；
- * - 侧栏与设置页共用这一个函数，因此两处说法不会漂移（App 集成里另有一条
- *   用例比对两处渲染出来的文字完全相同）；
+ * - 同步状态集中在设置中展示；侧栏只使用共享的显示名称与识别色；
  * - 识别色只由来源 id 派生，且四支色都真的取得到——增删来源不会改变既有
  *   来源的颜色，调色板也不会退化成一支。
  *
@@ -52,6 +53,34 @@ const SOURCE_COLOR_TOKENS = [
   "var(--source-solar)",
   "var(--source-holiday)",
 ];
+
+describe("来源名称与地址", () => {
+  it("旧地址名称用短名称展示，自定义名称和文件名原样保留", () => {
+    expect(sourceDisplayName(webcalSource())).toBe("订阅日历");
+    expect(sourceDisplayName(webcalSource({ name: "欧冠" }))).toBe("欧冠");
+    expect(
+      sourceDisplayName(
+        webcalSource({
+          type: "local-ics",
+          name: "team.ics",
+          webcal: undefined,
+        }),
+      ),
+    ).toBe("team.ics");
+  });
+  it("设置中的地址省略账号和查询凭据", () => {
+    expect(
+      sourceAddress(
+        webcalSource({
+          webcal: {
+            url: "https://alice:secret@example.com/feed.ics?token=SECRET",
+          },
+        }),
+      ),
+    ).toBe("https://example.com/feed.ics?…");
+    expect(sourceAddress(webcalSource({ webcal: undefined }))).toBeUndefined();
+  });
+});
 
 describe("来源状态文案（SC-018 验收 / SRC-003）", () => {
   it("从未成功刷新过的来源写明「尚未刷新」", () => {

@@ -54,6 +54,8 @@ export interface WebcalRefreshOutcome {
 
 export interface WebcalAddInput {
   url: string;
+  /** 用户自定义的显示名称；省略时保留既有名称。 */
+  name?: string;
 }
 
 export interface WebcalAddOutcome {
@@ -103,14 +105,19 @@ export async function addWebcalSubscription(
 
   const sourceId = sourceIdForWebcalUrl(normalized.url);
   const existing = store.getSource(sourceId);
+  const name = input.name?.trim();
 
   // 重复添加同一地址命中同一来源：保留用户已做的启停选择，只刷新地址。
   const source: CalendarSource = existing
-    ? { ...existing, webcal: { ...existing.webcal, url: normalized.url } }
+    ? {
+        ...existing,
+        ...(name ? { name } : {}),
+        webcal: { ...existing.webcal, url: normalized.url },
+      }
     : {
         id: sourceId,
         type: WEBCAL_SOURCE_TYPE,
-        name: webcalDisplayName(normalized.url),
+        name: name || webcalDisplayName(normalized.url),
         enabled: true,
         lastSyncStatus: "never",
         webcal: { url: normalized.url },

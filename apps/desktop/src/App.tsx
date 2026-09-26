@@ -109,6 +109,7 @@ import { AppShell } from "./layout/AppShell";
 import { InspectorPanel } from "./layout/InspectorPanel";
 import { SettingsView } from "./layout/SettingsView";
 import { Sidebar } from "./layout/Sidebar";
+import { sourceDisplayName } from "./layout/source-display";
 import {
   dataLayerActionHint,
   dataLayerFailureStatus,
@@ -929,9 +930,12 @@ export default function App() {
 
   /**
    * 添加订阅（SC-007 / SRC-002）：地址归一化 → 建源 → 立即抓取一次。
-   * 返回是否创建成功，供侧栏决定是否清空输入。
+   * 返回是否创建成功，供设置页决定是否清空输入。
    */
-  async function handleAddSubscription(url: string): Promise<boolean> {
+  async function handleAddSubscription(
+    url: string,
+    name: string,
+  ): Promise<boolean> {
     const store = storeRef.current;
     if (!store) {
       setSubscriptionStatus(dataLayerActionHint(dataLayer, "subscribe"));
@@ -939,7 +943,7 @@ export default function App() {
     }
     setSubscribeBusy(true);
     try {
-      const outcome = await addWebcalSubscription(store, { url }, httpIO);
+      const outcome = await addWebcalSubscription(store, { url, name }, httpIO);
       if (outcome.error !== undefined) {
         setSubscriptionStatus(`添加订阅失败：${outcome.error}`);
         return false;
@@ -950,13 +954,15 @@ export default function App() {
       await saveStore("订阅");
       await refreshFromStore(store);
       schedulerRef.current?.reschedule();
-      const name = outcome.source?.name ?? "订阅";
+      const displayName = outcome.source
+        ? sourceDisplayName(outcome.source)
+        : "订阅";
       const detail =
         outcome.refresh === undefined ? "" : outcomeDetail(outcome.refresh);
       setSubscriptionStatus(
         outcome.refresh?.status === "failed"
-          ? `已订阅「${name}」，但首次抓取失败${detail}`
-          : `已订阅「${name}」${detail}`,
+          ? `已订阅「${displayName}」，但首次抓取失败${detail}`
+          : `已订阅「${displayName}」${detail}`,
       );
       return true;
     } catch (error) {
@@ -964,6 +970,26 @@ export default function App() {
       return false;
     } finally {
       setSubscribeBusy(false);
+    }
+  }
+
+  /** 重命名只修改来源的显示名称，地址和日程不变。 */
+  async function handleRenameSource(
+    sourceId: string,
+    name: string,
+  ): Promise<boolean> {
+    const store = storeRef.current;
+    if (!store || !store.renameSource(sourceId, name)) return false;
+    try {
+      await saveStore("日历名称");
+      await refreshFromStore(store);
+      setSubscriptionStatus(`已将日历改名为「${name.trim()}」`);
+      return true;
+    } catch (error) {
+      setSubscriptionStatus(
+        `修改名称失败：${describeError(error, store.getSource(sourceId)?.webcal?.url ?? "")}`,
+      );
+      return false;
     }
   }
 
@@ -975,7 +1001,7 @@ export default function App() {
       return;
     }
     const source = store.getSource(sourceId);
-    const name = source?.name ?? "订阅";
+    const name = source ? sourceDisplayName(source) : "订阅";
     try {
       const outcome = await refreshSubscription(store, sourceId);
       schedulerRef.current?.reschedule();
@@ -993,7 +1019,8 @@ export default function App() {
     if (!store) {
       return;
     }
-    const name = store.getSource(sourceId)?.name ?? "该来源";
+    const source = store.getSource(sourceId);
+    const name = source ? sourceDisplayName(source) : "该来源";
     if (!store.setSourceEnabled(sourceId, enabled)) {
       return;
     }
@@ -1011,7 +1038,8 @@ export default function App() {
     if (!store) {
       return;
     }
-    const name = store.getSource(sourceId)?.name ?? "来源";
+    const source = store.getSource(sourceId);
+    const name = source ? sourceDisplayName(source) : "来源";
     store.removeSource(sourceId);
     await saveStore("删除结果");
     await refreshFromStore(store);
@@ -1204,8 +1232,13 @@ export default function App() {
 
   return (
     <AppShell
+      inspectorVisible={!settingsOpen}
       sidebar={
         <Sidebar
+          sources={sources}
+          onToggleSource={handleToggleSource}
+          hiddenBuiltinSourceIds={hiddenBuiltinSourceIds}
+          onToggleBuiltinSource={handleToggleBuiltinSource}
           storeStatus={storeStatus}
           miniCalendar={
             <MiniMonth
@@ -1215,23 +1248,11 @@ export default function App() {
               onStepMonth={stepMonth}
             />
           }
-          sources={sources}
-          onImportIcs={handleImportIcs}
-          importBusy={importBusy}
-          importStatus={importStatus}
-          onAddSubscription={handleAddSubscription}
-          onRefreshSubscription={handleRefreshSubscription}
-          onToggleSource={handleToggleSource}
-          subscribeBusy={subscribeBusy}
-          refreshingSourceIds={refreshingSourceIds}
-          subscriptionStatus={subscriptionStatus}
-          hiddenBuiltinSourceIds={hiddenBuiltinSourceIds}
-          onToggleBuiltinSource={handleToggleBuiltinSource}
           followableTeams={followableTeams}
           followedTeamIds={followedTeamIds}
           onToggleFollowedTeam={handleToggleFollowedTeam}
           settingsOpen={settingsOpen}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={() => setSettingsOpen((open) => !open)}
           {...(storeProblem === undefined ? {} : { storeProblem })}
         />
       }
@@ -1253,6 +1274,13 @@ export default function App() {
           theme={theme}
           onChangeTheme={handleChangeTheme}
           dataSources={{
+            onImportIcs: handleImportIcs,
+            importBusy,
+            ...(importStatus === undefined ? {} : { importStatus }),
+            onAddSubscription: handleAddSubscription,
+            onRenameSource: handleRenameSource,
+            subscribeBusy,
+            onToggleSource: handleToggleSource,
             hiddenBuiltinSourceIds,
             onToggleBuiltinSource: handleToggleBuiltinSource,
             sources,

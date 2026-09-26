@@ -15,6 +15,14 @@ function cellsOf(dateKeys: readonly string[]) {
 }
 
 describe("月视图节假日载荷（SC-011）", () => {
+  it("法定假期首日提供格子短名称，后续休假和补班不重复名称", () => {
+    const labels = chinaDayLabelsOf(
+      cellsOf(["2026-10-01", "2026-10-02", "2026-10-10"]),
+    );
+    expect(labels.get("2026-10-01")?.cellLabel).toBe("国庆节");
+    expect(labels.get("2026-10-02")?.cellLabel).toBeUndefined();
+    expect(labels.get("2026-10-10")?.cellLabel).toBeUndefined();
+  });
   it("按日期键给出大字、主文案与连休位置", () => {
     const labels = chinaDayLabelsOf(
       cellsOf(["2026-10-01", "2026-10-03", "2026-10-10"]),
@@ -25,6 +33,7 @@ describe("月视图节假日载荷（SC-011）", () => {
       glyph: "休",
       accent: "var(--semantic-holiday)",
       label: "国庆节假期",
+      cellLabel: "国庆节",
       position: "第 1 天 / 共 7 天",
       run: { id: "2026-10-01", index: 0, length: 7 },
     });

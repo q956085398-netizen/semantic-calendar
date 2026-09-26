@@ -165,7 +165,7 @@ describe("三栏布局与月视图（SC-004 / CAL-001 / CAL-004）", () => {
 
     expect(screen.getByRole("heading", { name: "2026年9月" })).toBeTruthy();
 
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     expect(within(grid).getAllByRole("columnheader")).toHaveLength(7);
     expect(within(grid).getAllByRole("gridcell")).toHaveLength(42);
 
@@ -265,7 +265,7 @@ describe("三栏布局与月视图（SC-004 / CAL-001 / CAL-004）", () => {
     freezeClock();
     render(<App />);
 
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     fireEvent.click(grid.querySelector('[data-date="2026-09-24"]')!);
 
     const inspector = screen.getByRole("complementary", { name: "详情栏" });
@@ -672,6 +672,7 @@ function icsFile(contents: string, name = "team.ics"): File {
 }
 
 function chooseImportFile(file: File) {
+  openSettings();
   const input = screen.getByLabelText(/导入 ICS 文件/) as HTMLInputElement;
   fireEvent.change(input, { target: { files: [file] } });
 }
@@ -684,12 +685,12 @@ async function renderReadyApp() {
 }
 
 describe("本地 ICS 导入（SC-006 / SRC-001）", () => {
-  it("导入后事件落在月格并在侧栏出现数据源", async () => {
+  it("导入后事件落在月格并在设置中出现数据源", async () => {
     await renderReadyApp();
 
     chooseImportFile(icsFile(IMPORT_ICS));
 
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     await waitFor(() =>
       expect(
         within(grid.querySelector('[data-date="2026-09-23"]')!).getByText(
@@ -703,9 +704,8 @@ describe("本地 ICS 导入（SC-006 / SRC-001）", () => {
       ),
     ).toBeTruthy();
 
-    // 侧栏列出新建数据源。
-    const sidebar = screen.getByRole("complementary", { name: "侧栏" });
-    expect(within(sidebar).getByText("team.ics")).toBeTruthy();
+    // 设置列出新建数据源。
+    expect(within(openSettings()).getByText("team.ics")).toBeTruthy();
   });
 
   it("导入结果写入本地快照（解析 → 落库链路）", async () => {
@@ -750,7 +750,7 @@ describe("本地 ICS 导入（SC-006 / SRC-001）", () => {
     chooseImportFile(icsFile(IMPORT_ICS));
     await waitFor(() => expect(screen.getByText(/更新 2/)).toBeTruthy());
 
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     const todayCell = grid.querySelector(
       '[data-date="2026-09-23"]',
     ) as HTMLElement;
@@ -780,7 +780,7 @@ describe("本地 ICS 导入（SC-006 / SRC-001）", () => {
 
     await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
     expect(screen.getByText(/跳过 1/)).toBeTruthy();
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     expect(
       within(grid.querySelector('[data-date="2026-09-23"]')!).getByText(
         "20:00 好事件",
@@ -807,9 +807,9 @@ describe("本地 ICS 导入（SC-006 / SRC-001）", () => {
     await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
 
     fireEvent.click(
-      screen
-        .getByRole("grid", { name: "2026年9月" })
-        .querySelector('[data-date="2026-09-24"]') as HTMLElement,
+      calendarGrid("2026年9月").querySelector(
+        '[data-date="2026-09-24"]',
+      ) as HTMLElement,
     );
 
     const inspector = screen.getByRole("complementary", { name: "详情栏" });
@@ -842,7 +842,7 @@ describe("重复事件月格展开（SC-008 / ICS-004）", () => {
     chooseImportFile(icsFile(RECURRING_ICS, "review.ics"));
     await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
 
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     // 9 月网格覆盖 8-31 … 10-11；周三 09:00 系列：9/23、9/30（被 EXDATE）、10/7（被改期）。
     expect(
       within(grid.querySelector('[data-date="2026-09-23"]')!).getByText(
@@ -876,7 +876,7 @@ describe("语义增强接线（SC-009 / SEM-003）", () => {
     chooseImportFile(icsFile(IMPORT_ICS));
     await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
 
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     // 月格摘要无任何语义标记：引擎已执行，未命中不写增强（SEM-003）。
     expect(grid.querySelectorAll(".cell-event.is-semantic")).toHaveLength(0);
     expect(grid.querySelectorAll("[data-semantic-type]")).toHaveLength(0);
@@ -899,9 +899,9 @@ describe("语义增强接线（SC-009 / SEM-003）", () => {
     await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
 
     fireEvent.click(
-      screen
-        .getByRole("grid", { name: "2026年9月" })
-        .querySelector('[data-date="2026-09-24"]') as HTMLElement,
+      calendarGrid("2026年9月").querySelector(
+        '[data-date="2026-09-24"]',
+      ) as HTMLElement,
     );
 
     const inspector = screen.getByRole("complementary", { name: "详情栏" });
@@ -981,7 +981,7 @@ describe("本地数据层接线", () => {
 /** SC-007 集成：订阅地址 → Rust 侧抓取 → 落库 → 月视图 + 订阅行状态。 */
 const SUBSCRIBE_URL =
   "https://calendar.example.com/feed.ics?token=SECRET-TOKEN";
-const SUBSCRIBE_DISPLAY_NAME = "calendar.example.com/feed.ics";
+const SUBSCRIBE_DISPLAY_NAME = "订阅日历";
 
 const SUBSCRIBE_ICS = [
   "BEGIN:VCALENDAR",
@@ -1027,7 +1027,9 @@ function settingsPane(): HTMLElement {
 
 /** 从侧栏打开设置页（ui-design §4 第 5 项）。 */
 function openSettings(): HTMLElement {
-  fireEvent.click(within(sidebar()).getByRole("button", { name: "设置" }));
+  if (!screen.queryByRole("region", { name: "设置" })) {
+    fireEvent.click(within(sidebar()).getByRole("button", { name: "设置" }));
+  }
   return settingsPane();
 }
 
@@ -1040,22 +1042,120 @@ function closeSettings() {
   );
 }
 
+/** 从设置返回月历后检查日期，覆盖来源管理的新入口。 */
+function calendarGrid(name = "2026年9月"): HTMLElement {
+  if (screen.queryByRole("region", { name: "设置" })) closeSettings();
+  return screen.getByRole("grid", { name });
+}
+
 /** 订阅行状态文案（SRC-003）；与 App 的全局提示分开断言。 */
 function subscriptionRowStatus(): string {
-  return sidebar().querySelector(".source-status")?.textContent ?? "";
+  return openSettings().querySelector(".source-status")?.textContent ?? "";
 }
 
 async function subscribeToFeed(url = SUBSCRIBE_URL) {
-  fireEvent.change(within(sidebar()).getByLabelText(/订阅 ICS/), {
+  fireEvent.change(within(openSettings()).getByLabelText(/订阅 ICS/), {
     target: { value: url },
   });
-  fireEvent.click(within(sidebar()).getByRole("button", { name: "添加" }));
+  fireEvent.click(within(openSettings()).getByRole("button", { name: "添加" }));
   await waitFor(() =>
-    expect(within(sidebar()).getByText(SUBSCRIBE_DISPLAY_NAME)).toBeTruthy(),
+    expect(
+      within(openSettings()).getByText(SUBSCRIBE_DISPLAY_NAME),
+    ).toBeTruthy(),
   );
 }
 
 describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => {
+  it("设置新增自定义名称，侧栏切换日程，重命名刷新与重启后保留名称和缓存", async () => {
+    await renderReadyApp();
+    mockBackend({
+      webcalFetch: () => webcalOk(SUBSCRIBE_ICS, { etag: 'W/"named"' }),
+    });
+    const pane = openSettings();
+    fireEvent.change(within(pane).getByLabelText("日历名称（可选）"), {
+      target: { value: "  欧冠  " },
+    });
+    fireEvent.change(within(pane).getByLabelText(/订阅 ICS/), {
+      target: { value: SUBSCRIBE_URL },
+    });
+    fireEvent.click(within(pane).getByRole("button", { name: "添加" }));
+    await waitFor(() =>
+      expect(within(sidebar()).getByLabelText("欧冠")).toBeTruthy(),
+    );
+    expect(
+      (within(pane).getByLabelText("日历名称（可选）") as HTMLInputElement)
+        .value,
+    ).toBe("");
+    expect(
+      (within(pane).getByLabelText(/订阅 ICS/) as HTMLInputElement).value,
+    ).toBe("");
+    expect(sidebar().textContent).not.toContain("calendar.example.com");
+    expect(sidebar().textContent).not.toContain("SECRET-TOKEN");
+    expect(sidebar().querySelector(".source-actions")).toBeNull();
+    const cell = () =>
+      calendarGrid().querySelector<HTMLElement>('[data-date="2026-09-23"]')!;
+    await waitFor(() =>
+      expect(within(cell()).getByText("19:00 订阅例会")).toBeTruthy(),
+    );
+    fireEvent.click(within(sidebar()).getByLabelText("欧冠"));
+    await waitFor(() =>
+      expect(within(cell()).queryByText("19:00 订阅例会")).toBeNull(),
+    );
+    fireEvent.click(within(sidebar()).getByLabelText("欧冠"));
+    await waitFor(() =>
+      expect(within(cell()).getByText("19:00 订阅例会")).toBeTruthy(),
+    );
+    const before = writtenSnapshots().at(-1)!;
+    const row = within(openSettings()).getByText("欧冠").closest("li")!;
+    fireEvent.click(within(row).getByRole("button", { name: "重命名" }));
+    fireEvent.change(within(row).getByLabelText("新的日历名称"), {
+      target: { value: " " },
+    });
+    expect(
+      (
+        within(row).getByRole("button", {
+          name: "保存名称",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    fireEvent.click(within(row).getByRole("button", { name: "取消" }));
+    expect(within(row).queryByLabelText("新的日历名称")).toBeNull();
+    fireEvent.click(within(row).getByRole("button", { name: "重命名" }));
+    fireEvent.change(within(row).getByLabelText("新的日历名称"), {
+      target: { value: "  德甲  " },
+    });
+    fireEvent.click(within(row).getByRole("button", { name: "保存名称" }));
+    await waitFor(() =>
+      expect(within(sidebar()).getByLabelText("德甲")).toBeTruthy(),
+    );
+    expect(writtenSnapshots().at(-1)!.events).toEqual(before.events);
+    expect(
+      (writtenSnapshots().at(-1)!.sources as Array<Record<string, unknown>>)[0],
+    ).toEqual({
+      ...(before.sources as Array<Record<string, unknown>>)[0],
+      name: "德甲",
+    });
+    mockBackend({ webcalFetch: () => WEBCAL_NOT_MODIFIED });
+    fireEvent.click(within(row).getByRole("button", { name: "刷新" }));
+    await waitFor(() =>
+      expect(subscriptionRowStatus()).not.toContain("刷新中"),
+    );
+    expect(within(sidebar()).getByLabelText("德甲")).toBeTruthy();
+    const snapshot = JSON.stringify(writtenSnapshots().at(-1));
+    cleanup();
+    mockBackend({
+      dataStoreRead: snapshot,
+      webcalFetch: () => WEBCAL_NOT_MODIFIED,
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(within(sidebar()).getByLabelText("德甲")).toBeTruthy(),
+    );
+    expect(within(cell()).getByText("19:00 订阅例会")).toBeTruthy();
+    expect(within(sidebar()).queryByLabelText("欧冠")).toBeNull();
+    expect(sidebar().textContent).not.toContain("SECRET-TOKEN");
+  });
+
   it("添加订阅后事件进入月视图，来源与缓存校验值写入快照", async () => {
     const calls: Array<Record<string, unknown>> = [];
     await renderReadyApp();
@@ -1073,7 +1173,7 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
       { url: SUBSCRIBE_URL, etag: null, lastModified: null },
     ]);
 
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     await waitFor(() =>
       expect(
         within(grid.querySelector('[data-date="2026-09-23"]')!).getByText(
@@ -1086,7 +1186,7 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
     expect(snapshot.sources).toEqual([
       expect.objectContaining({
         type: "webcal",
-        name: SUBSCRIBE_DISPLAY_NAME,
+        name: "calendar.example.com/feed.ics",
         enabled: true,
         lastSyncStatus: "ok",
         webcal: expect.objectContaining({
@@ -1115,10 +1215,12 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
     });
     await subscribeToFeed();
 
-    fireEvent.click(within(sidebar()).getByRole("button", { name: "刷新" }));
+    fireEvent.click(
+      within(openSettings()).getByRole("button", { name: "刷新" }),
+    );
 
     await waitFor(() =>
-      expect(within(sidebar()).getByText(/没有变化/)).toBeTruthy(),
+      expect(within(openSettings()).getByText(/没有变化/)).toBeTruthy(),
     );
     expect(calls[1]).toEqual({
       url: SUBSCRIBE_URL,
@@ -1141,7 +1243,9 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
     });
     await subscribeToFeed();
 
-    fireEvent.click(within(sidebar()).getByRole("button", { name: "刷新" }));
+    fireEvent.click(
+      within(openSettings()).getByRole("button", { name: "刷新" }),
+    );
 
     await waitFor(() => expect(subscriptionRowStatus()).toContain("刷新失败"));
     const status = subscriptionRowStatus();
@@ -1151,7 +1255,7 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
     expect(status).toContain("上次成功");
 
     // 事件与上次成功时间都还在（SRC-004）。
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     expect(
       within(grid.querySelector('[data-date="2026-09-23"]')!).getByText(
         "19:00 订阅例会",
@@ -1171,10 +1275,12 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
     await subscribeToFeed();
 
     // 侧栏数据源行承担「显示 / 隐藏」（SC-018 / ui-design §4 第 2 项）。
-    fireEvent.click(within(sidebar()).getByLabelText(SUBSCRIBE_DISPLAY_NAME));
+    fireEvent.click(
+      within(openSettings()).getByLabelText(SUBSCRIBE_DISPLAY_NAME),
+    );
 
     await waitFor(() => expect(subscriptionRowStatus()).toContain("已停用"));
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     expect(
       within(grid.querySelector('[data-date="2026-09-23"]')!).queryByText(
         /订阅例会/,
@@ -1188,12 +1294,14 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
     ).toBe(false);
 
     // 重新显示后事件回到月视图。
-    fireEvent.click(within(sidebar()).getByLabelText(SUBSCRIBE_DISPLAY_NAME));
+    fireEvent.click(
+      within(openSettings()).getByLabelText(SUBSCRIBE_DISPLAY_NAME),
+    );
     await waitFor(() =>
       expect(
-        within(grid.querySelector('[data-date="2026-09-23"]')!).getByText(
-          "19:00 订阅例会",
-        ),
+        within(
+          calendarGrid().querySelector('[data-date="2026-09-23"]')!,
+        ).getByText("19:00 订阅例会"),
       ).toBeTruthy(),
     );
   });
@@ -1226,18 +1334,21 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
     await renderReadyApp();
     mockBackend({ webcalFetch: () => webcalOk() });
 
-    fireEvent.change(within(sidebar()).getByLabelText(/订阅 ICS/), {
+    fireEvent.change(within(openSettings()).getByLabelText(/订阅 ICS/), {
       target: { value: "ftp://example.com/feed.ics" },
     });
-    fireEvent.click(within(sidebar()).getByRole("button", { name: "添加" }));
+    fireEvent.click(
+      within(openSettings()).getByRole("button", { name: "添加" }),
+    );
 
     await waitFor(() =>
       expect(
-        within(sidebar()).getByText(/只支持 http \/ https \/ webcal 地址/),
+        within(openSettings()).getByText(/只支持 http \/ https \/ webcal 地址/),
       ).toBeTruthy(),
     );
     expect(
-      (within(sidebar()).getByLabelText(/订阅 ICS/) as HTMLInputElement).value,
+      (within(openSettings()).getByLabelText(/订阅 ICS/) as HTMLInputElement)
+        .value,
     ).toBe("ftp://example.com/feed.ics");
     expect(writtenSnapshots().at(-1)!.sources).toEqual([]);
     expect(
@@ -1254,13 +1365,15 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
     render(<App />);
     await waitFor(() => expect(screen.getByText(/仅桌面壳可用/)).toBeTruthy());
 
-    fireEvent.change(within(sidebar()).getByLabelText(/订阅 ICS/), {
+    fireEvent.change(within(openSettings()).getByLabelText(/订阅 ICS/), {
       target: { value: SUBSCRIBE_URL },
     });
-    fireEvent.click(within(sidebar()).getByRole("button", { name: "添加" }));
+    fireEvent.click(
+      within(openSettings()).getByRole("button", { name: "添加" }),
+    );
 
     await waitFor(() =>
-      expect(within(sidebar()).getByText(/订阅需要桌面环境/)).toBeTruthy(),
+      expect(within(openSettings()).getByText(/订阅需要桌面环境/)).toBeTruthy(),
     );
     expect(
       invokeMock.mock.calls.filter(([cmd]) => cmd === "webcal_fetch"),
@@ -1360,7 +1473,7 @@ describe("比赛月格与 Matchday Inspector（SC-016 / SPORT-004 / SPORT-005）
     await renderReadyApp();
     await importMatchIcs();
 
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     const cell = grid.querySelector('[data-date="2026-09-26"]') as HTMLElement;
     // 格内只有队标 VS 队标与联赛背景，标题 / 时间不进格子（§10.2）。
     expect(
@@ -1402,9 +1515,9 @@ describe("比赛月格与 Matchday Inspector（SC-016 / SPORT-004 / SPORT-005）
 
     await importMatchIcs();
     fireEvent.click(
-      screen
-        .getByRole("grid", { name: "2026年9月" })
-        .querySelector('[data-date="2026-09-26"]') as HTMLElement,
+      calendarGrid("2026年9月").querySelector(
+        '[data-date="2026-09-26"]',
+      ) as HTMLElement,
     );
 
     const inspector = screen.getByRole("complementary", { name: "详情栏" });
@@ -1424,9 +1537,9 @@ describe("比赛月格与 Matchday Inspector（SC-016 / SPORT-004 / SPORT-005）
     await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
 
     fireEvent.click(
-      screen
-        .getByRole("grid", { name: "2026年9月" })
-        .querySelector('[data-date="2026-09-23"]') as HTMLElement,
+      calendarGrid("2026年9月").querySelector(
+        '[data-date="2026-09-23"]',
+      ) as HTMLElement,
     );
 
     const inspector = screen.getByRole("complementary", { name: "详情栏" });
@@ -1492,9 +1605,9 @@ describe("详情栏的休假 / 补班语义（SC-011 / CN-002–004）", () => {
 
     // 2026 年中秋节：9 月 25 日至 27 日（国办发明电〔2025〕7号）。
     fireEvent.click(
-      screen
-        .getByRole("grid", { name: "2026年9月" })
-        .querySelector('[data-date="2026-09-25"]') as HTMLElement,
+      calendarGrid("2026年9月").querySelector(
+        '[data-date="2026-09-25"]',
+      ) as HTMLElement,
     );
 
     const row = document.querySelector(".inspector-china-day") as HTMLElement;
@@ -1510,9 +1623,9 @@ describe("详情栏的休假 / 补班语义（SC-011 / CN-002–004）", () => {
 
     // 2026 年国庆节前的补班日：9 月 20 日（周日）上班。
     fireEvent.click(
-      screen
-        .getByRole("grid", { name: "2026年9月" })
-        .querySelector('[data-date="2026-09-20"]') as HTMLElement,
+      calendarGrid("2026年9月").querySelector(
+        '[data-date="2026-09-20"]',
+      ) as HTMLElement,
     );
 
     const row = document.querySelector(".inspector-china-day") as HTMLElement;
@@ -1527,9 +1640,9 @@ describe("详情栏的休假 / 补班语义（SC-011 / CN-002–004）", () => {
     render(<App />);
 
     fireEvent.click(
-      screen
-        .getByRole("grid", { name: "2026年9月" })
-        .querySelector('[data-date="2026-09-23"]') as HTMLElement,
+      calendarGrid("2026年9月").querySelector(
+        '[data-date="2026-09-23"]',
+      ) as HTMLElement,
     );
 
     expect(document.querySelector(".inspector-china-day")).toBeNull();
@@ -1539,7 +1652,7 @@ describe("详情栏的休假 / 补班语义（SC-011 / CN-002–004）", () => {
     freezeClock();
     render(<App />);
 
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     const cellOf = (dateKey: string) =>
       grid.querySelector(`[data-date="${dateKey}"]`) as HTMLElement;
 
@@ -1795,9 +1908,9 @@ describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
 
     // 详情栏的提醒行与调度同口径：写明来源是用户设置。
     fireEvent.click(
-      screen
-        .getByRole("grid", { name: "2026年9月" })
-        .querySelector('[data-date="2026-09-26"]') as HTMLElement,
+      calendarGrid("2026年9月").querySelector(
+        '[data-date="2026-09-26"]',
+      ) as HTMLElement,
     );
     const match = within(
       screen.getByRole("complementary", { name: "详情栏" }),
@@ -1819,9 +1932,9 @@ describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
 
     expect(sentNotifications()).toEqual([]);
     fireEvent.click(
-      screen
-        .getByRole("grid", { name: "2026年9月" })
-        .querySelector('[data-date="2026-09-26"]') as HTMLElement,
+      calendarGrid("2026年9月").querySelector(
+        '[data-date="2026-09-26"]',
+      ) as HTMLElement,
     );
     const match = within(
       screen.getByRole("complementary", { name: "详情栏" }),
@@ -1859,7 +1972,7 @@ describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
     ).toBeTruthy();
     // 日历本身继续可用：返回月视图后网格照常渲染。
     closeSettings();
-    expect(screen.getByRole("grid", { name: "2026年9月" })).toBeTruthy();
+    expect(calendarGrid("2026年9月")).toBeTruthy();
   });
 
   it("发送失败时给出可解释状态，且同一提醒不再重复", async () => {
@@ -1918,7 +2031,7 @@ function builtinCheckbox(pane: HTMLElement, name: string): HTMLInputElement {
 
 /** 选中日期并返回月格。 */
 function selectDate(dateKey: string): HTMLElement {
-  const grid = screen.getByRole("grid", { name: "2026年9月" });
+  const grid = calendarGrid("2026年9月");
   const cell = grid.querySelector(`[data-date="${dateKey}"]`) as HTMLElement;
   fireEvent.click(cell);
   return grid;
@@ -1931,7 +2044,7 @@ async function importMatchIcs() {
 }
 
 describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
-  it("设置入口打开设置页：月历暂时让位，返回后回到原来的状态（P-05）", () => {
+  it("设置按钮反复切换设置与月历，返回后保留选中日期（P-05）", () => {
     freezeClock();
     render(<App />);
 
@@ -1944,24 +2057,34 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     expect(entry.getAttribute("aria-pressed")).toBe("true");
     // 月历是主界面：设置页是临时页面，打开时不渲染月视图。
     expect(screen.queryByRole("grid", { name: "2026年9月" })).toBeNull();
-    // 三栏结构不变：侧栏与详情栏仍在。
+    // 设置使用主区域和详情栏空间，返回后恢复详情栏。
     expect(sidebar()).toBeTruthy();
-    expect(screen.getByRole("complementary", { name: "详情栏" })).toBeTruthy();
+    expect(within(sidebar()).queryByText("数据源")).toBeNull();
+    expect(within(sidebar()).queryByLabelText(/导入 ICS 文件/)).toBeNull();
+    expect(within(pane).getByLabelText(/导入 ICS 文件/)).toBeTruthy();
+    expect(within(pane).getByLabelText(/订阅 ICS/)).toBeTruthy();
+    expect(screen.queryByRole("complementary", { name: "详情栏" })).toBeNull();
     // 只有这几节，没有统计 / 推荐之类的新首页内容。
     for (const heading of [
       "外观",
       "区域",
+      "关闭窗口时",
+      "关于",
       "数据源",
       "关注球队",
       "通知",
-      "关闭窗口时",
-      "关于",
     ]) {
       expect(within(pane).getByRole("heading", { name: heading })).toBeTruthy();
     }
 
+    fireEvent.click(entry);
+    expect(entry.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.queryByRole("region", { name: "设置" })).toBeNull();
+    expect(screen.getByRole("complementary", { name: "详情栏" })).toBeTruthy();
+    fireEvent.click(entry);
+    expect(entry.getAttribute("aria-pressed")).toBe("true");
     closeSettings();
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     expect(
       grid
         .querySelector('[data-date="2026-09-23"]')
@@ -1976,7 +2099,7 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     expect(within(pane).getByText("简体中文")).toBeTruthy();
     expect(within(pane).getByText("一周起始")).toBeTruthy();
     expect(within(pane).getByText("周一")).toBeTruthy();
-    expect(within(pane).getByText(/不写入任何设置键/)).toBeTruthy();
+    expect(within(pane).getByText(/暂不支持单独更改/)).toBeTruthy();
 
     // 改其他设置时不会顺手写出区域键（预留不等于写一个没人读的值）。
     fireEvent.click(within(pane).getByRole("button", { name: "深色" }));
@@ -2032,7 +2155,7 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     );
     closeSettings();
 
-    const gatedGrid = screen.getByRole("grid", { name: "2026年9月" });
+    const gatedGrid = calendarGrid("2026年9月");
     expect(
       gatedGrid
         .querySelector('[data-date="2026-09-25"]')
@@ -2048,8 +2171,7 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     );
     closeSettings();
     expect(
-      screen
-        .getByRole("grid", { name: "2026年9月" })
+      calendarGrid("2026年9月")
         .querySelector('[data-date="2026-09-25"]')
         ?.getAttribute("data-china-day"),
     ).toBe("rest");
@@ -2068,9 +2190,11 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     );
     closeSettings();
 
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     expect(
-      grid.querySelector('[data-date="2026-09-25"] .cell-semantic'),
+      grid.querySelector(
+        '[data-date="2026-09-25"] .cell-semantic:not(.cell-holiday-name)',
+      ),
     ).toBeNull();
     expect(
       grid.querySelector('[data-date="2026-09-23"] .cell-solar-term'),
@@ -2092,7 +2216,7 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     await importMatchIcs();
     selectDate("2026-09-26");
 
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     expect(
       grid.querySelector('[data-date="2026-09-26"] .match-cell'),
     ).toBeTruthy();
@@ -2105,7 +2229,7 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     closeSettings();
 
     // 月格：没有对阵块与联赛视觉，回到普通摘要（SEM-003 同一口径）。
-    const gatedGrid = screen.getByRole("grid", { name: "2026年9月" });
+    const gatedGrid = calendarGrid("2026年9月");
     const cell = gatedGrid.querySelector(
       '[data-date="2026-09-26"]',
     ) as HTMLElement;
@@ -2138,7 +2262,7 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     chooseImportFile(icsFile(IMPORT_ICS, "team.ics"));
     await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
     selectDate("2026-09-23");
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     expect(within(grid).getByText("19:00 晚间例会")).toBeTruthy();
 
     const pane = openSettings();
@@ -2148,7 +2272,7 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     );
     closeSettings();
 
-    const gatedGrid = screen.getByRole("grid", { name: "2026年9月" });
+    const gatedGrid = calendarGrid("2026年9月");
     expect(within(gatedGrid).queryByText("19:00 晚间例会")).toBeNull();
     // 内置语义日期不受影响：农历与节气照常显示。
     expect(
@@ -2202,8 +2326,8 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
 
-    expect(builtinCheckbox(sidebar(), "中国节假日").checked).toBe(false);
-    expect(builtinCheckbox(sidebar(), "英超赛程").checked).toBe(true);
+    expect(builtinCheckbox(openSettings(), "中国节假日").checked).toBe(false);
+    expect(builtinCheckbox(openSettings(), "英超赛程").checked).toBe(true);
 
     const pane = openSettings();
     // 表外数字（120 分钟）不猜：回到默认 6 小时。
@@ -2284,11 +2408,11 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     ).toEqual([
       "外观",
       "区域",
+      "关闭窗口时",
+      "关于",
       "数据源",
       "关注球队",
       "通知",
-      "关闭窗口时",
-      "关于",
     ]);
 
     // 数据在月视图与详情栏，不在这里汇总：月格与事件摘要都不出现。
@@ -2299,7 +2423,9 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     // 事件文本只允许出现一处，而且必须是「下一条提醒」那一行——§12 要求状态
     // 可解释（为什么没提醒 / 下一条什么时候来），它是状态而不是事件列表。
     // 哪天这里变多，说明设置页开始汇总用户数据了。
-    const titleMentions = within(pane).getAllByText(/vs Manchester City/);
+    const titleMentions = await waitFor(() =>
+      within(pane).getAllByText(/vs Manchester City/),
+    );
     expect(titleMentions).toHaveLength(1);
     expect(
       titleMentions[0].closest("[data-notification-permission]"),
@@ -2310,7 +2436,7 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     expect(within(pane).queryByText(/重启/)).toBeNull();
   });
 
-  it("网络来源在设置页给出最近刷新状态，与侧栏同一句话（验收 5）", async () => {
+  it("网络来源的刷新状态集中在设置，侧栏仅显示名称和开关（验收 5）", async () => {
     await renderReadyApp();
     mockBackend({ webcalFetch: () => webcalOk(SUBSCRIBE_ICS) });
     await subscribeToFeed();
@@ -2323,9 +2449,9 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     // 网络来源在设置页仍有刷新入口（管理动作集中在这里）。
     expect(within(row).getByRole("button", { name: "刷新" })).toBeTruthy();
     expect(rowStatus()).toContain("上次成功");
-    // 与侧栏逐字相同：两处共用 source-display，说法不会各自漂移。同一句话里
-    // 也不含订阅地址——脱敏在落库前就做完了，两处界面都只是照读。
-    expect(rowStatus()).toBe(subscriptionRowStatus());
+    expect(within(sidebar()).getByText(SUBSCRIBE_DISPLAY_NAME)).toBeTruthy();
+    expect(sidebar().textContent).not.toContain("calendar.example.com");
+    expect(sidebar().querySelector(".source-status")).toBeNull();
 
     // 刷新失败：原因与「上次成功」同时出现在设置页同一行。
     mockBackend({
@@ -2336,7 +2462,8 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
 
     await waitFor(() => expect(rowStatus()).toContain("刷新失败"));
     expect(rowStatus()).toContain("上次成功");
-    expect(rowStatus()).toBe(subscriptionRowStatus());
+    expect(within(sidebar()).getByText(SUBSCRIBE_DISPLAY_NAME)).toBeTruthy();
+    expect(sidebar().textContent).not.toContain("刷新失败");
   });
 
   it("停用本地导入来源后数据仍在，重新显示立即恢复（验收 3，与订阅同一口径）", async () => {
@@ -2344,12 +2471,11 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     chooseImportFile(icsFile(IMPORT_ICS, "team.ics"));
     await waitFor(() => expect(screen.getByText(/新增 2/)).toBeTruthy());
 
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
     const dayCell = () =>
-      grid.querySelector('[data-date="2026-09-23"]') as HTMLElement;
+      calendarGrid().querySelector('[data-date="2026-09-23"]') as HTMLElement;
     expect(within(dayCell()).getByText("19:00 晚间例会")).toBeTruthy();
 
-    fireEvent.click(within(sidebar()).getByLabelText("team.ics"));
+    fireEvent.click(within(openSettings()).getByLabelText("team.ics"));
     await waitFor(() => expect(subscriptionRowStatus()).toContain("已停用"));
     expect(within(dayCell()).queryByText(/晚间例会/)).toBeNull();
 
@@ -2361,7 +2487,7 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     ).toBe(false);
 
     // 重新显示：不需要重新导入文件。
-    fireEvent.click(within(sidebar()).getByLabelText("team.ics"));
+    fireEvent.click(within(openSettings()).getByLabelText("team.ics"));
     await waitFor(() =>
       expect(within(dayCell()).getByText("19:00 晚间例会")).toBeTruthy(),
     );
@@ -2547,7 +2673,7 @@ describe("错误降级与可解释状态（SC-019 / app-spec §13–14）", () =
     expect(status).toContain("导入与订阅不可用");
     expect(status).toContain("设置更改不会保存");
     // 日历继续可用：降级不是不可用。
-    expect(screen.getByRole("grid", { name: "2026年9月" })).toBeTruthy();
+    expect(calendarGrid("2026年9月")).toBeTruthy();
     // 也没有被打扮成浏览器预览模式。
     expect(within(sidebar()).queryByText(/浏览器预览模式/)).toBeNull();
 
@@ -2555,18 +2681,20 @@ describe("错误降级与可解释状态（SC-019 / app-spec §13–14）", () =
     chooseImportFile(icsFile(IMPORT_ICS));
     await waitFor(() =>
       expect(
-        within(sidebar()).getByText(
+        within(openSettings()).getByText(
           "本地数据层不可用：无法导入（需要可以写入的本地文件）",
         ),
       ).toBeTruthy(),
     );
-    fireEvent.change(within(sidebar()).getByLabelText(/订阅 ICS/), {
+    fireEvent.change(within(openSettings()).getByLabelText(/订阅 ICS/), {
       target: { value: SUBSCRIBE_URL },
     });
-    fireEvent.click(within(sidebar()).getByRole("button", { name: "添加" }));
+    fireEvent.click(
+      within(openSettings()).getByRole("button", { name: "添加" }),
+    );
     await waitFor(() =>
       expect(
-        within(sidebar()).getByText(
+        within(openSettings()).getByText(
           "本地数据层不可用：无法添加订阅（需要可以写入的本地文件）",
         ),
       ).toBeTruthy(),
@@ -2617,10 +2745,12 @@ describe("错误降级与可解释状态（SC-019 / app-spec §13–14）", () =
       dataStoreWrite: new Error(`写入失败：${SUBSCRIBE_URL}`),
     });
 
-    fireEvent.change(within(sidebar()).getByLabelText(/订阅 ICS/), {
+    fireEvent.change(within(openSettings()).getByLabelText(/订阅 ICS/), {
       target: { value: SUBSCRIBE_URL },
     });
-    fireEvent.click(within(sidebar()).getByRole("button", { name: "添加" }));
+    fireEvent.click(
+      within(openSettings()).getByRole("button", { name: "添加" }),
+    );
 
     await waitFor(() =>
       expect(within(sidebar()).getByText(/未能写入本地文件/)).toBeTruthy(),
@@ -2674,13 +2804,13 @@ describe("错误降级与可解释状态（SC-019 / app-spec §13–14）", () =
 
     // 好事件照常进月格，坏记录只是不出现。
     await waitFor(() => expect(screen.getByText(/已跳过/)).toBeTruthy());
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     expect(
       within(grid.querySelector('[data-date="2026-09-23"]')!).getByText(
         "19:00 好事件",
       ),
     ).toBeTruthy();
-    expect(within(sidebar()).getByText("team.ics")).toBeTruthy();
+    expect(within(openSettings()).getByText("team.ics")).toBeTruthy();
     // 被隔离的是哪几类记录，状态行要说清楚。
     const status = within(sidebar()).getByText(/已跳过/).textContent;
     expect(status).toContain("1 个无法读取的事件");
@@ -2704,7 +2834,7 @@ describe("月切换的分片读取（SC-020 / app-spec §15）", () => {
       timeout: 10_000,
     });
 
-    const grid = screen.getByRole("grid", { name: "2026年9月" });
+    const grid = calendarGrid("2026年9月");
     await waitFor(
       () =>
         expect(
@@ -2734,17 +2864,18 @@ describe("月切换的分片读取（SC-020 / app-spec §15）", () => {
     const reads = vi.spyOn(CalendarStore.prototype, "listEnrichedEvents");
     const before = reads.mock.calls.length;
 
-    fireEvent.click(within(sidebar()).getByRole("button", { name: "刷新" }));
+    fireEvent.click(
+      within(openSettings()).getByRole("button", { name: "刷新" }),
+    );
     await waitFor(() =>
-      expect(within(sidebar()).getByText(/没有变化/)).toBeTruthy(),
+      expect(within(openSettings()).getByText(/没有变化/)).toBeTruthy(),
     );
 
     expect(reads.mock.calls.length).toBe(before);
     // 事件仍在界面上（来源行更新了，月格没被清空）。
     expect(
-      screen
-        .getByRole("grid", { name: "2026年9月" })
-        .querySelectorAll("[data-date] .cell-event").length,
+      calendarGrid("2026年9月").querySelectorAll("[data-date] .cell-event")
+        .length,
     ).toBeGreaterThan(0);
   });
 
@@ -2789,7 +2920,7 @@ describe("月切换的分片读取（SC-020 / app-spec §15）", () => {
     });
 
     // 9 月的事件落格之后切到 10 月：切换后的月格必须只含 10 月的日期。
-    const september = screen.getByRole("grid", { name: "2026年9月" });
+    const september = calendarGrid("2026年9月");
     await waitFor(
       () =>
         expect(

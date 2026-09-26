@@ -258,6 +258,15 @@ export class CalendarStore {
     return true;
   }
 
+  /** 只改显示名称；身份、事件、同步状态及缓存保持不变。 */
+  renameSource(id: string, name: string): boolean {
+    const source = this.sources.get(id);
+    const trimmed = name.trim();
+    if (!source || trimmed === "") return false;
+    this.sources.set(id, { ...source, name: trimmed });
+    return true;
+  }
+
   /** 启用 / 停用来源（SRC-003）；停用后事件不进入 UI，但数据保留。 */
   setSourceEnabled(id: string, enabled: boolean): boolean {
     const source = this.sources.get(id);

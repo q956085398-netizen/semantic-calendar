@@ -10,5 +10,5 @@ export interface Fact {
   /** 当前取值。 */
   value: string;
   /** 取值从哪里来、意味着什么。 */
-  detail: string;
+  detail?: string;
 }

@@ -32,23 +32,22 @@ export const BUILTIN_SOURCES: readonly BuiltinSourceDefinition[] = [
   {
     id: "mine",
     name: "我的日历",
-    description:
-      "本地导入的 ICS 文件与订阅来源的事件；关闭后月视图只保留内置语义日期",
+    description: "显示导入与订阅的日程；关闭后仅保留节假日和节气",
   },
   {
     id: "cn-holiday",
     name: "中国节假日",
-    description: "法定节假日、连休与补班；关闭后不再显示「休 / 补」语义",
+    description: "显示法定假期与补班；关闭后隐藏「休 / 补」标记",
   },
   {
     id: "solar-terms",
     name: "二十四节气",
-    description: "传统节日与二十四节气；关闭后月格与详情栏不再显示这两类语义",
+    description: "显示传统节日与节气；关闭后隐藏相关名称与详情",
   },
   {
     id: "premier-league",
     name: "英超赛程",
-    description: "比赛的对阵块、联赛视觉与比赛详情；关闭后比赛按普通事件显示",
+    description: "显示比赛对阵与详情；关闭后按普通日程显示",
   },
 ];
 

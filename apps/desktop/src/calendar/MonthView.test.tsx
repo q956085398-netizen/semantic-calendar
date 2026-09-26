@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { buildMonthGrid } from "./month-grid";
 import { MonthView } from "./MonthView";
 import type { EnrichedEvent } from "../data/model";
@@ -809,10 +809,46 @@ describe("月格语义视觉与多语义冲突（SC-013 / ui-design §16）", ()
     });
     const cell = cellOf(grid, "2026-10-06");
 
-    expect(cell.getAttribute("data-cell-backdrop")).toBe("festival");
+    expect(cell.hasAttribute("data-cell-backdrop")).toBe(false);
     expect(cell.querySelector(".cell-backdrop")).toBeNull();
     expect(cell.querySelector(".cell-semantic")?.textContent).toBe("中秋节");
   });
+
+  it("节日图片加载失败后恢复假期背景，节日名称照常可读", () => {
+    const grid = renderWith({
+      chinaSemantic: new Map([["2026-10-06", MID_AUTUMN]]),
+      chinaDay: new Map([["2026-10-06", REST_DAY]]),
+      assets: ASSETS,
+    });
+    const cell = cellOf(grid, "2026-10-06");
+    fireEvent.error(cell.querySelector(".cell-backdrop-image")!);
+    expect(cell.getAttribute("data-cell-backdrop")).toBe("holiday");
+    expect(cell.querySelector(".cell-glyph")?.textContent).toBe("休");
+    expect(cell.querySelector(".cell-semantic")?.textContent).toBe("中秋节");
+  });
+
+  it.each(["festival", "solar-term"] as const)(
+    "%s 只有文字、没有图片时保留休假底色与大字",
+    (kind) => {
+      const grid = renderWith({
+        chinaSemantic: new Map([
+          ["2026-10-06", { entries: [{ ...MID_AUTUMN.entries[0], kind }] }],
+        ]),
+        chinaDay: new Map([["2026-10-06", REST_DAY]]),
+      });
+      const cell = cellOf(grid, "2026-10-06");
+      expect(cell.getAttribute("data-cell-backdrop")).toBe("holiday");
+      expect(cell.querySelector(".cell-glyph")?.textContent).toBe("休");
+      expect(cell.style.getPropertyValue("--cell-accent")).toBe(
+        REST_DAY.accent,
+      );
+      expect(
+        cell.querySelector(
+          kind === "festival" ? ".cell-semantic" : ".cell-solar-term",
+        )?.textContent,
+      ).toBe("中秋节");
+    },
+  );
 
   it("节日 + 假期 + 比赛：只画节日背景，队标 VS 队标照常（§16.1）", () => {
     const grid = renderWith({

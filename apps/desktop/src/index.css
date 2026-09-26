@@ -63,6 +63,7 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   /* 深色主题（THEME-002）：炭灰 / 深蓝灰，无大面积纯黑 */
   --bg-app: #151a21;
   --bg-sidebar: #11161c;
@@ -86,6 +87,7 @@
      15.2 要的是带语义色的暗调，而不是「深一点的灰」。 */
   --cell-tint-base: #171b22;
   --cell-tint-mix: 22%;
+  --cell-makeup-tint-mix: 40%;
 
   /* 深色主题的背景遮罩（SC-013 / §15.3）：用深色而不是白色，
      避免背景照片在深色界面里出现高亮白块 */
@@ -101,6 +103,38 @@
 
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 45%, transparent)
+    transparent;
+}
+
+:root {
+  color-scheme: light;
+}
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+/* Chromium 的标准滚动条属性会覆盖自定义样式，保留细轨道且去掉箭头。 */
+@supports selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
 }
 
 body {
@@ -132,20 +166,31 @@ button:focus-visible {
   gap: var(--pane-gap);
   height: 100vh;
   padding: var(--pane-gap);
+  overflow: hidden;
   background: var(--bg-app);
   transition: grid-template-columns 200ms ease;
 }
 
 .app-shell.sidebar-collapsed {
-  grid-template-columns: 0 minmax(0, 1fr) var(--inspector-width);
+  grid-template-columns: 30px minmax(0, 1fr) var(--inspector-width);
 }
 
 .app-shell.inspector-collapsed {
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 0;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(
+      --inspector-rail-width,
+      0px
+    );
 }
 
 .app-shell.sidebar-collapsed.inspector-collapsed {
-  grid-template-columns: 0 minmax(0, 1fr) 0;
+  grid-template-columns: 30px minmax(0, 1fr) var(--inspector-rail-width, 0px);
+}
+
+.app-shell:has(> .rail-inspector) {
+  --inspector-rail-width: 30px;
+}
+.pane {
+  grid-row: 1;
 }
 
 .pane-sidebar {
@@ -153,7 +198,7 @@ button:focus-visible {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden auto;
+  overflow: hidden;
   padding: 16px 14px;
   border-radius: 16px;
   background: var(--bg-sidebar);
@@ -200,15 +245,16 @@ button:focus-visible {
 }
 
 .pane-toggle-collapse {
+  flex: none;
   margin-top: auto;
   align-self: flex-start;
 }
 
-/* 折叠后的边缘把手：绝对定位，不占用网格列 */
+/* 折叠把手拥有独立窄列，不能遮挡日期或设置控件。 */
 .rail {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
+  grid-row: 1;
+  align-self: center;
+  justify-self: stretch;
   z-index: 10;
   writing-mode: vertical-rl;
   padding: 14px 6px;
@@ -221,11 +267,11 @@ button:focus-visible {
 }
 
 .rail-sidebar {
-  left: 14px;
+  grid-column: 1;
 }
 
 .rail-inspector {
-  right: 14px;
+  grid-column: 3;
 }
 
 /* ---------------- 侧栏 ---------------- */
@@ -235,7 +281,33 @@ button:focus-visible {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  gap: 22px;
+  gap: 20px;
+}
+
+.sidebar > .brand,
+.sidebar > .mini-month,
+.sidebar-footer {
+  flex: none;
+}
+.sidebar-calendar-controls {
+  min-height: 0;
+  overflow: hidden auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-right: 3px;
+}
+.sidebar-calendar-controls > * {
+  flex: none;
+}
+.sidebar-source-list {
+  gap: 7px;
+}
+.sidebar-source-list .source-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .brand {
@@ -788,6 +860,14 @@ button:focus-visible {
   );
 }
 
+.month-cell[data-cell-backdrop="holiday"][data-china-day="makeup"] {
+  --cell-tint-mix: var(--cell-makeup-tint-mix, 18%);
+}
+
+:root[data-theme="dark"] .month-cell[data-china-day="makeup"] .cell-glyph {
+  color: color-mix(in srgb, var(--cell-accent, currentColor) 65%, transparent);
+}
+
 /* 假期主背景的另一半（§7.2 / §8.2）：放大的、半透明的「休」「补」，
    位于右下区域，允许被格子边缘裁切——格子的 overflow: hidden 负责裁切，
    所以它只会被切掉，不会溢出到相邻日期格；也不遮挡日期数字
@@ -1173,7 +1253,7 @@ button:focus-visible {
 .inspector-watermark {
   position: absolute;
   right: 6px;
-  bottom: -30px;
+  bottom: 26px;
   font-family: Georgia, "Times New Roman", serif;
   font-size: 150px;
   line-height: 1;
@@ -1539,6 +1619,10 @@ button:focus-visible {
   margin-top: 10px;
 }
 
+.subscribe-form > .subscribe-input {
+  flex: none;
+}
+
 .subscribe-label {
   color: var(--text-muted);
   font-size: 12px;
@@ -1657,7 +1741,7 @@ button:focus-visible {
 /* ---------------- 设置页（SC-018 / app-spec §9 SETTINGS） ----------------
    月历主区域里的一个轻量页面：不做多层后台、不做 Dashboard，
    一节一个主题，控件沿用侧栏已有的形状（分段控件 / 勾选框 / 下拉框）。
-   打开设置页不改变三栏结构——侧栏与详情栏仍在原处。 */
+   设置页隐藏日期详情，采用两列独立分组；窄窗口改为单列。 */
 
 .settings-view {
   display: flex;
@@ -1665,8 +1749,12 @@ button:focus-visible {
   gap: 18px;
   height: 100%;
   min-height: 0;
-  overflow-y: auto;
-  padding: 2px 4px 24px;
+  overflow: hidden;
+  padding: 14px 12px 0;
+  width: 100%;
+  max-width: 1160px;
+  margin-inline: auto;
+  container-type: inline-size;
 }
 
 .settings-header {
@@ -1693,19 +1781,55 @@ button:focus-visible {
 
 .settings-body {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
+  gap: 22px;
   align-items: start;
+  overflow: hidden auto;
+  min-height: 0;
+  padding-bottom: 10px;
+}
+
+.settings-group {
+  min-width: 0;
+  padding: 20px 22px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-cell);
+}
+
+.settings-group-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.settings-group-title img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+.settings-header {
+  flex: none;
+}
+
+@container (max-width: 780px) {
+  .settings-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .settings-group {
+    padding: 16px 18px;
+  }
 }
 
 .settings-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 14px 16px 16px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-cell);
-  background: var(--bg-cell);
+  padding: 18px 0;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .settings-section .segmented {
@@ -1738,6 +1862,13 @@ button:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.builtin-source-settings > summary {
+  cursor: pointer;
+}
+.builtin-source-settings[open] .builtin-source-list {
+  margin-top: 12px;
 }
 
 .builtin-source {
@@ -1775,6 +1906,34 @@ button:focus-visible {
   align-items: flex-start;
   gap: 10px;
   font-size: 13.5px;
+}
+
+.source-address {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.source-address summary {
+  cursor: pointer;
+}
+.source-address p {
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+}
+.settings-source-item:has(.source-rename-form) {
+  flex-wrap: wrap;
+}
+.source-rename-form {
+  display: flex;
+  flex-basis: 100%;
+  gap: 6px;
+  min-width: 0;
+}
+.source-rename-form .subscribe-input {
+  flex: 1;
+  min-width: 0;
+}
+.source-rename-form .source-action {
+  flex: none;
 }
 
 .settings-source-item .source-dot {
@@ -1820,4 +1979,38 @@ button:focus-visible {
   color: var(--text-muted);
   font-size: 11.5px;
   line-height: 1.5;
+}
+
+.settings-section:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.settings-section .sidebar-heading {
+  margin-bottom: 2px;
+  letter-spacing: 0.04em;
+}
+.source-add-controls .import-button {
+  margin-top: 0;
+}
+.settings-source-item .source-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.settings-source-item .source-actions {
+  flex: none;
+}
+.settings-source-item .source-status {
+  overflow-wrap: anywhere;
+}
+
+.import-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  margin-right: 6px;
+}
+
+.cell-holiday-name {
+  color: var(--semantic-festival);
 }

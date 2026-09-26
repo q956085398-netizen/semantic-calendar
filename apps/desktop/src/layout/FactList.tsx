@@ -14,7 +14,9 @@ export function FactList({ facts }: { facts: readonly Fact[] }) {
           <dt className="settings-fact-label">{fact.label}</dt>
           <dd className="settings-fact-value">
             {fact.value}
-            <span className="settings-fact-detail">{fact.detail}</span>
+            {fact.detail && (
+              <span className="settings-fact-detail">{fact.detail}</span>
+            )}
           </dd>
         </div>
       ))}

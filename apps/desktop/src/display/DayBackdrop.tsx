@@ -23,15 +23,20 @@ interface DayBackdropProps {
   ref: string;
   /** 背景资源包（默认不携带图片，SC-022 口径）。 */
   assets?: DayBackdropSource;
+  onUnavailable?: () => void;
 }
 
 export function DayBackdrop({
   ref,
   assets = NO_DAY_BACKDROPS,
+  onUnavailable,
 }: DayBackdropProps) {
   const url = dayBackdropUrl(ref, assets);
   const [failed, setFailed] = useState(false);
-  const onAssetError = useCallback(() => setFailed(true), []);
+  const onAssetError = useCallback(() => {
+    setFailed(true);
+    onUnavailable?.();
+  }, [onUnavailable]);
 
   if (url === undefined || failed) {
     return null;

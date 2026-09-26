@@ -13,6 +13,8 @@ interface AppShellProps {
   sidebar: ReactNode;
   inspector: ReactNode;
   children: ReactNode;
+  /** 设置页使用完整主区域，返回月历时恢复之前的详情栏状态。 */
+  inspectorVisible?: boolean;
 }
 
 const SIDEBAR_PANE_ID = "app-sidebar";
@@ -96,7 +98,12 @@ function PaneRail({ paneId, title, className, onExpand }: PaneRailProps) {
   );
 }
 
-export function AppShell({ sidebar, inspector, children }: AppShellProps) {
+export function AppShell({
+  sidebar,
+  inspector,
+  children,
+  inspectorVisible = true,
+}: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(true);
 
@@ -122,7 +129,7 @@ export function AppShell({ sidebar, inspector, children }: AppShellProps) {
   const shellClass = [
     "app-shell",
     sidebarOpen ? "" : "sidebar-collapsed",
-    inspectorOpen ? "" : "inspector-collapsed",
+    inspectorOpen && inspectorVisible ? "" : "inspector-collapsed",
   ]
     .filter(Boolean)
     .join(" ");
@@ -155,12 +162,12 @@ export function AppShell({ sidebar, inspector, children }: AppShellProps) {
         label="详情栏"
         collapseTitle="收起详情"
         className="pane-inspector"
-        open={inspectorOpen}
+        open={inspectorOpen && inspectorVisible}
         onCollapse={() => setInspectorOpen(false)}
       >
         {inspector}
       </CollapsiblePane>
-      {!inspectorOpen && (
+      {!inspectorOpen && inspectorVisible && (
         <PaneRail
           paneId={INSPECTOR_PANE_ID}
           title="展开详情"

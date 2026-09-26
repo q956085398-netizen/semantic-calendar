@@ -10,7 +10,7 @@ import type { FixtureDisplay } from "../semantic/metadata-resolver";
  *
  * 优先级（§16.1 的「建议优先级」，与两张参考图一致）：
  *
- * 1. 传统节日 / 节气专属视觉（载荷 entries[0]，节日在前）；
+ * 1. 实际可用的传统节日 / 节气专属图片（载荷 entries[0]，节日在前）；
  * 2. 体育联赛视觉（当日第一场完整对阵载荷的联赛）；
  * 3. 假期 / 补班：底色 + 大「休」「补」；
  * 4. 普通日期（不画背景层，格子回到安静的基线状态，§6）。
@@ -18,7 +18,7 @@ import type { FixtureDisplay } from "../semantic/metadata-resolver";
  * 「休」「补」大字属于第 3 项，而不是叠加在任意背景上的状态标记——§7.2 / §8.2
  * 把它定义为背景元素，参考图也正是这么画的：10 月 4 日是休假 + 比赛，格子只有
  * 狮标与队标 VS 队标，没有假期底色、也没有大「休」；10 月 6 日是节日 + 休假，
- * 格子只有节日专属视觉。一个格子画了更强的背景就不再画假期那一套，否则会同时
+ * 图片可用时格子只有节日专属视觉；未配置或加载失败时保留假期底色。一个格子画了更强的背景就不再画假期那一套，否则会同时
  * 出现狮标、队标与一个巨大的「休」，正是 §26 要避免的「视觉元素堆叠失控」。
  *
  * 放假这个事实不会因此丢：详情栏给出假期名（放假且有连休时还有「第 3 天 /
@@ -69,6 +69,8 @@ export interface CellBackdropFixtureInput {
 export interface CellBackdropInput {
   /** 传统节日 / 节气载荷（SC-012）；普通日期缺省。 */
   chinaSemantic?: ChinaDaySemanticLabel;
+  /** 只有实际可用的专属图片才取得主背景；语义文字不占用背景。 */
+  dayBackdropAvailable?: boolean;
   /** 当日事件里带完整对阵载荷的比赛（SC-016）；没有比赛时缺省或空数组。 */
   fixtures?: readonly CellBackdropFixtureInput[];
   /** 休假 / 补班载荷（SC-011）；普通日期缺省。 */
@@ -81,7 +83,7 @@ export interface CellBackdropInput {
  */
 export function cellBackdropOf(input: CellBackdropInput): CellBackdrop {
   const primary = input.chinaSemantic?.entries[0];
-  if (primary !== undefined) {
+  if (primary !== undefined && input.dayBackdropAvailable === true) {
     return { kind: primary.kind, ref: primary.backgroundRef };
   }
 

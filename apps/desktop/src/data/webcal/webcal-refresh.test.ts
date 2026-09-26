@@ -97,6 +97,48 @@ function fixedClock(...isoTimes: string[]) {
 }
 
 describe("添加订阅（SRC-002）", () => {
+  it("自定义名称在重复添加和刷新后保留，改名不影响身份、事件与缓存并可读回", async () => {
+    const { store, fileIO } = await openStore();
+    const http = stubHttp(okResponse(icsBody("Standup"), { etag: 'W/"v1"' }), {
+      status: 304,
+      notModified: true,
+    });
+    const first = await addWebcalSubscription(
+      store,
+      { url: SECRET_URL, name: "  欧冠  " },
+      http,
+    );
+    expect(first.source?.name).toBe("欧冠");
+    store.setSourceEnabled(first.sourceId!, false);
+    await addWebcalSubscription(store, { url: SECRET_URL }, http);
+    expect(store.getSource(first.sourceId!)?.name).toBe("欧冠");
+    const events = store.listEvents();
+    const before = store.getSource(first.sourceId!)!;
+    expect(store.renameSource(first.sourceId!, "  德甲  ")).toBe(true);
+    expect(store.getSource(first.sourceId!)).toEqual({
+      ...before,
+      name: "德甲",
+    });
+    expect(store.renameSource(first.sourceId!, "  ")).toBe(false);
+    expect(store.renameSource("missing", "名称")).toBe(false);
+    await refreshWebcalSource(store, first.sourceId!, http);
+    expect(store.getSource(first.sourceId!)?.name).toBe("德甲");
+    expect(store.listEvents()).toEqual(events);
+    await store.save();
+    const reopened = (await CalendarStore.open(fileIO, STORE_FILE)).store;
+    expect(reopened.listSources()).toEqual(store.listSources());
+    expect(reopened.listEvents()).toEqual(events);
+    expect(reopened.getSource(first.sourceId!)?.webcal?.url).toBe(SECRET_URL);
+    expect(reopened.getSource(first.sourceId!)?.enabled).toBe(false);
+    const renamed = await addWebcalSubscription(
+      store,
+      { url: SECRET_URL, name: "我的赛程" },
+      http,
+    );
+    expect(renamed.sourceId).toBe(first.sourceId);
+    expect(renamed.source?.name).toBe("我的赛程");
+    expect(store.listSources()).toHaveLength(1);
+  });
   it("添加地址后立即抓取一次并落库事件", async () => {
     const { store } = await openStore();
     const http = stubHttp(

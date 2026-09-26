@@ -253,41 +253,41 @@ UI 不允许通过 `title.includes(...)` 自行判断业务语义。
 
 ```ts
 type CalendarSource = {
-  id: string
-  type: 'local-ics' | 'webcal' | 'builtin' | 'provider'
-  name: string
-  enabled: boolean
-  color?: string
-  lastSyncAt?: string
-  lastSyncStatus?: 'ok' | 'error' | 'never'
-}
+  id: string;
+  type: "local-ics" | "webcal" | "builtin" | "provider";
+  name: string;
+  enabled: boolean;
+  color?: string;
+  lastSyncAt?: string;
+  lastSyncStatus?: "ok" | "error" | "never";
+};
 ```
 
 ### 8.2 RawCalendarEvent
 
 ```ts
 type RawCalendarEvent = {
-  uid: string
-  sourceId: string
-  title: string
-  description?: string
-  location?: string
-  start: string
-  end?: string
-  allDay: boolean
-  recurrence?: unknown
-  rawPayload?: string
-}
+  uid: string;
+  sourceId: string;
+  title: string;
+  description?: string;
+  location?: string;
+  start: string;
+  end?: string;
+  allDay: boolean;
+  recurrence?: unknown;
+  rawPayload?: string;
+};
 ```
 
 ### 8.3 NormalizedEvent
 
 ```ts
 type NormalizedEvent = RawCalendarEvent & {
-  normalizedTitle: string
-  timezone?: string
-  occurrenceId?: string
-}
+  normalizedTitle: string;
+  timezone?: string;
+  occurrenceId?: string;
+};
 ```
 
 ### 8.4 SemanticEvent
@@ -295,17 +295,17 @@ type NormalizedEvent = RawCalendarEvent & {
 ```ts
 type SemanticEvent = {
   type:
-    | 'calendar.event'
-    | 'holiday'
-    | 'makeup-workday'
-    | 'festival'
-    | 'solar-term'
-    | 'sport.fixture'
-  subtype?: string
-  entities?: Array<{ type: string; id: string }>
-  confidence?: number
-  matcherId?: string
-}
+    | "calendar.event"
+    | "holiday"
+    | "makeup-workday"
+    | "festival"
+    | "solar-term"
+    | "sport.fixture";
+  subtype?: string;
+  entities?: Array<{ type: string; id: string }>;
+  confidence?: number;
+  matcherId?: string;
+};
 ```
 
 > 两处来源（SC-011）：`calendar.event` 与 `sport.fixture` 由事件 Matcher 产出，语义挂在事件上（§7.4）；`holiday` / `makeup-workday`（以及 SC-012 的 `festival` / `solar-term`）是**日级语义**，由日期 Provider 产出、以日期键为入口，不挂在任何事件上——因此 `metadata-resolver.ts` 里这些类型的内置默认值（语义色 / 短标签 / 默认提醒）服务于日级展示，不是事件增强的兜底。
@@ -314,9 +314,9 @@ type SemanticEvent = {
 
 ```ts
 type EnrichedEvent = NormalizedEvent & {
-  semantic?: SemanticEvent
-  metadata?: Record<string, unknown>
-}
+  semantic?: SemanticEvent;
+  metadata?: Record<string, unknown>;
+};
 ```
 
 原始事件必须可以追溯。
@@ -644,11 +644,11 @@ v0.1 设置至少覆盖：
 
 设置界面保持轻量，不做多层复杂后台。
 
-> 当前实现（SC-018）：设置是一个页面而不是新的首页——它取代月历主区域的位置，顶部有「返回月视图」，侧栏与详情栏留在原处，打开状态不持久化（月历是主界面，P-05）。页面分七节：**外观**（浅色 / 深色分段控件，选中即生效并写入 `app.theme`）、**区域**（预留：只陈述当前固定取值「简体中文 / 周一起始 / 跟随本机时区」，不写入任何设置键——写一个没有读取方的值只会让快照出现假状态）、**数据源**、**关注球队**、**通知**（`notifications.enabled` 与 `notifications.matchReminderMinutes`）、**关闭窗口时**（`app.closeBehavior`）、**关于**（SC-022：只读的名称 / 版本 / License，不写入任何设置键）。所有控件即时生效，没有需要重启的选项，因此界面也不写“需要重启”。
+> 当前实现（SC-018）：设置是一个页面而不是新的首页——它取代月历主区域的位置，顶部有「返回月视图」，侧栏保留，日期详情暂时隐藏，再次单击设置按钮可返回月历；打开状态不持久化（月历是主界面，P-05）。页面分七节：**外观**（浅色 / 深色分段控件，选中即生效并写入 `app.theme`）、**区域**（预留：只陈述当前固定取值「简体中文 / 周一起始 / 跟随本机时区」，不写入任何设置键——写一个没有读取方的值只会让快照出现假状态）、**数据源**、**关注球队**、**通知**（`notifications.enabled` 与 `notifications.matchReminderMinutes`）、**关闭窗口时**（`app.closeBehavior`）、**关于**（SC-022：只读的名称 / 版本 / License，不写入任何设置键）。所有控件即时生效，没有需要重启的选项，因此界面也不写“需要重启”。
 >
 > 数据源一节承担「管理」：内置来源的显示开关（`sources.builtinHidden`，只记被隐藏的 id，缺省全开，将来新增内置来源不需要迁移旧快照）、导入 / 订阅来源的最近刷新状态与删除入口（删除前确认，级联删除该来源的事件）、WebCal 刷新间隔（`webcal.refreshIntervalMinutes`，选项 1 / 3 / 6 / 12 / 24 小时，默认 6 小时；不在选项内的快照值按默认处理，不猜）。
 >
-> 关闭不删数据：内置来源的开关只影响展示——「我的日历」关闭后用户事件不进月视图（月格只留内置语义日期），「中国节假日」关闭后休 / 补语义与假期底色消失，「二十四节气」关闭后传统节日与节气语义消失，「英超赛程」关闭后比赛按普通事件进入月格、详情栏**与提醒计划**（与 SEM-003 同一口径，见 `semantic/app-builtin-sources.ts`）。过滤掉的是视图字段（`semantic` 与展示元数据）而不是数据：识别结果仍写在快照的增强分区里，重新打开立即恢复、不需要重新匹配；连 `semantic` 一起摘是因为提醒计划先看 `semantic.type` 再回落到事件自带 VALARM——只摘展示元数据的话，用户设置过的“比赛提醒”仍会弹，与界面的承诺矛盾。四行开关与 ui-design §4.3 的数据源行同名同序，侧栏与设置页读写同一份设置（一处状态、两个入口）。
+> 关闭不删数据：内置来源的开关只影响展示——「我的日历」关闭后用户事件不进月视图（月格只留内置语义日期），「中国节假日」关闭后休 / 补语义与假期底色消失，「二十四节气」关闭后传统节日与节气语义消失，「英超赛程」关闭后比赛按普通事件进入月格、详情栏**与提醒计划**（与 SEM-003 同一口径，见 `semantic/app-builtin-sources.ts`）。过滤掉的是视图字段（`semantic` 与展示元数据）而不是数据：识别结果仍写在快照的增强分区里，重新打开立即恢复、不需要重新匹配；连 `semantic` 一起摘是因为提醒计划先看 `semantic.type` 再回落到事件自带 VALARM——只摘展示元数据的话，用户设置过的“比赛提醒”仍会弹，与界面的承诺矛盾。四行开关常驻侧栏，设置中的完整说明默认折叠；导入与订阅在侧栏只显示名称、识别色和启停开关，地址、新增、重命名、刷新、删除与同步状态集中在设置。订阅可填写自定义名称，已有导入或订阅也可改名；名称保存到原有 `CalendarSource.name`，不改变来源身份、地址、事件、缓存或启用状态。旧版以地址作名称的订阅显示为“订阅日历”，地址详情默认折叠且省略账号与查询凭据。
 >
 > 刷新间隔由供应商注入调度器（`intervalMs`），改设置后 `reschedule()` 立即按新间隔重排，不需要重建调度器；失败重试间隔固定 30 分钟，与这条设置无关（失败来源需要更快恢复）。关注球队在这一页与侧栏共用同一个选择器组件与同一份状态。完整实现说明见 README「设置页与内置来源开关（SC-018）」。
 >
@@ -662,7 +662,7 @@ v0.1 设置至少覆盖：
 >
 > **数据源启停不删除用户数据**：内置来源与订阅一侧早有证据（关掉后事件与识别结果仍在快照、重新打开立即恢复），本轮补上本地导入来源的同一条路径（SC-006 的遗留项）。
 >
-> **对网络源显示最近刷新状态**：`layout/source-display.test.ts` 逐条钉住取值域（尚未刷新 / 上次成功 / 刷新中 / 已停用 / 失败 + 上次成功，以及「有 error 无原因」这种只可能来自手改快照的边界不写空话），`App.test.tsx` 要求设置页与侧栏渲染出**逐字相同**的状态（成功与失败各一次）。识别色（按来源 id 派生、四支色都取得到）与删除确认文案（订阅 / 导入来源不同说法）在同一个文件里。
+> **对网络源显示最近刷新状态**：`layout/source-display.test.ts` 逐条钉住取值域（尚未刷新 / 上次成功 / 刷新中 / 已停用 / 失败 + 上次成功，以及「有 error 无原因」这种只可能来自手改快照的边界不写空话），`App.test.tsx` 要求设置页显示成功与失败后的最近刷新状态，侧栏不重复来源。识别色（按来源 id 派生、四支色都取得到）与删除确认文案（订阅 / 导入来源不同说法）在同一个文件里。
 
 ---
 

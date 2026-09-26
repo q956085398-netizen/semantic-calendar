@@ -14,14 +14,25 @@ app-spec §20 的发布门槛里「第三方资产 / 数据来源完成发布前
 
 ## 1. 应用图标与图片资产
 
-| 资产 | 来源 | 许可 |
-| --- | --- | --- |
-| `apps/desktop/src-tauri/app-icon.png` | 本仓库原创：由 `apps/desktop/tools/render-app-icon.mjs` 用纯几何形状 + 项目调色板确定性生成 | 随本仓库 MIT |
-| `apps/desktop/src-tauri/app-icon.svg` | 同上（同一脚本输出的可读设计稿） | 随本仓库 MIT |
-| `apps/desktop/src-tauri/icons/` | 由 `npm run icon` 从 `app-icon.png` 派生（Tauri CLI 生成各平台尺寸与 `.ico` / `.icns`；移动端图标集不保留，见 `tools/prune-mobile-icons.mjs`） | 随本仓库 MIT |
-| `docs/examples/ui/acceptance-2026-09-25/` | 本仓库原创：SC-021 / SC-023 人工验收时对本地构建产物的整屏截图 | 随本仓库 MIT |
-| `docs/examples/ui/release-2026-09-25/` | 本仓库原创：SC-022 安装包验收时对已安装应用的截图（窗口置顶后按窗口矩形抓屏，只含应用自己的窗口） | 随本仓库 MIT |
-| `docs/examples/ui/light-theme-reference-v1.png`、`docs/examples/ui/dark-theme-reference-v1.png` | **设计参考图，来源未记录**（见下方「待处理」） | 不随应用分发 |
+| 资产                                                                                            | 来源                                                                                                                                           | 许可         |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `apps/desktop/src-tauri/app-icon.png`                                                           | 本仓库原创：由 `apps/desktop/tools/render-app-icon.mjs` 用纯几何形状 + 项目调色板确定性生成                                                    | 随本仓库 MIT |
+| `apps/desktop/src-tauri/app-icon.svg`                                                           | 同上（同一脚本输出的可读设计稿）                                                                                                               | 随本仓库 MIT |
+| `apps/desktop/src-tauri/icons/`                                                                 | 由 `npm run icon` 从 `app-icon.png` 派生（Tauri CLI 生成各平台尺寸与 `.ico` / `.icns`；移动端图标集不保留，见 `tools/prune-mobile-icons.mjs`） | 随本仓库 MIT |
+| `docs/examples/ui/acceptance-2026-09-25/`                                                       | 本仓库原创：SC-021 / SC-023 人工验收时对本地构建产物的整屏截图                                                                                 | 随本仓库 MIT |
+| `docs/examples/ui/release-2026-09-25/`                                                          | 本仓库原创：SC-022 安装包验收时对已安装应用的截图（窗口置顶后按窗口矩形抓屏，只含应用自己的窗口）                                              | 随本仓库 MIT |
+| `docs/examples/ui/light-theme-reference-v1.png`、`docs/examples/ui/dark-theme-reference-v1.png` | **设计参考图，来源未记录**（见下方「待处理」）                                                                                                 | 不随应用分发 |
+
+本次界面优化新增的资产：
+
+| 资产                                                     | 来源与用途                                                                | 分发说明                                                                |
+| -------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `docs/audits/2026-09-26/`                                | 本地隔离验收中的应用截图，仅使用合成日程；审查记录                        | 不进入应用包，截图随项目 MIT                                            |
+| `apps/desktop/public/design/cutout-107-084f75d8eae6.png` | 2026-09-26 经用户授权由 12ui 生成方案 A，并从同一 LayerDoc 导出的日历图标 | 生成素材，无第三方商标；仅用于设置分类图标，来源记录保留在本地 12ui kit |
+| `apps/desktop/public/design/added-079-gear.svg`          | 同一 12ui kit 的设置图标                                                  | 生成素材，无第三方商标；仅用于设置分类图标                              |
+| `apps/desktop/public/design/cutout-73-cbde5ae527ff.png`  | 同一 12ui LayerDoc 提取的导入图标，入口迁入设置页                         | 生成素材，无第三方商标                                                  |
+
+12ui 服务的生成素材使用条款未在本次审查中独立核验；公开发布前需确认其分发授权。原始方案、其他图标和原始截图均不进入安装包。
 
 重跑图标生成：
 
@@ -48,16 +59,16 @@ npm run icon          # = node tools/render-app-icon.mjs && tauri icon src-tauri
 
 只列直接依赖；传递依赖的许可由锁文件保证（见 §5 的核对方式）。
 
-| 依赖 | 用途 | 许可 |
-| --- | --- | --- |
-| `react` / `react-dom` | 界面渲染 | MIT |
-| `@tauri-apps/api` | 前端调用 Tauri 命令 | MIT 或 Apache-2.0 |
-| `tauri` / `tauri-build` / `@tauri-apps/cli` | 桌面壳、打包 | MIT 或 Apache-2.0 |
-| `tauri-plugin-single-instance` | 单实例（SC-002） | MIT 或 Apache-2.0 |
-| `tauri-plugin-notification` | 系统通知（SC-017） | MIT 或 Apache-2.0 |
-| `reqwest`（`default-features = false` + `native-tls`） | WebCal 抓取（SC-007） | MIT 或 Apache-2.0 |
-| `serde` / `serde_json` | 命令与快照序列化 | MIT 或 Apache-2.0 |
-| `vite` / `vitest` / `typescript` / `eslint` / `prettier` 等 | 仅开发期，不进安装包 | 各自 MIT（`@vitejs/*` 部分为 MIT） |
+| 依赖                                                        | 用途                  | 许可                               |
+| ----------------------------------------------------------- | --------------------- | ---------------------------------- |
+| `react` / `react-dom`                                       | 界面渲染              | MIT                                |
+| `@tauri-apps/api`                                           | 前端调用 Tauri 命令   | MIT 或 Apache-2.0                  |
+| `tauri` / `tauri-build` / `@tauri-apps/cli`                 | 桌面壳、打包          | MIT 或 Apache-2.0                  |
+| `tauri-plugin-single-instance`                              | 单实例（SC-002）      | MIT 或 Apache-2.0                  |
+| `tauri-plugin-notification`                                 | 系统通知（SC-017）    | MIT 或 Apache-2.0                  |
+| `reqwest`（`default-features = false` + `native-tls`）      | WebCal 抓取（SC-007） | MIT 或 Apache-2.0                  |
+| `serde` / `serde_json`                                      | 命令与快照序列化      | MIT 或 Apache-2.0                  |
+| `vite` / `vitest` / `typescript` / `eslint` / `prettier` 等 | 仅开发期，不进安装包  | 各自 MIT（`@vitejs/*` 部分为 MIT） |
 
 「MIT 或 Apache-2.0」是这些项目自身的双许可表述，使用时按 MIT 处理即可，
 两种许可都与本仓库的 MIT 兼容。
@@ -90,14 +101,14 @@ npm run icon          # = node tools/render-app-icon.mjs && tauri icon src-tauri
 
 ## 4. 数据来源
 
-| 数据 | 来源 | 说明 |
-| --- | --- | --- |
-| 农历 1901–2099 | 香港天文台「公曆與農曆日期對照表」年表文本 | 政府公开资料；仓库只保存由 `tools/derive-lunar-table.mjs` 推导出的换算表，原始文本不随仓库分发（见该脚本头部注释） |
-| 二十四节气 1901–2100 | 与农历同源：香港天文台「公曆與農曆日期對照表」年表的「節氣」列 | 政府公开资料；仓库只保存由 `tools/derive-solar-terms.mjs` 推导出的日期表，年表文本不随仓库分发（见该脚本头部注释）。表可重跑工具复现：`providers/china/solar-terms-derive.test.ts` 锁定生成与失败路径，并锁住全表摘要与年份范围（手改任何一年都要重新生成并更新摘要）；已提交的表经 1901–2100 全量年表核对逐字节一致 |
-| 中国传统节日 | 农历固定日期规则（`providers/china/festivals.ts`） | 规则而非数据表：春节、元宵、清明、端午、中秋等按农历日期定义 |
-| 法定节假日与补班 | 国务院办公厅每年发布的节假日安排通知 | 仓库只登记通知里的日期、文号、发布日期与来源地址（`providers/china/holidays*.ts` 的 `versions`），不复制通知正文；未登记年份安静地不显示，不推算 |
-| 英超球队 / 赛季名单 / 联赛元数据 | 公开赛程与名单整理（`providers/football/`） | 只保存名称、别名、代码、近似色与赛季名单等事实性数据；不含徽标与图片 |
-| 用户自己的日历 | 用户导入的 ICS 文件或订阅地址 | 属于用户数据，保存在本机应用数据目录，不上传（app-spec §14） |
+| 数据                             | 来源                                                           | 说明                                                                                                                                                                                                                                                                                                                 |
+| -------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 农历 1901–2099                   | 香港天文台「公曆與農曆日期對照表」年表文本                     | 政府公开资料；仓库只保存由 `tools/derive-lunar-table.mjs` 推导出的换算表，原始文本不随仓库分发（见该脚本头部注释）                                                                                                                                                                                                   |
+| 二十四节气 1901–2100             | 与农历同源：香港天文台「公曆與農曆日期對照表」年表的「節氣」列 | 政府公开资料；仓库只保存由 `tools/derive-solar-terms.mjs` 推导出的日期表，年表文本不随仓库分发（见该脚本头部注释）。表可重跑工具复现：`providers/china/solar-terms-derive.test.ts` 锁定生成与失败路径，并锁住全表摘要与年份范围（手改任何一年都要重新生成并更新摘要）；已提交的表经 1901–2100 全量年表核对逐字节一致 |
+| 中国传统节日                     | 农历固定日期规则（`providers/china/festivals.ts`）             | 规则而非数据表：春节、元宵、清明、端午、中秋等按农历日期定义                                                                                                                                                                                                                                                         |
+| 法定节假日与补班                 | 国务院办公厅每年发布的节假日安排通知                           | 仓库只登记通知里的日期、文号、发布日期与来源地址（`providers/china/holidays*.ts` 的 `versions`），不复制通知正文；未登记年份安静地不显示，不推算                                                                                                                                                                     |
+| 英超球队 / 赛季名单 / 联赛元数据 | 公开赛程与名单整理（`providers/football/`）                    | 只保存名称、别名、代码、近似色与赛季名单等事实性数据；不含徽标与图片                                                                                                                                                                                                                                                 |
+| 用户自己的日历                   | 用户导入的 ICS 文件或订阅地址                                  | 属于用户数据，保存在本机应用数据目录，不上传（app-spec §14）                                                                                                                                                                                                                                                         |
 
 数据边界（已在 README 与各 Ticket 的「边界」一段写明，这里汇总）：赛季名单是维护动作，
 `latestSeason()` 表示「已登记名单里最新的一季」；节假日数据覆盖 2024–2026，2027 年安排发布前不登记；

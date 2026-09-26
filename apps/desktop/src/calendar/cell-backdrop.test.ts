@@ -105,6 +105,7 @@ describe("日期格主背景优先级（SC-013 / ui-design §16.1）", () => {
   it("节日 / 节气专属视觉优先于联赛与假期（§16.1 优先级 1）", () => {
     const backdrop = cellBackdropOf({
       chinaSemantic: MID_AUTUMN,
+      dayBackdropAvailable: true,
       fixtures: [FIXTURE],
       chinaDay: REST_DAY,
     });
@@ -116,7 +117,10 @@ describe("日期格主背景优先级（SC-013 / ui-design §16.1）", () => {
   });
 
   it("同日两条语义取 entries[0]：清明节画节日背景，不是节气背景", () => {
-    const backdrop = cellBackdropOf({ chinaSemantic: QINGMING });
+    const backdrop = cellBackdropOf({
+      chinaSemantic: QINGMING,
+      dayBackdropAvailable: true,
+    });
 
     expect(backdrop).toEqual({
       kind: "festival",
@@ -127,6 +131,7 @@ describe("日期格主背景优先级（SC-013 / ui-design §16.1）", () => {
   it("只有节气时画节气背景（参考图 10 月 8 日「寒露」）", () => {
     const backdrop = cellBackdropOf({
       chinaSemantic: { entries: [QINGMING.entries[1]] },
+      dayBackdropAvailable: true,
     });
 
     expect(backdrop).toEqual({

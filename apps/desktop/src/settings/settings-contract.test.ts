@@ -320,6 +320,7 @@ const SETTINGS_PAGE_IMPORTS: ReadonlyArray<{
   specifier: string;
   reason: string;
 }> = [
+  { specifier: "react", reason: "导入与订阅表单的临时输入状态和事件类型" },
   {
     specifier: "../data/model",
     reason:

@@ -7,6 +7,7 @@ import {
   chinaDayGlyph,
   chinaDayLabelText,
   chinaDayPositionText,
+  holidayNamesText,
 } from "../providers/china/holiday-labels";
 import { semanticTypeDefaults } from "./metadata-resolver";
 
@@ -43,6 +44,8 @@ export interface ChinaDayLabel {
   accent?: string;
   /** 主文案：「国庆节、中秋节假期」「国庆节补班日」。 */
   label: string;
+  /** 假期首日的格子短名称；后续日期不重复。 */
+  cellLabel?: string;
   /** 连休位置：「第 2 天 / 共 9 天」；单日假期与补班日缺省。 */
   position?: string;
   /**
@@ -82,6 +85,9 @@ export function chinaDayLabelsOf(
       glyph: chinaDayGlyph(day.kind),
       ...(accent === undefined ? {} : { accent }),
       label: chinaDayLabelText(day),
+      ...(day.kind === "rest" && day.run.index === 0
+        ? { cellLabel: holidayNamesText(day.names) }
+        : {}),
       ...(position === undefined ? {} : { position }),
       ...(day.kind === "rest" ? { run: day.run } : {}),
     });

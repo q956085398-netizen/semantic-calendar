@@ -23,15 +23,14 @@ export const REGION_FACTS: readonly Fact[] = [
   {
     label: "一周起始",
     value: "周一",
-    detail: "月视图网格与事件分桶按周一起始（CAL-001）",
+    detail: "月历从周一开始",
   },
   {
     label: "时区",
     value: "跟随本机",
-    detail: "UTC 事件按本机时区显示；带 TZID 的事件按来源时区换算为瞬时",
+    detail: "日程时间按系统时区显示",
   },
 ];
 
 /** 预留说明：解释为什么这里没有可改的控件。 */
-export const REGION_RESERVED_NOTE =
-  "v0.1 不提供语言与时区设置，这里只陈述当前固定取值（不写入任何设置键）。";
+export const REGION_RESERVED_NOTE = "语言与时区暂不支持单独更改。";

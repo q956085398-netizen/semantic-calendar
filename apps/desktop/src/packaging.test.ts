@@ -46,6 +46,10 @@ const ALLOWED_ASSET_PREFIXES = [
   "apps/desktop/src-tauri/app-icon.svg",
   "apps/desktop/src-tauri/icons/", // `npm run icon` 的产物
   "docs/examples/ui/", // 人工验收截图与设计参考图
+  "docs/audits/2026-09-26/", // 本次隔离验收截图，不随应用分发
+  "apps/desktop/public/design/cutout-107-084f75d8eae6.png",
+  "apps/desktop/public/design/added-079-gear.svg",
+  "apps/desktop/public/design/cutout-73-cbde5ae527ff.png",
 ];
 
 /**

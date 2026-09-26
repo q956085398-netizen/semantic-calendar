@@ -27,12 +27,10 @@ export const APP_FACTS: readonly Fact[] = [
   {
     label: "名称",
     value: `${APP_NAME_ZH} / ${APP_NAME_EN}`,
-    detail: "界面内用中文名；安装包、开始菜单与安装目录用英文名",
   },
   {
     label: "版本",
     value: APP_VERSION,
-    detail: "与安装包、可执行文件和 Cargo 包版本一致",
   },
   {
     label: "License",

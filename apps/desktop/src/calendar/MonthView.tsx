@@ -2,6 +2,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type CSSProperties,
   type KeyboardEvent,
 } from "react";
@@ -16,6 +17,7 @@ import { MatchCell } from "./MatchCell";
 import { cellBackdropOf, type CellBackdrop } from "./cell-backdrop";
 import { CompetitionBackdrop } from "../display/CompetitionBackdrop";
 import { DayBackdrop } from "../display/DayBackdrop";
+import { dayBackdropUrl } from "../semantic/day-backdrop";
 import { displayMetadataOf } from "../semantic/metadata-resolver";
 import type { MarkAssetSource } from "../semantic/marks";
 import type { LunarLabel } from "../semantic/app-lunar";
@@ -120,6 +122,9 @@ export function MonthView({
   assets,
   status,
 }: MonthViewProps) {
+  const [failedBackdropUrls, setFailedBackdropUrls] = useState<
+    ReadonlySet<string>
+  >(new Set());
   const title = `${grid.year}年${grid.month}月`;
   // roving tabindex 的落点：优先选中格。纯月份导航不移动选择，选中格可能
   // 不在当前网格内；此时退化到今天格、再退化到当月首格，保证网格始终
@@ -246,11 +251,16 @@ export function MonthView({
               const { fixtures, ordinary } = splitFixtureEvents(
                 eventsByDate.get(cell.dateKey) ?? [],
               );
-              // 主背景只有一个（SC-013 / §16.1）：节日 / 节气 ＞ 联赛 ＞
-              // 假期 / 补班 ＞ 普通。假期视觉（底色 + 大字）是其中一项，
-              // 让位时整体不画——参考图里 10 月 4 日与 10 月 6 日都如此。
+              // 文字标签不占用背景；只有资源存在且未加载失败的图片才优先。
+              const backdropUrl = dayBackdropUrl(
+                semantic?.entries[0]?.backgroundRef,
+                assets,
+              );
               const backdrop = cellBackdropOf({
                 chinaSemantic: semantic,
+                dayBackdropAvailable:
+                  backdropUrl !== undefined &&
+                  !failedBackdropUrls.has(backdropUrl),
                 fixtures,
                 chinaDay,
               });
@@ -292,7 +302,18 @@ export function MonthView({
                   onClick={() => selectDate(cell.dateKey)}
                   onKeyDown={handleKeyDown}
                 >
-                  <CellBackdropLayer backdrop={backdrop} assets={assets} />
+                  <CellBackdropLayer
+                    key={backdropUrl}
+                    backdrop={backdrop}
+                    assets={assets}
+                    onUnavailable={() => {
+                      if (backdropUrl !== undefined) {
+                        setFailedBackdropUrls(
+                          (urls) => new Set([...urls, backdropUrl]),
+                        );
+                      }
+                    }}
+                  />
                   {solarTerm && (
                     <span
                       className="cell-solar-term"
@@ -308,6 +329,13 @@ export function MonthView({
                       style={accentStyle("--day-accent", festival.accent)}
                     >
                       {festival.name}
+                    </span>
+                  ) : chinaDay?.cellLabel ? (
+                    <span
+                      className="cell-semantic cell-holiday-name"
+                      style={accentStyle("--day-accent", chinaDay.accent)}
+                    >
+                      {chinaDay.cellLabel}
                     </span>
                   ) : (
                     lunar && <span className="cell-lunar">{lunar.cell}</span>
@@ -346,15 +374,23 @@ export function MonthView({
 function CellBackdropLayer({
   backdrop,
   assets,
+  onUnavailable,
 }: {
   backdrop: CellBackdrop;
   assets?: MarkAssetSource;
+  onUnavailable: () => void;
 }) {
   switch (backdrop.kind) {
     case "festival":
     case "solar-term":
       // 节日 / 节气专属视觉：整格图片，由格子的 overflow: hidden 裁切（§9.1）。
-      return <DayBackdrop ref={backdrop.ref} assets={assets} />;
+      return (
+        <DayBackdrop
+          ref={backdrop.ref}
+          assets={assets}
+          onUnavailable={onUnavailable}
+        />
+      );
     case "league":
       // 联赛视觉（§10.1）：大面积低透明度狮标 / Logo，同样裁在格内。
       return (

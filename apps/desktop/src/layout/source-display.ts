@@ -1,12 +1,28 @@
 /**
  * 数据源行的展示规则（SC-006 / SC-007 / SRC-003，侧栏与设置页共用）。
  *
- * 两处界面（侧栏数据源列表、设置页数据源一节）渲染同一份来源状态，
- * 因此“状态怎么写”“识别色怎么取”只有这一处实现——两边的说法不会漂移。
+ * 侧栏与设置页共用名称与识别色；同步状态和删除确认只在设置中展示。
  */
 
 import { formatDateTime } from "../format/time";
 import { WEBCAL_SOURCE_TYPE, type CalendarSource } from "../data/model";
+import { webcalDisplayName, redactWebcalUrl } from "../data/webcal/webcal-url";
+
+/** 旧版用地址作名称的订阅用短名称展示，完整地址留在设置的详情中。 */
+export function sourceDisplayName(source: CalendarSource): string {
+  if (
+    source.type === WEBCAL_SOURCE_TYPE &&
+    source.webcal &&
+    source.name === webcalDisplayName(source.webcal.url)
+  )
+    return "订阅日历";
+  return source.name;
+}
+
+/** 设置中的地址也省略账号及查询串，避免暴露订阅凭据。 */
+export function sourceAddress(source: CalendarSource): string | undefined {
+  return source.webcal ? redactWebcalUrl(source.webcal.url) : undefined;
+}
 
 /** 导入源识别色：按 id 派生（增删其他来源不会改变既有颜色）。 */
 const SOURCE_COLORS = [
@@ -54,5 +70,5 @@ export function sourceStatusText(
 /** 删除确认文案：订阅与本地导入的来源各自的说法（避免把文件说成订阅）。 */
 export function describeSourceRemoval(source: CalendarSource): string {
   const kind = source.type === WEBCAL_SOURCE_TYPE ? "订阅" : "导入来源";
-  return `删除${kind}「${source.name}」及其全部事件？`;
+  return `删除${kind}「${sourceDisplayName(source)}」及其全部事件？`;
 }
