@@ -1,0 +1,118 @@
+{
+  "default": {
+    "days": [
+      {
+        "backdrop": "holiday",
+        "background": "color(srgb 0.24549 0.32549 0.404706)",
+        "date": "2026-09-20",
+        "text": "20初十补"
+      },
+      {
+        "backdrop": null,
+        "background": "rgb(30, 37, 46)",
+        "date": "2026-09-21",
+        "text": "21十一"
+      },
+      {
+        "backdrop": "holiday",
+        "background": "color(srgb 0.327454 0.210096 0.196493)",
+        "date": "2026-09-25",
+        "text": "25中秋节休"
+      },
+      {
+        "backdrop": "holiday",
+        "background": "color(srgb 0.243765 0.174039 0.17302 / 0.55)",
+        "date": "2026-10-01",
+        "text": "1国庆节休"
+      }
+    ],
+    "panes": [
+      {
+        "class": "",
+        "client": 760,
+        "scroll": 760
+      },
+      {
+        "class": "",
+        "client": 760,
+        "scroll": 760
+      },
+      {
+        "class": "pane pane-sidebar",
+        "client": 740,
+        "scroll": 740
+      },
+      {
+        "class": "month-view",
+        "client": 740,
+        "scroll": 740
+      },
+      {
+        "class": "inspector",
+        "client": 696,
+        "scroll": 696
+      }
+    ],
+    "viewport": [
+      1180,
+      760
+    ]
+  },
+  "wide": {
+    "images": [
+      {
+        "loaded": true,
+        "source": "/design/added-079-gear.svg"
+      },
+      {
+        "loaded": true,
+        "source": "/design/cutout-107-084f75d8eae6.png"
+      },
+      {
+        "loaded": true,
+        "source": "/design/cutout-73-cbde5ae527ff.png"
+      }
+    ],
+    "settings": [
+      881,
+      881
+    ],
+    "viewport": [
+      1920,
+      1080
+    ]
+  },
+  "minSettings": {
+    "body": [
+      560,
+      560
+    ],
+    "columns": "715.714px",
+    "viewport": [
+      820,
+      560
+    ],
+    "bottomReachable": true
+  },
+  "minMonth": {
+    "body": [
+      560,
+      560
+    ],
+    "cells": 42,
+    "rails": [
+      {
+        "label": "展开侧栏",
+        "overlap": 0
+      },
+      {
+        "label": "展开详情",
+        "overlap": 0
+      }
+    ],
+    "viewport": [
+      820,
+      560
+    ]
+  }
+}

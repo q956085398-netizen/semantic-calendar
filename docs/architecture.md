@@ -128,6 +128,8 @@ Matcher 输出语义，不直接决定 UI 长什么样。
 }
 ```
 
+> 当前实现（SC-009 / SC-015 / SC-011）：领域 Matcher 放在 `apps/desktop/src/providers/football/`，与球队 / 联赛数据同目录，而不是本节建议的 `matchers/football/`——识别所需的词表（别名、规范名、赛季名单）就是 Provider 的数据，拆成两个目录会让“改数据”和“改识别”分家。Matcher 只输出语义与 `entities` 顺序（第 0 个为主队，即上文示例里的 `entities` 顺序含义），不接触展示；优先级约定为 0–99 留给按日期判定的事件语义、100 起给按标题判定的语义。日级语义（法定节假日、传统节日、节气）不经事件引擎——它们不是某条事件的属性，而是日期本身的属性，引擎输入装不下；这类 Provider 与农历一样以日期键为入口（SC-011 见 `providers/china/` + `semantic/app-china-days.ts`，展示色仍取自 Metadata Resolver 的类型级默认值，见 app-spec §7.4 / §8.4）。
+
 ---
 
 ## 5. Metadata Resolver
@@ -148,6 +150,8 @@ Metadata Resolver 根据语义信息解析展示所需数据。
 > “识别出这是阿森纳比赛”和“阿森纳徽标文件在哪里”是两个不同问题。
 
 这样未来更换图标包、主题或语言时，不需要修改识别逻辑。
+
+> 当前实现（SC-014，SC-016 起补充）：Provider 位于 `apps/desktop/src/providers/football/`（球队字典、联赛与赛季名单、队徽与联赛 Logo 的逻辑引用），Resolver 通过静态注册进入解析链。逻辑引用 → 资源地址 / fallback 的解析规则在核心 `apps/desktop/src/semantic/marks.ts`（SC-016 从 Provider 移入）：它针对核心展示契约 `FixtureDisplay`，且 UI 不能 import Provider 目录，而月格与 Inspector 都要渲染标记。徽标 / 联赛 Logo 只保存逻辑引用，图片资源不随仓库分发；UI 源码不出现任何球队名称（由 `ui-boundary.test.ts` 守住）。仓库仍是单一 workspace，未按本节末尾的建议目录拆包。
 
 ---
 
@@ -180,6 +184,28 @@ festival       → 前一天
 ```
 
 但最终应由用户设置覆盖。
+
+---
+
+## 8. 桌面壳与生命周期
+
+桌面壳负责“应用怎么活”，不参与数据流：
+
+```text
+窗口显示 / 隐藏 / 恢复
+系统托盘
+关闭窗口语义（隐藏到托盘 / 退出）
+单实例
+本地文件与网络访问的 IPC 出口
+```
+
+原则：
+
+- 窗口行为由设置驱动，不由 UI 临时决定；
+- 壳层不持有定时器，后台唤醒统一由数据层的事件驱动调度负责；
+- 托盘不可用等降级必须显式，不能出现“窗口藏起来却没有恢复入口”。
+
+> 当前实现（SC-002）：壳层代码位于 `apps/desktop/src-tauri/src/shell.rs`（关闭语义、托盘、窗口恢复）与 `apps/desktop/src/shell/`（设置规范化与 IPC 端口）。Rust 侧只保存关闭行为的运行时镜像，权威来源是本地快照的设置项 `app.closeBehavior`；托盘菜单、托盘点击与第二实例启动共用同一段窗口恢复逻辑。数据 / 网络 IPC 见 §2 与 §5 的说明。
 
 ---
 

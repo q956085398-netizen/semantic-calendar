@@ -1,0 +1,68 @@
+{
+  "minimum": [
+    {
+      "bottom": 560,
+      "client": 560,
+      "scroll": 560,
+      "selector": "body",
+      "y": 0
+    },
+    {
+      "bottom": 550,
+      "client": 540,
+      "scroll": 540,
+      "selector": ".pane-sidebar",
+      "y": 10
+    },
+    {
+      "bottom": 403.6071548461914,
+      "client": 100,
+      "scroll": 299,
+      "selector": ".sidebar-calendar-controls",
+      "y": 303.71429443359375
+    },
+    {
+      "bottom": 456.4642906188965,
+      "client": 32,
+      "scroll": 32,
+      "selector": ".settings-entry",
+      "y": 423.6071472167969
+    },
+    {
+      "bottom": 534.000036239624,
+      "client": 28,
+      "scroll": 28,
+      "selector": ".pane-sidebar .pane-toggle-collapse",
+      "y": 504.857177734375
+    }
+  ],
+  "default": [
+    {
+      "client": 760,
+      "scroll": 760,
+      "selector": "body"
+    },
+    {
+      "client": 740,
+      "scroll": 740,
+      "selector": ".pane-sidebar"
+    },
+    {
+      "client": 299,
+      "scroll": 299,
+      "selector": ".sidebar-calendar-controls"
+    }
+  ],
+  "wideSettings": [
+    {
+      "client": 1080,
+      "scroll": 1080,
+      "selector": "body"
+    },
+    {
+      "client": 887,
+      "scroll": 887,
+      "selector": ".settings-body"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+[package]
+name = "semantic-calendar"
+version = "0.1.0"
+description = "Semantic Calendar desktop application"
+authors = ["Semantic Calendar contributors"]
+edition = "2021"
+
+[lib]
+name = "semantic_calendar_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+# tray-icon（SC-002）：系统托盘需要 tauri 的 tray-icon feature，图标直接复用
+# bundle 里的应用图标，不额外引入图片依赖。
+tauri = { version = "2", features = ["tray-icon"] }
+# 单实例（SC-002）：第二次启动不再起新进程，而是恢复已有窗口。
+tauri-plugin-single-instance = "2"
+# WebCal 订阅抓取（SC-007）：默认 feature 会启用 rustls + aws-lc-rs（需要
+# cmake/nasm 工具链），这里改为系统 TLS（Windows 走 schannel），避免额外
+# C 构建依赖。默认 feature 中的 charset / http2 / system-proxy 暂不需要。
+reqwest = { version = "0.13", default-features = false, features = ["native-tls"] }
+# 本地通知（SC-017）：桌面端用系统通知（Windows 走 WinRT toast），
+# 权限状态与发送都留在 Rust 侧，webview 只发命令。
+tauri-plugin-notification = "2.4.0"
+
+[dev-dependencies]
+# 只用于断言命令返回值的序列化形态（不与前端共享）。
+serde_json = "1"
