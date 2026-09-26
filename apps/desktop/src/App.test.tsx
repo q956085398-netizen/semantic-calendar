@@ -3068,3 +3068,103 @@ describe("月切换的分片读取（SC-020 / app-spec §15）", () => {
     expect(screen.queryByText(/正在整理事件/)).toBeNull();
   });
 });
+it.each(["not-modified", "failed"])(
+  "并发 %s 刷新后仍发布另一来源的比赛语义",
+  async (result) => {
+    freezeClock();
+    const now = new Date().toISOString();
+    const sources = ["a", "b"].map((id) => ({
+      id,
+      type: "webcal",
+      name: id === "a" ? "Alpha" : "Beta",
+      enabled: true,
+      lastSyncStatus: "ok",
+      lastSyncAt: now,
+      webcal: {
+        url: `https://${id}.example.invalid/feed.ics`,
+        lastCheckedAt: now,
+      },
+    }));
+    mockBackend({
+      dataStoreRead: JSON.stringify({
+        schemaVersion: 1,
+        sources,
+        events: [],
+        enrichments: {},
+        settings: {},
+      }),
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/本地数据层就绪/)).toBeTruthy(),
+    );
+    const enrichment = await import("./semantic/enrich");
+    const realRebuild = enrichment.reEnrichStoreYielding;
+    let release!: () => void;
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let awaitingEnrichment = false;
+    vi.spyOn(enrichment, "reEnrichStoreYielding").mockImplementationOnce(
+      async (...args) => {
+        awaitingEnrichment = true;
+        await hold;
+        return realRebuild(...args);
+      },
+    );
+    const body = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "BEGIN:VEVENT",
+      "UID:concurrent-fixture",
+      "SUMMARY:Arsenal vs Manchester City",
+      "DTSTART:20260926T123000Z",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    mockBackend({
+      webcalFetch: (args) =>
+        String(args.url).includes("a.example")
+          ? webcalOk(body)
+          : result === "not-modified"
+            ? WEBCAL_NOT_MODIFIED
+            : { status: 500, body: "", etag: null, lastModified: null },
+    });
+    const pane = openSettings();
+    const alpha = within(pane).getByText("Alpha").closest("li")!;
+    const beta = within(pane).getByText("Beta").closest("li")!;
+    fireEvent.click(within(alpha).getByRole("button", { name: "刷新" }));
+    await waitFor(() => expect(awaitingEnrichment).toBe(true));
+    fireEvent.click(within(beta).getByRole("button", { name: "刷新" }));
+    await waitFor(() => expect(beta.textContent).not.toContain("刷新中"));
+    await waitFor(() =>
+      expect(writtenSnapshots().at(-1)?.events).toHaveLength(1),
+    );
+    // Let B publish its raw event read before A completes semantic enrichment.
+    closeSettings();
+    await waitFor(() =>
+      expect(screen.getByRole("main").textContent).toContain(
+        "Arsenal vs Manchester City",
+      ),
+    );
+    release();
+    await waitFor(() =>
+      expect(
+        Object.keys(writtenSnapshots().at(-1)!.enrichments as object),
+      ).toHaveLength(1),
+    );
+    expect(
+      Object.values(
+        writtenSnapshots().at(-1)!.enrichments as Record<
+          string,
+          { metadata?: { fixture?: unknown } }
+        >,
+      )[0].metadata?.fixture,
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("main").querySelector(".match-cell"),
+      ).toBeTruthy(),
+    );
+  },
+);

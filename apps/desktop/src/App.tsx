@@ -299,7 +299,7 @@ export default function App() {
   const [sources, setSources] = useState<CalendarSource[]>([]);
   const [events, setEvents] = useState<EnrichedEvent[]>([]);
   /** 最近一次读事件时的存储版本（SC-020）：相同就不必再读一遍，见 refreshFromStore。 */
-  const eventsRevisionRef = useRef(-1);
+  const readModelRevisionRef = useRef(-1);
   /** 事件读取的代次（SC-024）：只有最后一次发起的读取才发布结果。 */
   const eventsLoadGenerationRef = useRef(0);
   const [importStatus, setImportStatus] = useState<string | undefined>();
@@ -590,7 +590,7 @@ export default function App() {
    * 事件集合没变时**不重新读取事件**（SC-020）：读取模型会逐条克隆
    * （10,000 条约 37 ms），而读取方拿到新数组就会重算月格——一次 304
    * 刷新或一次失败刷新本来什么都没改，却会白读一遍、让月格闪一次“整理中”。
-   * 判断依据是存储的 `eventsRevision()`（只在事件集合真的会变时推进），
+   * 判断依据是存储的 `readModelRevision()`（事件或增强结果提交时推进），
    * 不是“数组换了新对象”。来源行照常更新：304 也要反映最近一次成功时间。
    *
    * 读取本身分片进行（SC-024）：克隆拆成短任务，任务之间让出主线程，读完
@@ -605,8 +605,8 @@ export default function App() {
     async (store: CalendarStore): Promise<void> => {
       const nextSources = store.listSources();
       setSources(nextSources);
-      const revision = store.eventsRevision();
-      if (revision === eventsRevisionRef.current) {
+      const revision = store.readModelRevision();
+      if (revision === readModelRevisionRef.current) {
         return;
       }
       const enabled = new Set(
@@ -623,7 +623,7 @@ export default function App() {
       if (generation !== eventsLoadGenerationRef.current) {
         return;
       }
-      eventsRevisionRef.current = revision;
+      readModelRevisionRef.current = revision;
       setEvents(events);
     },
     [],

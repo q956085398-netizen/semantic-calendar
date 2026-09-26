@@ -101,6 +101,7 @@ export class CalendarStore {
   private saveChain: Promise<void> = Promise.resolve();
   /** 可见事件集合的版本号，见 eventsRevision()。 */
   private eventsRevisionValue = 0;
+  private enrichmentsRevisionValue = 0;
 
   private constructor(
     private readonly fileIO: FileIO,
@@ -115,16 +116,21 @@ export class CalendarStore {
    * 可见事件集合的版本号：**只在集合真的会变时推进**（事件的增删改、来源启停、
    * 来源删除），来源状态 / 校验值这类不动事件的改动不推进。
    *
-   * 读取方（App）用它决定要不要重新读取事件。快照里的事件是逐条克隆出来的
-   * （10,000 条约 37 ms，performance.md §2.1），而 304 刷新与失败刷新都不会
-   * 改变事件集合——没有这个信号，读取方只能靠“事件数组换了新对象”判断，
-   * 于是每次后台刷新都白读一遍、白算一遍月格（SC-020）。
+   * 增强重建用它检查原始输入是否变化。App 使用 readModelRevision()，
+   * 同时跟踪增强提交；304 / 失败只更新来源状态时，两种版本都不推进。
    *
    * 版本号是实例内的单调计数，不落盘：它的用途只是“与上一次读到的比一比”，
    * 因此新实例从 0 开始，与任何旧值都不相等，读取方会保守地重读一次。
    */
   eventsRevision(): number {
     return this.eventsRevisionValue;
+  }
+
+  /** UI 读取模型的版本：原始事件与增强结果任一提交都使缓存失效。
+   * 增强重建仍用 eventsRevision 检查输入，避免自己的提交触发无限重试。
+   */
+  readModelRevision(): number {
+    return this.eventsRevisionValue + this.enrichmentsRevisionValue;
   }
 
   static async open(
@@ -508,6 +514,7 @@ export class CalendarStore {
 
   saveEnrichment(identity: EventIdentity, enrichment: EventEnrichment): void {
     this.enrichments.set(eventKey(identity), clone(enrichment));
+    this.enrichmentsRevisionValue += 1;
   }
 
   /**
@@ -529,6 +536,7 @@ export class CalendarStore {
     }
     if (!canCommit()) return false;
     this.enrichments = next;
+    this.enrichmentsRevisionValue += 1;
     return true;
   }
 
@@ -540,6 +548,7 @@ export class CalendarStore {
   /** 清除增强结果、保留原始事件；Matcher 更新后从这里重建。 */
   clearEnrichments(sourceId?: string): void {
     if (sourceId === undefined) {
+      if (this.enrichments.size > 0) this.enrichmentsRevisionValue += 1;
       this.enrichments.clear();
       return;
     }
@@ -547,6 +556,7 @@ export class CalendarStore {
     for (const key of [...this.enrichments.keys()]) {
       if (key.startsWith(prefix)) {
         this.enrichments.delete(key);
+        this.enrichmentsRevisionValue += 1;
       }
     }
   }

@@ -60,6 +60,48 @@ const fixtureSemantic: SemanticEvent = {
   matcherId: "football/premier-league-title",
 };
 
+describe("增强结果的读取模型版本", () => {
+  it("增强提交使读取缓存失效，但不改变重建所检查的原始输入版本", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+    const identity = { sourceId: "source-1", uid: "event-1" };
+    const rawRevision = store.eventsRevision();
+    const initial = store.readModelRevision();
+    store.saveEnrichment(identity, { semantic: fixtureSemantic });
+    const saved = store.readModelRevision();
+    expect(saved).toBeGreaterThan(initial);
+    const staged = store.replaceEnrichmentsInChunks([
+      { identity, enrichment: { semantic: fixtureSemantic } },
+    ]);
+    for (const step of staged) void step;
+    expect(store.readModelRevision()).toBeGreaterThan(saved);
+    const committed = store.readModelRevision();
+    store.clearEnrichments("source-1");
+    expect(store.readModelRevision()).toBeGreaterThan(committed);
+    expect(store.eventsRevision()).toBe(rawRevision);
+  });
+
+  it("拒绝提交的增强重建与空清理不会使读取缓存失效", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+    store.saveEnrichment(
+      { sourceId: "source-1", uid: "event-1" },
+      { semantic: fixtureSemantic },
+    );
+    const revision = store.readModelRevision();
+    const staged = store.replaceEnrichmentsInChunks([], 128, () => false);
+    expect(staged.next()).toEqual({ done: true, value: false });
+    store.clearEnrichments("missing-source");
+    expect(store.readModelRevision()).toBe(revision);
+    expect(
+      store.getEnrichment({ sourceId: "source-1", uid: "event-1" }),
+    ).toBeDefined();
+    store.clearEnrichments();
+    const cleared = store.readModelRevision();
+    expect(cleared).toBeGreaterThan(revision);
+    store.clearEnrichments();
+    expect(store.readModelRevision()).toBe(cleared);
+  });
+});
+
 describe("CalendarStore.open", () => {
   it("首次打开时创建空的 v1 快照", async () => {
     const { store, recovery } = await CalendarStore.open(fileIO, storePath);
