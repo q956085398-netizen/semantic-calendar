@@ -137,7 +137,7 @@ Arsenal vs Manchester City
 | SC-021 | [#22](https://github.com/q956085398-netizen/semantic-calendar/issues/22) | 核心单测、集成测试、UI 验收 | 全程 |
 | SC-022 | [#23](https://github.com/q956085398-netizen/semantic-calendar/issues/23) | Windows 打包、图标、License、资产审查 | 其余 v0.1 Ticket |
 | SC-024 | [#25](https://github.com/q956085398-netizen/semantic-calendar/issues/25) | 导入链路的解析与落库分片（SC-020 验收发现） | SC-020 |
-| SC-025 | [#27](https://github.com/q956085398-netizen/semantic-calendar/issues/27) | 修复 V0.1 常驻与订阅缺陷并完成发布验收（待实现；[收尾规格](specs/sc-025-v01-closeout.md)） | SC-005, SC-007, SC-017–SC-022, SC-024 |
+| SC-025 | [#27](https://github.com/q956085398-netizen/semantic-calendar/issues/27) | 修复 V0.1 常驻与订阅缺陷并完成发布验收（修复已提交，实机多项通过；2026-09-27 按用户决定暂停剩余验收，保留未关闭；[收尾规格](specs/sc-025-v01-closeout.md)、[当前验收记录](release.md#35-本轮验收停止点2026-09-27)） | SC-005, SC-007, SC-017–SC-022, SC-024 |
 
 ### Release Exit Criteria
 
