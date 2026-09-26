@@ -331,6 +331,80 @@ describe("分片增强（SC-020 / app-spec §15）", () => {
     expect(store.toSnapshot().enrichments).toEqual({});
     expect(store.listEvents()).toEqual([]);
   });
+
+  it("重建取消或事件集合变化时保留原增强分区", async () => {
+    const store = await seededLargeStore();
+    const stack = {
+      engine: createMatcherEngine([titleMatcher("cn", "国庆假期", "holiday")]),
+      resolver: RESOLVER,
+    };
+    reEnrichStore(store, stack);
+    const before = store.toSnapshot().enrichments;
+    const controller = new AbortController();
+
+    await expect(
+      reEnrichStoreYielding(store, stack, {
+        chunkSize: 2,
+        signal: controller.signal,
+        yieldToMain: async () => controller.abort(),
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(store.toSnapshot().enrichments).toEqual(before);
+
+    await reEnrichStoreYielding(store, stack, {
+      chunkSize: 2,
+      yieldToMain: async () => store.removeEvents("src-1"),
+    });
+    expect(store.toSnapshot().enrichments).toEqual({});
+  });
+
+  it("重建期间其他来源变化时从最新事件集合重试", async () => {
+    const store = await seededLargeStore();
+    store.upsertSource({
+      id: "src-2",
+      type: "local-ics",
+      name: "并发来源",
+      enabled: true,
+    });
+    store.upsertEvents("src-2", [
+      {
+        uid: "concurrent-event",
+        sourceId: "src-2",
+        title: "国庆假期",
+        normalizedTitle: "国庆假期",
+        start: "2026-10-01",
+        allDay: true,
+      },
+    ]);
+    const stack = {
+      engine: createMatcherEngine([titleMatcher("cn", "国庆假期", "holiday")]),
+      resolver: RESOLVER,
+    };
+    let deleted = false;
+
+    await reEnrichStoreYielding(store, stack, {
+      chunkSize: 2,
+      yieldToMain: async () => {
+        if (!deleted) {
+          deleted = true;
+          store.removeSource("src-2");
+        }
+      },
+    });
+
+    expect(deleted).toBe(true);
+    expect(store.getSource("src-2")).toBeUndefined();
+    expect(store.getEnrichment({ sourceId: "src-1", uid: "event-0" })).toEqual(
+      expect.objectContaining({
+        semantic: expect.objectContaining({ type: "holiday" }),
+      }),
+    );
+    expect(
+      Object.keys(store.toSnapshot().enrichments).some((key) =>
+        key.startsWith("src-2"),
+      ),
+    ).toBe(false);
+  });
 });
 
 /** 12 条事件的存储：分片边界（chunkSize=3）落在中间，能覆盖多片路径。 */

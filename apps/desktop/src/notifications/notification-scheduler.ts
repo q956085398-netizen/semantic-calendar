@@ -6,6 +6,7 @@ import {
   type PlannedReminder,
 } from "./reminder-plan";
 import type { ReminderOutcome } from "./fired-reminders";
+import { nextLocalMidnightDelay } from "../scheduling/local-day";
 
 /**
  * 提醒调度（SC-017 / app-spec §12「下一条通知调度」）。
@@ -30,20 +31,8 @@ const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
 export type TimerHandle = ReturnType<typeof setTimeout>;
 
-/** 距离下一个本地零点的毫秒数（跨天重算用，恒在 (0, 24h] 内）。 */
-export function nextDayRolloverDelay(nowMs: number): number {
-  const now = new Date(nowMs);
-  const midnight = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() + 1,
-    0,
-    0,
-    0,
-    0,
-  );
-  return Math.max(0, midnight.getTime() - nowMs);
-}
+/** 向后兼容现有调用方与测试。 */
+export const nextDayRolloverDelay = nextLocalMidnightDelay;
 
 export interface NotificationSchedulerDeps {
   /** 当前计划（由 App 用事件 + 设置算出，见 reminder-plan）。 */

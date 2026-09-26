@@ -1806,7 +1806,7 @@ button:focus-visible {
   font-weight: 700;
 }
 
-.settings-group-title img {
+.settings-group-title svg {
   width: 24px;
   height: 24px;
   object-fit: contain;
@@ -2007,7 +2007,7 @@ button:focus-visible {
 .import-icon {
   width: 16px;
   height: 16px;
-  object-fit: contain;
+  flex: none;
   margin-right: 6px;
 }
 

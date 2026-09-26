@@ -240,6 +240,20 @@ describe("数据源状态持久化（SRC-003）", () => {
     ]);
   });
 
+  it("全量替换按批次内重复身份计入更新", async () => {
+    const { store } = await CalendarStore.open(fileIO, storePath);
+    store.upsertSource(makeSource());
+
+    const result = store.replaceSourceEvents("source-1", [
+      makeEvent({ title: "第一份" }),
+      makeEvent({ title: "最后一份" }),
+    ]);
+
+    expect(result).toEqual({ inserted: 1, updated: 1, removed: 0 });
+    expect(store.listEvents()).toHaveLength(1);
+    expect(store.listEvents()[0].title).toBe("最后一份");
+  });
+
   it("replaceSourceEvents 删掉消失事件的增强记录，重新入库的那份等待重建", async () => {
     const { store } = await CalendarStore.open(fileIO, storePath);
     store.upsertSource(makeSource());

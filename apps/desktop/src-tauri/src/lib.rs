@@ -91,12 +91,33 @@ fn data_store_rename(
 
 /// WebCal 订阅抓取（SC-007）：网络访问全部走 Rust，webview 不直接联网。
 #[tauri::command]
+fn webcal_request_begin(
+    requests: tauri::State<'_, webcal::WebcalRequestRegistry>,
+    request_id: String,
+) -> Result<(), String> {
+    requests.register(request_id)
+}
+
+#[tauri::command]
+fn webcal_request_cancel(
+    requests: tauri::State<'_, webcal::WebcalRequestRegistry>,
+    request_id: String,
+) {
+    requests.cancel(&request_id);
+}
+
+#[tauri::command]
 async fn webcal_fetch(
+    requests: tauri::State<'_, webcal::WebcalRequestRegistry>,
+    request_id: String,
     url: String,
     etag: Option<String>,
     last_modified: Option<String>,
 ) -> Result<webcal::WebcalFetchResponse, String> {
-    webcal::fetch(url, etag, last_modified).await
+    let cancel = requests.start(&request_id)?;
+    let result = webcal::fetch_cancellable(url, etag, last_modified, cancel).await;
+    requests.finish(&request_id);
+    result
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -111,6 +132,7 @@ pub fn run() {
         // 什么时候提醒由前端调度器决定（app-spec §12 只用“下一条通知调度”唤醒）。
         .plugin(tauri_plugin_notification::init())
         .manage(shell::ShellState::new())
+        .manage(webcal::WebcalRequestRegistry::default())
         .setup(|app| {
             // 托盘不可用不阻塞启动：关闭行为会自动退化为退出
             // （shell::effective_close_behavior），不会出现“窗口藏起来又没有入口”。
@@ -130,6 +152,8 @@ pub fn run() {
             data_store_read,
             data_store_write,
             data_store_rename,
+            webcal_request_begin,
+            webcal_request_cancel,
             webcal_fetch,
             notify::notification_status,
             notify::notification_request_permission,

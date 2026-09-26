@@ -1,5 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { HttpGetRequest, HttpGetResponse, HttpIO } from "./http-io";
+import {
+  httpAbortError,
+  type HttpGetRequest,
+  type HttpGetResponse,
+  type HttpIO,
+} from "./http-io";
+
+let requestSequence = 0;
 
 /**
  * 桌面壳 HttpIO：走 Rust 命令抓取订阅内容。
@@ -11,25 +18,52 @@ import type { HttpGetRequest, HttpGetResponse, HttpIO } from "./http-io";
  */
 export function createTauriHttpIO(): HttpIO {
   return {
-    async get(request: HttpGetRequest): Promise<HttpGetResponse> {
-      const response = await invoke<{
-        status: number;
-        notModified: boolean;
-        body?: string | null;
-        etag?: string | null;
-        lastModified?: string | null;
-      }>("webcal_fetch", {
-        url: request.url,
-        etag: request.etag ?? null,
-        lastModified: request.lastModified ?? null,
-      });
-      return {
-        status: response.status,
-        notModified: response.notModified,
-        body: response.body ?? undefined,
-        etag: response.etag ?? undefined,
-        lastModified: response.lastModified ?? undefined,
+    async get(
+      request: HttpGetRequest,
+      signal?: AbortSignal,
+    ): Promise<HttpGetResponse> {
+      if (signal?.aborted) throw httpAbortError();
+      const requestId = `webcal-${++requestSequence}`;
+      await invoke("webcal_request_begin", { requestId });
+
+      const cancel = () => {
+        void invoke("webcal_request_cancel", { requestId }).catch(() => {});
       };
+      const onAbort = () => cancel();
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) {
+        cancel();
+        signal.removeEventListener("abort", onAbort);
+        throw httpAbortError();
+      }
+
+      try {
+        const response = await invoke<{
+          status: number;
+          notModified: boolean;
+          body?: string | null;
+          etag?: string | null;
+          lastModified?: string | null;
+        }>("webcal_fetch", {
+          requestId,
+          url: request.url,
+          etag: request.etag ?? null,
+          lastModified: request.lastModified ?? null,
+        });
+        if (signal?.aborted) throw httpAbortError();
+        return {
+          status: response.status,
+          notModified: response.notModified,
+          body: response.body ?? undefined,
+          etag: response.etag ?? undefined,
+          lastModified: response.lastModified ?? undefined,
+        };
+      } catch (error) {
+        if (signal?.aborted) throw httpAbortError();
+        throw error;
+      } finally {
+        signal?.removeEventListener("abort", onAbort);
+      }
     },
   };
 }

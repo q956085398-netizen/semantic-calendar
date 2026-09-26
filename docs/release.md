@@ -6,13 +6,13 @@
 
 ## 1. 交付物
 
-| 产物 | 路径（构建产出，不随仓库分发） | 说明 |
-| --- | --- | --- |
-| NSIS 安装包 | `apps/desktop/src-tauri/target/release/bundle/nsis/Semantic Calendar_0.1.0_x64-setup.exe` | 约 2.43 MB；当前用户安装，不需要管理员。NSIS 产物含构建时间戳，两次构建的字节数会有小幅差异（2,427,644 / 2,427,719），因此这里记量级而不是指纹 |
-| 可执行文件 | `apps/desktop/src-tauri/target/release/semantic-calendar.exe` | 10,706,432 字节；前端资源已内嵌 |
-| 前端资源 | `apps/desktop/dist/` | 由 `beforeBuildCommand` 生成后打进可执行文件 |
-| 图标源 | `apps/desktop/src-tauri/app-icon.svg`、`app-icon.png` | 由 `tools/render-app-icon.mjs` 生成（原创资产） |
-| 应用图标集 | `apps/desktop/src-tauri/icons/` | 由 `npm run icon` 从图标源派生 |
+| 产物        | 路径（构建产出，不随仓库分发）                                                            | 说明                                                                                                                                           |
+| ----------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| NSIS 安装包 | `apps/desktop/src-tauri/target/release/bundle/nsis/Semantic Calendar_0.1.0_x64-setup.exe` | 2,439,632 字节；当前用户安装，不需要管理员。当前候选 SHA-256：`C110CC9F65BDB7B79490387EC610243D86D129A39421A1C629C1223B6F12F5C8` |
+| 可执行文件  | `apps/desktop/src-tauri/target/release/semantic-calendar.exe`                             | 10,742,272 字节；SHA-256：`D886B2FFBD7B92A8C6918299C1A12529486B82FB4E97190B84FF3206033D9F1F`；前端资源已内嵌 |
+| 前端资源    | `apps/desktop/dist/`                                                                      | 由 `beforeBuildCommand` 生成后打进可执行文件                                                                                                   |
+| 图标源      | `apps/desktop/src-tauri/app-icon.svg`、`app-icon.png`                                     | 由 `tools/render-app-icon.mjs` 生成（原创资产）                                                                                                |
+| 应用图标集  | `apps/desktop/src-tauri/icons/`                                                           | 由 `npm run icon` 从图标源派生                                                                                                                 |
 
 构建命令：
 
@@ -22,49 +22,49 @@ npm run tauri build        # 仓库根目录；Windows 上产出 NSIS 安装包
 
 ## 2. app-spec §20 逐项检查
 
-| 门槛项 | 证据 | 结果 |
-| --- | --- | --- |
-| Windows 安装 / 启动 / 卸载可用 | 本文 §3（实机验收记录 + 截图） | 通过 |
-| 月视图基础体验稳定 | [ui-acceptance.md](ui-acceptance.md) §4 第 1–6、14–16 项；`calendar/MonthView.test.tsx`、`calendar/month-grid.test.ts` | 通过 |
-| 浅色 / 深色主题可用 | ui-acceptance.md §4 第 17–18 项（浅色 / 深色各一遍）；`theme/theme.test.ts` | 通过 |
-| 本地 ICS 导入可靠 | `ics/parse-ics.test.ts`、`data/import/import-local-ics.test.ts`；ui-acceptance.md §4 第 7–8 项 | 通过 |
-| WebCal 基础订阅可用 | `data/webcal/webcal-refresh.test.ts`、`data/webcal/refresh-scheduler.test.ts` | 通过 |
-| 时区 / 全天 / 常见 recurrence 有测试 | `normalize/timezone.test.ts`、`normalize/rrule.test.ts`、`normalize/occurrences.test.ts`、`normalize/normalizer.test.ts` | 通过 |
-| 中国法定节假日、调休、农历、节气可用 | `providers/china/holidays.test.ts`、`lunar.test.ts`、`solar-terms.test.ts`、`festivals.test.ts`；ui-acceptance.md §4 第 9–13 项 | 通过 |
-| 英超比赛识别与 UI 可用 | `providers/football/football-matcher.test.ts`、`football-metadata-resolver.test.ts`、`calendar/MatchCell.tsx` 相关用例（ui-acceptance.md §4 第 12 项，SC-023 修复后复检通过） | 通过 |
-| 关注球队可持久化 | `providers/football/followed-teams.test.ts`、`App.test.tsx` 的「关注球队」一组 | 通过 |
-| 本地通知可用且不会明显重复 | `notifications/reminder-plan.test.ts`、`notification-scheduler.test.ts`、`fired-reminders.test.ts` | 通过 |
-| 网络失败有降级 | `data/webcal/webcal-refresh.test.ts`（失败保留旧事件）、`reliability/redact.test.ts`（日志脱敏）、`App.test.tsx` 的「错误降级与可解释状态（SC-019 / app-spec §13–14）」一组 | 通过 |
-| 性能基线已记录 | [performance.md](performance.md)：冷启动中位 282 ms、空闲 CPU 0.0–0.1%、10,000 条月切换 152 ms 等 | 通过 |
-| 核心自动化测试通过 | `npm test`：83 个测试文件 / 957 条用例全绿（2026-09-25；其中 4 个文件、30 条用例来自 SC-020 的读取路径分片、提醒计划分片与事件集合版本号，另有 4 个文件、38 条用例来自 SC-024 的导入链路分片，1 个文件、8 条用例来自 SC-022 的发布文档守卫，2 条用例来自 SC-021 的默认窗口尺寸契约（`layout/window-size-contract.test.ts` 新增的两条），5 条用例来自 SC-010 的新文件 `calendar/lunar-cell-fit-contract.test.ts`、另有 1 条公众日历样例加在既有的 `providers/china/lunar.test.ts` 里，4 条用例来自 SC-011 的通知口径样例（加在既有的 `providers/china/holidays.test.ts` 里，同文件另有 1 条没有判据的修订号断言被换成版本清单锁定，1 换 1），10 条用例来自 SC-012 的新文件 `providers/china/solar-terms-derive.test.ts`（节气表推导工具：生成的年份范围 / 日期 / 文件头口径、序号回读、五条失败路径与全表摘要锁定），3 条用例来自 SC-013 的结单（`calendar/cell-visual-contract.test.ts` 新增的有意越界与 §20 分色 2 条、`App.test.tsx` 的默认构建不携带图片资源 1 条；同文件另有 1 条既有用例扩了包含块断言，`calendar/MonthView.test.tsx` 把「休」的小徽标规则扩到「补」是 1 换 1），33 条用例来自 SC-018 的结单（新文件 `settings/settings-contract.test.ts` 14 条把三条验收措辞变成源码层契约并自带牙齿，新文件 `layout/source-display.test.ts` 11 条钉住来源状态文案、删除文案与识别色（状态与识别色是 SC-006 / SRC-003 的口径，SC-018 只是补上守卫），`App.test.tsx` 新增 8 条覆盖偏好启动读回与「写 → 重启 → 读」的一整圈、改动即时生效、启停不删数据、网络来源的刷新状态与「不是 Dashboard」）——前面几批同样含既有测试文件里新增的用例） | 通过 |
-| 第三方资产 / 数据来源完成发布前审查 | [third-party-assets.md](third-party-assets.md)（含一条留待公开分发前处理的参考图问题） | 通过（带已知项） |
-| README 与真实实现同步 | README「MVP：v0.1」的功能清单逐条对应到 Ticket、「关键实现位置」按模块给出文件与边界、「开发环境」给出可复制命令；跨文件的引用与命令由 `release-docs.test.ts` 守住（见 §7） | 通过 |
+| 门槛项                               | 证据                                                                                                                                                                          | 结果                   |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| Windows 安装 / 启动 / 卸载可用       | 本文 §3.2：当前候选在登录用户下安装和卸载通过；隔离数据目录下窗口启动通过；托盘与系统级交互尚未验收                                                                          | 基础流程通过，系统级待验收 |
+| 月视图基础体验稳定                   | [ui-acceptance.md](ui-acceptance.md) §4 第 1–6、14–16 项；`calendar/MonthView.test.tsx`、`calendar/month-grid.test.ts`                                                        | 通过                   |
+| 浅色 / 深色主题可用                  | ui-acceptance.md §4 第 17–18 项（浅色 / 深色各一遍）；`theme/theme.test.ts`                                                                                                   | 通过                   |
+| 本地 ICS 导入可靠                    | `ics/parse-ics.test.ts`、`data/import/import-local-ics.test.ts`；ui-acceptance.md §4 第 7–8 项                                                                                | 通过                   |
+| WebCal 基础订阅可用                  | `data/webcal/webcal-refresh.test.ts`、`data/webcal/refresh-scheduler.test.ts`；真实远程来源尚未复验                                                                           | 自动化通过，实机待验收 |
+| 时区 / 全天 / 常见 recurrence 有测试 | `normalize/timezone.test.ts`、`normalize/rrule.test.ts`、`normalize/occurrences.test.ts`、`normalize/normalizer.test.ts`                                                      | 通过                   |
+| 中国法定节假日、调休、农历、节气可用 | `providers/china/holidays.test.ts`、`lunar.test.ts`、`solar-terms.test.ts`、`festivals.test.ts`；ui-acceptance.md §4 第 9–13 项                                               | 通过                   |
+| 英超比赛识别与 UI 可用               | `providers/football/football-matcher.test.ts`、`football-metadata-resolver.test.ts`、`calendar/MatchCell.tsx` 相关用例（ui-acceptance.md §4 第 12 项，SC-023 修复后复检通过） | 通过                   |
+| 关注球队可持久化                     | `providers/football/followed-teams.test.ts`、`App.test.tsx` 的「关注球队」一组                                                                                                | 通过                   |
+| 本地通知可用且不会明显重复           | `notifications/reminder-plan.test.ts`、`notification-scheduler.test.ts`、`fired-reminders.test.ts`；系统 Toast 尚未复验                                                       | 自动化通过，实机待验收 |
+| 网络失败有降级                       | `data/webcal/webcal-refresh.test.ts`（失败保留旧事件）、`reliability/redact.test.ts`（日志脱敏）、`App.test.tsx` 的「错误降级与可解释状态（SC-019 / app-spec §13–14）」一组   | 通过                   |
+| 性能基线已记录                       | [performance.md](performance.md)：已有 2026-09-25 基线；本次 10,000 条 WebCal 替换终结任务测得 6.6 ms，桌面空闲资源尚未复测                                                   | 部分完成               |
+| 核心自动化测试通过                   | `npm test`：84 个文件、984 个用例（2026-09-26；含 SC-025 日期、取消、持久化与并发回归）                                                                                       | 通过                   |
+| 第三方资产 / 数据来源完成发布前审查  | [third-party-assets.md](third-party-assets.md)；未核验的参考图片与设置图标已移除，设置图标改为仓库源码内联 SVG；`packaging.test.ts` 限定截图目录                              | 通过                   |
+| README 与真实实现同步                | README「MVP：v0.1」的功能清单逐条对应到 Ticket、「关键实现位置」按模块给出文件与边界、「开发环境」给出可复制命令；跨文件的引用与命令由 `release-docs.test.ts` 守住（见 §7）   | 通过                   |
 
 ## 3. Windows 安装 / 启动 / 卸载验收
 
 验收环境：
 
-| 项 | 取值 |
-| --- | --- |
-| 日期 | 2026-09-25 |
-| 系统 | Windows 11 专业版 10.0.26200，64 位 |
-| 工具链 | Node v25.2.1、rustc 1.98.1、tauri-cli 2.11.5 |
+| 项     | 取值                                                                                                                                                                                                                                                         |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 日期   | 2026-09-25                                                                                                                                                                                                                                                   |
+| 系统   | Windows 11 专业版 10.0.26200，64 位                                                                                                                                                                                                                          |
+| 工具链 | Node v25.2.1、rustc 1.98.1、tauri-cli 2.11.5                                                                                                                                                                                                                 |
 | 安装包 | `Semantic Calendar_0.1.0_x64-setup.exe`。安装 / 启动 / 卸载按下面的步骤跑了完整两遍：第一遍用的是评审前的构建产物，第二遍用的是评审修改后的产物（同时补拍窗口截图）；之后图标流水线只做了「清掉移动端图标集」这一处收敛，Windows 侧用到的 `.ico` 与 PNG 未变 |
-| 方式 | 安装 / 卸载走静默参数（`/S`），启动后取进程与主窗口，再关闭进程 |
+| 方式   | 安装 / 卸载走静默参数（`/S`），启动后取进程与主窗口，再关闭进程                                                                                                                                                                                              |
 
 逐步记录：
 
-| 步骤 | 命令 / 观察点 | 观察结果 |
-| --- | --- | --- |
-| 安装前 | 安装目录、卸载注册表项、开始菜单与桌面快捷方式 | 均不存在（干净环境） |
-| 安装 | `"Semantic Calendar_0.1.0_x64-setup.exe" /S` | 退出码 0；`%LOCALAPPDATA%\Semantic Calendar\` 出现 `semantic-calendar.exe`（10,706,432 字节，两次构建相同）与 `uninstall.exe`（约 82 KB） |
-| 安装后 | 卸载项 | `HKCU\...\Uninstall\Semantic Calendar`：DisplayName「Semantic Calendar」、DisplayVersion 0.1.0、Publisher「Semantic Calendar contributors」、InstallLocation、UninstallString、DisplayIcon 均正确 |
-| 安装后 | 快捷方式 | 开始菜单与桌面各一个 `Semantic Calendar.lnk`（英文名，符合名称策略） |
-| 启动 | 主窗口标题 | 「语义日历」；工作集 20.8 MB；窗口外框 2089×1394 物理像素（系统 DPI 168 / 175%，即 1194×797 逻辑像素——配置的 1180×760 内容区加边框） |
-| 启动 | 界面 | 三栏月视图完整渲染：侧栏（数据源、导入 / 订阅入口、设置）、月格（农历、9 月 7 日「白露」、9 月 23 日「秋分」、中秋节假期与「休」「补」）、详情栏（9 月 25 日 · 农历八月十五 · 中秋节），见 `docs/examples/ui/release-2026-09-25/installed-app-launch.png`（窗口置顶后按窗口矩形抓屏，含标题栏） |
-| 启动 | 应用数据 | 读取既有快照并更新 `app.lastOpenedAt`（写入成功，说明 store 路径与权限正常） |
-| 卸载 | `"uninstall.exe" /S` | 安装目录、卸载注册表项、开始菜单与桌面快捷方式全部清除，无残留进程 |
-| 卸载 | 用户数据 | `%APPDATA%\com.semanticcalendar.desktop\store\calendar-store.json` 保留——卸载不删除用户数据（与「数据源启停不删除用户数据」同一条原则） |
+| 步骤   | 命令 / 观察点                                  | 观察结果                                                                                                                                                                                                                                                                                        |
+| ------ | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 安装前 | 安装目录、卸载注册表项、开始菜单与桌面快捷方式 | 均不存在（干净环境）                                                                                                                                                                                                                                                                            |
+| 安装   | `"Semantic Calendar_0.1.0_x64-setup.exe" /S`   | 退出码 0；`%LOCALAPPDATA%\Semantic Calendar\` 出现 `semantic-calendar.exe`（10,706,432 字节，两次构建相同）与 `uninstall.exe`（约 82 KB）                                                                                                                                                       |
+| 安装后 | 卸载项                                         | `HKCU\...\Uninstall\Semantic Calendar`：DisplayName「Semantic Calendar」、DisplayVersion 0.1.0、Publisher「Semantic Calendar contributors」、InstallLocation、UninstallString、DisplayIcon 均正确                                                                                               |
+| 安装后 | 快捷方式                                       | 开始菜单与桌面各一个 `Semantic Calendar.lnk`（英文名，符合名称策略）                                                                                                                                                                                                                            |
+| 启动   | 主窗口标题                                     | 「语义日历」；工作集 20.8 MB；窗口外框 2089×1394 物理像素（系统 DPI 168 / 175%，即 1194×797 逻辑像素——配置的 1180×760 内容区加边框）                                                                                                                                                            |
+| 启动   | 界面                                           | 三栏月视图完整渲染：侧栏（数据源、导入 / 订阅入口、设置）、月格（农历、9 月 7 日「白露」、9 月 23 日「秋分」、中秋节假期与「休」「补」）、详情栏（9 月 25 日 · 农历八月十五 · 中秋节），见 `docs/examples/ui/release-2026-09-25/installed-app-launch.png`（窗口置顶后按窗口矩形抓屏，含标题栏） |
+| 启动   | 应用数据                                       | 读取既有快照并更新 `app.lastOpenedAt`（写入成功，说明 store 路径与权限正常）                                                                                                                                                                                                                    |
+| 卸载   | `"uninstall.exe" /S`                           | 安装目录、卸载注册表项、开始菜单与桌面快捷方式全部清除，无残留进程                                                                                                                                                                                                                              |
+| 卸载   | 用户数据                                       | `%APPDATA%\com.semanticcalendar.desktop\store\calendar-store.json` 保留——卸载不删除用户数据（与「数据源启停不删除用户数据」同一条原则）                                                                                                                                                         |
 
 未覆盖的部分，如实记录：
 
@@ -73,24 +73,40 @@ npm run tauri build        # 仓库根目录；Windows 上产出 NSIS 安装包
   静默安装走的是同一条安装逻辑，产物与注册表结果已在上面逐项核对。
 - **托盘交互**（左键恢复、右键菜单退出）仍需人工点击，SC-002 已记录过该限制。
 
+### 3.2 SC-025 当前候选（2026-09-26）
+
+候选于 2026-09-26 15:19 UTC 构建。安装器为 2,439,632 字节，SHA-256
+`C110CC9F65BDB7B79490387EC610243D86D129A39421A1C629C1223B6F12F5C8`；内嵌程序为 10,742,272 字节，SHA-256
+`D886B2FFBD7B92A8C6918299C1A12529486B82FB4E97190B84FF3206033D9F1F`。运行时检测到 WebView2 153.0.4234.48。
+
+在沙箱执行上下文里，`/S` 与 `/S /LANG=2052` 都返回退出码 0，却没有生成安装目录。随后以已登录的 Windows 用户
+`NEWNAME\q9560` 对同一安装器执行 `/S /LANG=2052`：退出码 0，`%LOCALAPPDATA%\Semantic Calendar\` 下生成
+`semantic-calendar.exe`（10,742,272 字节）和 `uninstall.exe`（81,825 字节）。安装前该目录不存在。
+
+启动冒烟检查使用临时 `APPDATA` 与 `LOCALAPPDATA`，窗口标题为「语义日历」；测试后原有快照
+`%APPDATA%\com.semanticcalendar.desktop\store\calendar-store.json` 的修改时间未变。随后运行安装目录的
+`uninstall.exe /S`，退出码 0，安装目录、卸载注册表项、开始菜单与桌面快捷方式均已清除。
+
+当前候选的安装、启动冒烟与卸载基础流程已通过。托盘交互、Windows Toast、真实 WebCal 来源、休眠/跨天、升级后提醒去重状态和安装向导逐页人工检查仍待验收；不能用 §3.1 的 2026-09-25 历史记录代替这些检查。
+
 ## 4. 名称、版本与图标
 
 三个名字各自只出现在约定的场合。前端源码里中文名只有 `apps/desktop/src/settings/app-info.ts` 一处字面量，其余 TS / TSX 都引用这个常量（`packaging.test.ts` 会挡住又抄一份的写法）；窗口标题、`index.html` 标题与 托盘提示在 JSON / HTML / Rust 里，由同一条测试分别断言：
 
-| 名字 | 场合 |
-| --- | --- |
-| 语义日历 | 窗口标题、侧栏品牌、托盘提示、`index.html` 标题（浏览器预览）、通知权限被拒时的说明文案 |
-| Semantic Calendar | 安装包文件名、安装目录、开始菜单与桌面快捷方式、卸载项、文件属性与安装器属性 |
-| semantic-calendar.exe | 可执行文件名（来自 Cargo 包名，保持 ASCII，脚本与日志引用它） |
+| 名字                  | 场合                                                                                    |
+| --------------------- | --------------------------------------------------------------------------------------- |
+| 语义日历              | 窗口标题、侧栏品牌、托盘提示、`index.html` 标题（浏览器预览）、通知权限被拒时的说明文案 |
+| Semantic Calendar     | 安装包文件名、安装目录、开始菜单与桌面快捷方式、卸载项、文件属性与安装器属性            |
+| semantic-calendar.exe | 可执行文件名（来自 Cargo 包名，保持 ASCII，脚本与日志引用它）                           |
 
 版本号只有一个来源（`apps/desktop/package.json`），构建时注入界面，其余三处由测试要求一致：
 
-| 位置 | 取值 | 证据 |
-| --- | --- | --- |
-| `package.json`（仓库根与 `apps/desktop`） | 0.1.0 | `packaging.test.ts` |
-| `src-tauri/Cargo.toml` | 0.1.0 | 同上 |
-| `src-tauri/tauri.conf.json` | 0.1.0 | 同上 |
-| 可执行文件 VERSIONINFO | FileVersion / ProductVersion 0.1.0，ProductName「Semantic Calendar」，CompanyName「Semantic Calendar contributors」，LegalCopyright 与 LICENSE 一致 | 见下 |
+| 位置                                      | 取值                                                                                                                                                | 证据                |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `package.json`（仓库根与 `apps/desktop`） | 0.1.0                                                                                                                                               | `packaging.test.ts` |
+| `src-tauri/Cargo.toml`                    | 0.1.0                                                                                                                                               | 同上                |
+| `src-tauri/tauri.conf.json`               | 0.1.0                                                                                                                                               | 同上                |
+| 可执行文件 VERSIONINFO                    | FileVersion / ProductVersion 0.1.0，ProductName「Semantic Calendar」，CompanyName「Semantic Calendar contributors」，LegalCopyright 与 LICENSE 一致 | 见下                |
 
 ```powershell
 (Get-Item 'apps\desktop\src-tauri\target\release\semantic-calendar.exe').VersionInfo
@@ -126,15 +142,16 @@ v0.1 **不做自动更新**，策略明确如下：
 
 ## 6. 已知限制与待处理
 
-| 项 | 说明 | 处理 |
-| --- | --- | --- |
-| 安装包未签名 | 没有代码签名证书，Windows 会显示「未知发布者」，SmartScreen 可能拦一次 | 自用 / 内部验收可接受；公开分发前需要签名证书 |
-| WebView2 依赖 | `webviewInstallMode` 为默认的 `downloadBootstrapper`：系统缺少 WebView2 时，安装过程需要联网下载 | 保持默认；离线分发包（内嵌固定版本）不在 v0.1 范围 |
-| 设计参考图来源未记录 | `docs/examples/ui/*-theme-reference-v1.png` 含第三方商标与来源不明的照片 | 已登记在 [third-party-assets.md](third-party-assets.md) §1 的「待处理」：公开分发前替换或移除 |
-| 照片型节日 / 节气背景 | 仓库不分发图片资源，专属背景只具备能力、默认走文字降级 | 资源接入需要先有许可（同上一行的口径） |
-| 球队徽标 / 联赛 Logo | 策略为不随应用分发，界面用 3 字母代码 / 联赛短标签兜底 | [third-party-assets.md](third-party-assets.md) §3 |
-| 安装器自身文件属性缺 CompanyName | Tauri NSIS 模板行为；安装包元数据、卸载项与可执行文件属性里的发布者都正确 | 记录备查，不为此引入自定义模板 |
-| 安装向导页面未逐页人工验收 | 见 §3「未覆盖的部分」 | 静默安装覆盖同一条逻辑；需要逐页截图时人工跑一次 |
+| 项                               | 说明                                                                                             | 处理                                               |
+| -------------------------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| 安装包未签名                     | 没有代码签名证书，Windows 会显示「未知发布者」，SmartScreen 可能拦一次                           | 自用 / 内部验收可接受；公开分发前需要签名证书      |
+| WebView2 依赖                    | `webviewInstallMode` 为默认的 `downloadBootstrapper`：系统缺少 WebView2 时，安装过程需要联网下载 | 保持默认；离线分发包（内嵌固定版本）不在 v0.1 范围 |
+| 照片型节日 / 节气背景            | 仓库不分发图片资源，专属背景只具备能力、默认走文字降级                                           | 资源接入需要先有许可（同上一行的口径）             |
+| 球队徽标 / 联赛 Logo             | 策略为不随应用分发，界面用 3 字母代码 / 联赛短标签兜底                                           | [third-party-assets.md](third-party-assets.md) §3  |
+| 安装器自身文件属性缺 CompanyName | Tauri NSIS 模板行为；安装包元数据、卸载项与可执行文件属性里的发布者都正确                        | 记录备查，不为此引入自定义模板                     |
+| 沙箱里的静默安装未生成文件       | 见 §3.2；同一安装器在已登录 Windows 用户上下文安装成功，归因为执行上下文差异                    | 已诊断；不代表安装器失败                           |
+| 当前 RC 的系统级验收未完成       | 见 §3.2；托盘、通知、真实订阅、休眠恢复、升级及卸载未运行                                        | 安装成功后按 §7 逐项实机验收                       |
+| 安装向导页面未逐页人工验收       | 见 §3「未覆盖的部分」                                                                            | 当前候选安装成功后再逐页检查                       |
 
 ## 7. 怎么重跑这些检查
 

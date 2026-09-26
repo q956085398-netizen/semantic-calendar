@@ -23,6 +23,8 @@ tauri-plugin-single-instance = "2"
 # cmake/nasm 工具链），这里改为系统 TLS（Windows 走 schannel），避免额外
 # C 构建依赖。默认 feature 中的 charset / http2 / system-proxy 暂不需要。
 reqwest = { version = "0.13", default-features = false, features = ["native-tls"] }
+# WebCal 请求取消：用 select 丢弃正在等待响应头或响应正文的 reqwest future。
+tokio = { version = "1", features = ["macros", "sync"] }
 # 本地通知（SC-017）：桌面端用系统通知（Windows 走 WinRT toast），
 # 权限状态与发送都留在 Rust 侧，webview 只发命令。
 tauri-plugin-notification = "2.4.0"

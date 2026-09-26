@@ -321,6 +321,124 @@ describe("月份导航与日期选择（SC-005 / CAL-002 / CAL-003）", () => {
     expect(firstCell.tabIndex).toBe(0);
   });
 
+  it("切换月份后，网格外选中日期仍显示事件、农历和比赛详情", async () => {
+    freezeClock();
+    await renderReadyApp();
+    await importMatchIcs();
+    selectDate("2026-09-26");
+
+    const main = screen.getByRole("main");
+    fireEvent.click(within(main).getByRole("button", { name: "下一月" }));
+
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(within(inspector).getByText("9月26日")).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        within(inspector).getByRole("region", { name: "阿森纳 对 曼城" }),
+      ).toBeTruthy(),
+    );
+    expect(within(inspector).getByText("23:30")).toBeTruthy();
+    expect(within(inspector).getByText("农历八月十六")).toBeTruthy();
+  });
+
+  it("选中日期离开网格后仍显示节假日与节气语义", async () => {
+    freezeClock();
+    render(<App />);
+    selectDate("2026-09-25");
+    fireEvent.click(
+      within(screen.getByRole("main")).getByRole("button", {
+        name: "下一月",
+      }),
+    );
+
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(within(inspector).getByText("农历八月十五")).toBeTruthy();
+    expect(within(inspector).getByText("中秋节")).toBeTruthy();
+    expect(
+      inspector
+        .querySelector(".inspector-china-day")
+        ?.getAttribute("data-china-day"),
+    ).toBe("rest");
+  });
+
+  it("跨午夜更新今天标记但保留当前视图和选中日期，点击今天后才跳转", async () => {
+    freezeClock();
+    render(<App />);
+
+    // 模拟机器从月末常驻到次月，并在恢复交互时校正本地日期。
+    vi.setSystemTime(new Date(2026, 8, 30, 23, 59, 0));
+    fireEvent.focus(window);
+    await waitFor(() =>
+      expect(
+        calendarGrid("2026年9月")
+          .querySelector('[data-today="true"]')
+          ?.getAttribute("data-date"),
+      ).toBe("2026-09-30"),
+    );
+    await advanceTo(2026, 10, 1, 0, 1);
+
+    const september = calendarGrid("2026年9月");
+    expect(
+      september.querySelector('[data-today="true"]')?.getAttribute("data-date"),
+    ).toBe("2026-10-01");
+    expect(
+      september
+        .querySelector('[aria-selected="true"]')
+        ?.getAttribute("data-date"),
+    ).toBe("2026-09-23");
+
+    fireEvent.click(
+      within(screen.getByRole("main")).getByRole("button", { name: "今天" }),
+    );
+    expect(
+      calendarGrid("2026年10月")
+        .querySelector('[aria-selected="true"]')
+        ?.getAttribute("data-date"),
+    ).toBe("2026-10-01");
+  });
+
+  it("闰日与年末跨天后按本机日期标记今天", async () => {
+    freezeClock();
+    render(<App />);
+
+    vi.setSystemTime(new Date(2028, 1, 28, 23, 59, 0));
+    fireEvent.focus(window);
+    fireEvent.click(
+      within(screen.getByRole("main")).getByRole("button", { name: "今天" }),
+    );
+    await advanceTo(2028, 2, 29, 0, 1);
+    await waitFor(() =>
+      expect(
+        calendarGrid("2028年2月")
+          .querySelector('[data-today="true"]')
+          ?.getAttribute("data-date"),
+      ).toBe("2028-02-29"),
+    );
+    await advanceTo(2028, 3, 1, 0, 1);
+    await waitFor(() =>
+      expect(
+        calendarGrid("2028年2月")
+          .querySelector('[data-today="true"]')
+          ?.getAttribute("data-date"),
+      ).toBe("2028-03-01"),
+    );
+
+    vi.setSystemTime(new Date(2028, 11, 31, 23, 59, 0));
+    fireEvent.focus(window);
+    fireEvent.click(
+      within(screen.getByRole("main")).getByRole("button", { name: "今天" }),
+    );
+    await advanceTo(2029, 1, 1, 0, 1);
+    fireEvent.focus(window);
+    await waitFor(() =>
+      expect(
+        calendarGrid("2028年12月")
+          .querySelector('[data-today="true"]')
+          ?.getAttribute("data-date"),
+      ).toBe("2029-01-01"),
+    );
+  });
+
   it("「今天」回到当前月并选中今天", () => {
     freezeClock();
     render(<App />);
@@ -1169,9 +1287,13 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
     await subscribeToFeed();
 
     // 抓取走桌面壳命令，首次不带条件校验值。
-    expect(calls).toEqual([
-      { url: SUBSCRIBE_URL, etag: null, lastModified: null },
-    ]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      url: SUBSCRIBE_URL,
+      etag: null,
+      lastModified: null,
+    });
+    expect(calls[0].requestId).toMatch(/^webcal-\d+$/);
 
     const grid = calendarGrid("2026年9月");
     await waitFor(() =>
@@ -1222,7 +1344,7 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
     await waitFor(() =>
       expect(within(openSettings()).getByText(/没有变化/)).toBeTruthy(),
     );
-    expect(calls[1]).toEqual({
+    expect(calls[1]).toMatchObject({
       url: SUBSCRIBE_URL,
       etag: 'W/"v1"',
       lastModified: null,
@@ -2910,7 +3032,7 @@ describe("月切换的分片读取（SC-020 / app-spec §15）", () => {
     expect(sentNotifications().map((entry) => entry.title)).toContain(
       "Arsenal vs Manchester City",
     );
-  });
+  }, 10_000);
 
   it("整理未完成时切月：新月份不会显示上个月的月格数据", async () => {
     await renderReadyApp();

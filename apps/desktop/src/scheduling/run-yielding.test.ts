@@ -74,4 +74,28 @@ describe("runYielding — 分片生成器的让出驱动（SC-024）", () => {
     expect(yields).toBeGreaterThan(0);
     expect(yields).toBeLessThan(10);
   });
+
+  it("在任务让出期间收到取消后不再推进后续分片", async () => {
+    const controller = new AbortController();
+    let completed = 0;
+    function* steps(): Generator<void, number, void> {
+      completed += 1;
+      yield;
+      completed += 1;
+      return completed;
+    }
+
+    const running = runYielding(steps(), {
+      signal: controller.signal,
+      now: (() => {
+        let time = 0;
+        return () => time++;
+      })(),
+      yieldAfterMs: 0,
+      yieldToMain: async () => controller.abort(),
+    });
+
+    await expect(running).rejects.toMatchObject({ name: "AbortError" });
+    expect(completed).toBe(1);
+  });
 });

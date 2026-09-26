@@ -9,11 +9,13 @@
 //! - 非 2xx 不读正文，按状态码交给前端降级；
 //! - 错误文案不包含请求地址，也不写日志——地址可能带服务端签发的 token。
 
-use std::sync::LazyLock;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use reqwest::header::{HeaderName, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED};
 use reqwest::{Client, StatusCode, Url};
+use tokio::sync::oneshot;
 
 /// 连接超时与总超时。
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -21,6 +23,70 @@ const TOTAL_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// 响应体上限：日历文件远小于此，超出视为异常响应而不是读进内存。
 const MAX_BODY_BYTES: u64 = 20 * 1024 * 1024;
+pub const REQUEST_CANCELLED: &str = "订阅请求已取消";
+
+struct RegisteredRequest {
+    cancel: Option<oneshot::Sender<()>>,
+    receiver: Option<oneshot::Receiver<()>>,
+    started: bool,
+}
+
+/// 单请求取消登记表。请求 id 由前端为每次 GET 生成，避免取消一个来源时
+/// 影响另一个同时进行的订阅请求。
+#[derive(Default)]
+pub struct WebcalRequestRegistry(Mutex<HashMap<String, RegisteredRequest>>);
+
+impl WebcalRequestRegistry {
+    pub fn register(&self, request_id: String) -> Result<(), String> {
+        let (cancel, receiver) = oneshot::channel();
+        let mut requests = self.0.lock().map_err(|_| "无法登记订阅请求".to_string())?;
+        if requests.contains_key(&request_id) {
+            return Err("订阅请求标识重复".to_string());
+        }
+        requests.insert(
+            request_id,
+            RegisteredRequest {
+                cancel: Some(cancel),
+                receiver: Some(receiver),
+                started: false,
+            },
+        );
+        Ok(())
+    }
+
+    pub fn cancel(&self, request_id: &str) {
+        let Ok(mut requests) = self.0.lock() else {
+            return;
+        };
+        if let Some(request) = requests.get_mut(request_id) {
+            if let Some(cancel) = request.cancel.take() {
+                let _ = cancel.send(());
+            }
+            // 若网络命令尚未开始，取消已完成，直接释放登记和 receiver。
+            if !request.started {
+                requests.remove(request_id);
+            }
+        }
+    }
+
+    pub fn start(&self, request_id: &str) -> Result<oneshot::Receiver<()>, String> {
+        let mut requests = self.0.lock().map_err(|_| "无法读取订阅请求".to_string())?;
+        let request = requests
+            .get_mut(request_id)
+            .ok_or_else(|| "订阅请求不存在或已取消".to_string())?;
+        request.started = true;
+        request
+            .receiver
+            .take()
+            .ok_or_else(|| "订阅请求已经开始".to_string())
+    }
+
+    pub fn finish(&self, request_id: &str) {
+        if let Ok(mut requests) = self.0.lock() {
+            requests.remove(request_id);
+        }
+    }
+}
 
 /// 进程内复用一个客户端，保留连接池，避免每次刷新重建 TLS 会话。
 static CLIENT: LazyLock<Client> = LazyLock::new(|| {
@@ -76,7 +142,31 @@ fn describe_error(error: &reqwest::Error) -> String {
 
 /// 带条件校验值的 GET：有 etag / last_modified 时发出条件请求，
 /// 服务端可回 304，从而避免重复下载整份日历（SRC-002 / §12）。
+#[cfg(test)]
 pub async fn fetch(
+    url: String,
+    etag: Option<String>,
+    last_modified: Option<String>,
+) -> Result<WebcalFetchResponse, String> {
+    fetch_response(url, etag, last_modified).await
+}
+
+/// 可取消的条件 GET。select 分支覆盖连接、等待响应头和读取正文；取消后
+/// reqwest future 被丢弃，底层请求不会继续占用网络资源。
+pub async fn fetch_cancellable(
+    url: String,
+    etag: Option<String>,
+    last_modified: Option<String>,
+    cancel: oneshot::Receiver<()>,
+) -> Result<WebcalFetchResponse, String> {
+    tokio::select! {
+        biased;
+        _ = cancel => Err(REQUEST_CANCELLED.to_string()),
+        result = fetch_response(url, etag, last_modified) => result,
+    }
+}
+
+async fn fetch_response(
     url: String,
     etag: Option<String>,
     last_modified: Option<String>,
@@ -142,7 +232,7 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    use std::sync::mpsc::{self, Receiver};
+    use std::sync::mpsc::{self, Receiver, Sender};
     use std::thread;
 
     /// 只服务一次请求的本地 HTTP 服务：返回订阅地址与收到的请求文本。
@@ -162,6 +252,60 @@ mod tests {
         });
 
         (format!("http://{addr}/feed.ics"), receiver)
+    }
+
+    fn spawn_waiting_headers_server() -> (String, Receiver<()>, Sender<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("绑定本地端口失败");
+        let addr = listener.local_addr().expect("读取本地端口失败");
+        let (accepted_tx, accepted_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buffer = [0u8; 4096];
+                let _ = stream.read(&mut buffer);
+                let _ = accepted_tx.send(());
+                if release_rx.recv_timeout(Duration::from_secs(2)).is_ok() {
+                    let response = response_bytes(
+                        "HTTP/1.1 200 OK",
+                        &[],
+                        b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n",
+                    );
+                    let _ = stream.write_all(&response);
+                }
+            }
+        });
+        (format!("http://{addr}/feed.ics"), accepted_rx, release_tx)
+    }
+
+    fn spawn_waiting_body_server() -> (String, Receiver<()>, Sender<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("绑定本地端口失败");
+        let addr = listener.local_addr().expect("读取本地端口失败");
+        let (body_started_tx, body_started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buffer = [0u8; 4096];
+                let _ = stream.read(&mut buffer);
+                let body = b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n";
+                let split = body.len() / 2;
+                let headers = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(headers.as_bytes());
+                let _ = stream.write_all(&body[..split]);
+                let _ = stream.flush();
+                let _ = body_started_tx.send(());
+                if release_rx.recv_timeout(Duration::from_secs(2)).is_ok() {
+                    let _ = stream.write_all(&body[split..]);
+                }
+            }
+        });
+        (
+            format!("http://{addr}/feed.ics"),
+            body_started_rx,
+            release_tx,
+        )
     }
 
     fn response_bytes(status_line: &str, headers: &[(&str, &str)], body: &[u8]) -> Vec<u8> {
@@ -290,5 +434,51 @@ mod tests {
             "错误文案泄露了 token：{error}"
         );
         assert!(!error.contains("127.0.0.1"), "错误文案泄露了地址：{error}");
+    }
+
+    #[test]
+    fn cancels_while_waiting_for_response_headers() {
+        let (url, accepted, release) = spawn_waiting_headers_server();
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        let request = tauri::async_runtime::spawn(fetch_cancellable(url, None, None, cancel_rx));
+        accepted
+            .recv_timeout(Duration::from_secs(2))
+            .expect("服务端未收到请求");
+
+        cancel_tx.send(()).expect("取消信号未送达");
+        let error = block_on(request)
+            .expect("请求任务不应 panic")
+            .expect_err("请求应取消");
+        release.send(()).expect("服务端未等待正文");
+
+        assert_eq!(error, REQUEST_CANCELLED);
+    }
+
+    #[test]
+    fn cancels_while_reading_a_slow_response_body() {
+        let (url, body_started, release) = spawn_waiting_body_server();
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+        let request = tauri::async_runtime::spawn(fetch_cancellable(url, None, None, cancel_rx));
+        body_started
+            .recv_timeout(Duration::from_secs(2))
+            .expect("服务端未开始发送正文");
+
+        cancel_tx.send(()).expect("取消信号未送达");
+        let error = block_on(request)
+            .expect("请求任务不应 panic")
+            .expect_err("请求应取消");
+        release.send(()).expect("服务端未等待剩余正文");
+
+        assert_eq!(error, REQUEST_CANCELLED);
+    }
+
+    #[test]
+    fn cancellation_before_fetch_releases_its_registration() {
+        let requests = WebcalRequestRegistry::default();
+        requests
+            .register("request-1".to_string())
+            .expect("应登记请求");
+        requests.cancel("request-1");
+        assert!(requests.start("request-1").is_err());
     }
 }

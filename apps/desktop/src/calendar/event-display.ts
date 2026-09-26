@@ -40,7 +40,9 @@ export interface SplitEvents {
  * 载荷缺失时月格只能显示标题，而“队标 VS 队标”少一侧就不成立，
  * 所以这类事件必须留在普通通道里（displayMetadataOf 已在读取边界收窄）。
  */
-export function splitFixtureEvents(events: EnrichedEvent[]): SplitEvents {
+export function splitFixtureEvents(
+  events: readonly EnrichedEvent[],
+): SplitEvents {
   const fixtures: FixtureEvent[] = [];
   const ordinary: EnrichedEvent[] = [];
   for (const event of events) {

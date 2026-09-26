@@ -95,7 +95,7 @@ export interface ReplaceResult extends UpsertResult {
 export class CalendarStore {
   private readonly sources = new Map<string, CalendarSource>();
   private readonly events = new Map<string, StoredEvent>();
-  private readonly enrichments = new Map<string, EventEnrichment>();
+  private enrichments = new Map<string, EventEnrichment>();
   private readonly settings = new Map<string, unknown>();
   /** save() 的串行队列，见 save() 注释。 */
   private saveChain: Promise<void> = Promise.resolve();
@@ -436,16 +436,17 @@ export class CalendarStore {
    * 分片全量替换（SC-024）：键集合构造、消失事件删除、新事件落库三段各自分片，
    * 同步入口 `replaceSourceEvents` 是这个生成器的一次排空，结果逐条相同。
    *
-   * 版本号推进只有一处与同步入口不同：落库那一段由 `upsertEventsInChunks`
-   * 负责（见那里的说明，分片期间它在开始与结束各推一次）。删除段的推进口径
-   * 不变——删除全部发生在推进之前，中途读到旧版本号的读取方在结束时一定会
-   * 看到一个更大的值，因此不会误判“集合没变”。
+   * 新批次在临时 Map 中分片准备，最终只替换目标来源。取消前的读取仍看到旧集合，
+   * 提交后的读取看到完整新集合，其他来源在让出期间的写入也会保留。
    */
   *replaceSourceEventsInChunks(
     sourceId: string,
     events: StoredEvent[],
     chunkEvents: number = STORE_CHUNK_EVENTS,
+    canCommit: () => boolean = () => true,
   ): Generator<void, ReplaceResult, void> {
+    // 刷新准备期间只改临时批次，当前来源仍向读取方公开旧集合。
+    const nextEvents = new Map<string, StoredEvent>();
     const nextKeys = new Set<string>();
     for (let index = 0; index < events.length; index += 1) {
       if (isChunkBoundary(index, chunkEvents)) {
@@ -454,28 +455,52 @@ export class CalendarStore {
       nextKeys.add(eventKey(identityOfEvent({ ...events[index], sourceId })));
     }
     const prefix = eventKeyPrefix(sourceId);
-    // 键快照先取好：删除会改动 Map，但不能改动这次要比对的名单。
+    // 键快照先取好：提交时会改动 Map，但不能改动这次要比对的名单。
     const existingKeys = [...this.events.keys()];
+    const existingSourceKeys = new Set<string>();
     let removed = 0;
     for (let index = 0; index < existingKeys.length; index += 1) {
       if (isChunkBoundary(index, chunkEvents)) {
         yield;
       }
       const key = existingKeys[index];
-      if (key.startsWith(prefix) && !nextKeys.has(key)) {
-        this.events.delete(key);
-        this.enrichments.delete(key);
-        removed += 1;
+      if (key.startsWith(prefix)) {
+        existingSourceKeys.add(key);
+        if (!nextKeys.has(key)) removed += 1;
       }
     }
-    if (removed > 0) {
+
+    let inserted = 0;
+    let updated = 0;
+    const seenKeys = new Set(existingSourceKeys);
+    for (let index = 0; index < events.length; index += 1) {
+      if (isChunkBoundary(index, chunkEvents)) {
+        yield;
+      }
+      const stamped = { ...events[index], sourceId };
+      const key = eventKey(identityOfEvent(stamped));
+      if (seenKeys.has(key)) {
+        updated += 1;
+      } else {
+        inserted += 1;
+        seenKeys.add(key);
+      }
+      nextEvents.set(key, stamped);
+    }
+
+    if (!canCommit()) return { inserted: 0, updated: 0, removed: 0 };
+    if (events.length > 0 || removed > 0) {
+      // 合并到最新全局 Map，只替换目标来源，保留让出期间其他来源的并发变化。
+      // 这个同步提交不会让 React 或其他任务观察到半份目标来源。
+      for (const key of this.events.keys()) {
+        if (key.startsWith(prefix)) {
+          this.events.delete(key);
+          this.enrichments.delete(key);
+        }
+      }
+      for (const [key, event] of nextEvents) this.events.set(key, event);
       this.eventsRevisionValue += 1;
     }
-    const { inserted, updated } = yield* this.upsertEventsInChunks(
-      sourceId,
-      events,
-      chunkEvents,
-    );
     return { inserted, updated, removed };
   }
 
@@ -483,6 +508,28 @@ export class CalendarStore {
 
   saveEnrichment(identity: EventIdentity, enrichment: EventEnrichment): void {
     this.enrichments.set(eventKey(identity), clone(enrichment));
+  }
+
+  /**
+   * 分片构建并原子替换整份增强分区。取消时保留旧分区，避免一次重建只写入半份结果。
+   */
+  *replaceEnrichmentsInChunks(
+    entries: Iterable<{ identity: EventIdentity; enrichment: EventEnrichment }>,
+    chunkEvents: number = STORE_CHUNK_EVENTS,
+    canCommit: () => boolean = () => true,
+  ): Generator<void, boolean, void> {
+    const next = new Map<string, EventEnrichment>();
+    let processed = 0;
+    for (const { identity, enrichment } of entries) {
+      if (isChunkBoundary(processed, chunkEvents)) {
+        yield;
+      }
+      next.set(eventKey(identity), clone(enrichment));
+      processed += 1;
+    }
+    if (!canCommit()) return false;
+    this.enrichments = next;
+    return true;
   }
 
   getEnrichment(identity: EventIdentity): EventEnrichment | undefined {

@@ -2,7 +2,15 @@ import { describe, expect, it } from "vitest";
 import type { FileIO } from "../store/file-io";
 import { CalendarStore } from "../store/calendar-store";
 import type { HttpGetRequest, HttpGetResponse, HttpIO } from "../net/http-io";
-import { addWebcalSubscription, refreshWebcalSource } from "./webcal-refresh";
+import { parseIcsCalendarInChunks } from "../../ics/parse-ics";
+import { createMatcherEngine } from "../../semantic/matcher-engine";
+import { reEnrichStoreYielding } from "../../semantic/enrich";
+import {
+  addWebcalSubscription,
+  cancelBackgroundWebcalRefresh,
+  refreshWebcalSource,
+  removeWebcalSubscription,
+} from "./webcal-refresh";
 import { sourceIdForWebcalUrl } from "./webcal-url";
 
 const SECRET_URL = "https://calendar.example.com/feed.ics?token=SECRET-TOKEN";
@@ -72,6 +80,15 @@ function icsBody(...summaries: string[]): string {
     "END:VCALENDAR",
     "",
   ].join("\r\n");
+}
+
+function countYields<T>(steps: Generator<void, T, void>): number {
+  let count = 0;
+  for (;;) {
+    const step = steps.next();
+    if (step.done) return count;
+    count += 1;
+  }
 }
 
 function okResponse(
@@ -504,7 +521,7 @@ describe("刷新失败与降级（§13 / SRC-004）", () => {
     const http: HttpIO = {
       async get(request: HttpGetRequest) {
         // 模拟用户在抓取途中点了删除。
-        store.removeSource(sourceIdForWebcalUrl(request.url));
+        removeWebcalSubscription(store, sourceIdForWebcalUrl(request.url));
         return okResponse(icsBody("Standup"));
       },
     };
@@ -516,9 +533,492 @@ describe("刷新失败与降级（§13 / SRC-004）", () => {
     );
     const outcome = await refreshWebcalSource(store, added.sourceId!, http);
 
-    expect(outcome.status).toBe("failed");
-    expect(outcome.error).toBe("订阅已删除，结果已丢弃");
+    expect(outcome.status).toBe("cancelled");
     expect(store.listEvents()).toEqual([]);
+  });
+
+  it("解析分片期间删除订阅后，事件、来源和持久化快照都保持为空", async () => {
+    const { store, fileIO } = await openStore();
+    const sourceId = sourceIdForWebcalUrl(SECRET_URL);
+    const http = stubHttp(
+      okResponse(
+        icsBody(...Array.from({ length: 260 }, (_, index) => `事件 ${index}`)),
+      ),
+    );
+    let deleted = false;
+
+    const added = await addWebcalSubscription(
+      store,
+      { url: SECRET_URL },
+      http,
+      {
+        yieldAfterMs: 0,
+        eventsPerChunk: 1,
+        yieldToMain: async () => {
+          if (!deleted) {
+            deleted = true;
+            removeWebcalSubscription(store, sourceId);
+          }
+        },
+      },
+    );
+
+    expect(deleted).toBe(true);
+    expect(added.refresh?.status).toBe("cancelled");
+    expect(store.getSource(sourceId)).toBeUndefined();
+    expect(store.listEvents()).toEqual([]);
+    await store.save();
+    const reopened = (await CalendarStore.open(fileIO, STORE_FILE)).store;
+    expect(reopened.getSource(sourceId)).toBeUndefined();
+    expect(reopened.listEvents()).toEqual([]);
+  });
+
+  it("一万条事件标准化期间停用后台刷新时保留旧缓存", async () => {
+    const { store, fileIO } = await openStore();
+    const sourceId = sourceIdForWebcalUrl(SECRET_URL);
+    const added = await addWebcalSubscription(
+      store,
+      { url: SECRET_URL },
+      stubHttp(okResponse(icsBody("缓存事件"), { etag: 'W/"cached"' })),
+    );
+    const previousSource = store.getSource(sourceId);
+    const previousEvents = store.listEvents();
+    const body = icsBody(
+      ...Array.from({ length: 10_000 }, (_unused, index) => `新事件 ${index}`),
+    );
+    const parseYields = countYields(parseIcsCalendarInChunks(body));
+    let yields = 0;
+
+    const outcome = await refreshWebcalSource(
+      store,
+      sourceId,
+      stubHttp(okResponse(body, { etag: 'W/"new"' })),
+      {
+        eventsPerChunk: 1,
+        yieldAfterMs: 0,
+        yieldToMain: async () => {
+          yields += 1;
+          if (yields === parseYields + 1) {
+            cancelBackgroundWebcalRefresh(store, sourceId);
+          }
+        },
+      },
+      { background: true },
+    );
+
+    expect(added.refresh?.status).toBe("updated");
+    expect(outcome.status).toBe("cancelled");
+    expect(yields).toBe(parseYields + 1);
+    expect(store.getSource(sourceId)).toEqual(previousSource);
+    expect(store.listEvents()).toEqual(previousEvents);
+    await store.save();
+    const reopened = (await CalendarStore.open(fileIO, STORE_FILE)).store;
+    expect(reopened.getSource(sourceId)).toEqual(previousSource);
+    expect(reopened.listEvents()).toEqual(previousEvents);
+  });
+
+  it("标准化分片期间删除订阅后来源与旧缓存都不复活", async () => {
+    const { store, fileIO } = await openStore();
+    const sourceId = sourceIdForWebcalUrl(SECRET_URL);
+    const added = await addWebcalSubscription(
+      store,
+      { url: SECRET_URL },
+      stubHttp(okResponse(icsBody("旧缓存事件"))),
+    );
+    const body = icsBody(
+      ...Array.from({ length: 260 }, (_unused, index) => `新事件 ${index}`),
+    );
+    const parseYields = countYields(parseIcsCalendarInChunks(body));
+    let yields = 0;
+    let deletedDuringNormalization = false;
+
+    const outcome = await refreshWebcalSource(
+      store,
+      sourceId,
+      stubHttp(okResponse(body)),
+      {
+        eventsPerChunk: 1,
+        yieldAfterMs: 0,
+        yieldToMain: async () => {
+          if (!deletedDuringNormalization && ++yields === parseYields + 1) {
+            deletedDuringNormalization = true;
+            removeWebcalSubscription(store, sourceId);
+          }
+        },
+      },
+      { background: true },
+    );
+
+    expect(added.refresh?.status).toBe("updated");
+    expect(deletedDuringNormalization).toBe(true);
+    expect(outcome.status).toBe("cancelled");
+    expect(store.getSource(sourceId)).toBeUndefined();
+    expect(store.listEvents()).toEqual([]);
+    await store.save();
+    const reopened = (await CalendarStore.open(fileIO, STORE_FILE)).store;
+    expect(reopened.getSource(sourceId)).toBeUndefined();
+    expect(reopened.listEvents()).toEqual([]);
+  });
+
+  it("停用发生在替换准备中途时，旧事件与缓存完整保留", async () => {
+    const { store, fileIO } = await openStore();
+    const sourceId = sourceIdForWebcalUrl(SECRET_URL);
+    await addWebcalSubscription(
+      store,
+      { url: SECRET_URL },
+      stubHttp(okResponse(icsBody("旧缓存事件"), { etag: 'W/"old"' })),
+    );
+    const oldSource = store.getSource(sourceId)!;
+    const oldEvents = store.listEvents();
+    const body = icsBody(
+      ...Array.from({ length: 260 }, (_unused, index) => `新事件 ${index}`),
+    );
+    const parseYields = countYields(parseIcsCalendarInChunks(body));
+    // 解析、标准化、键计算与旧键扫描后，第一条新事件已进入暂存映射。
+    const cancelAtYield = parseYields + 260 + 260 + oldEvents.length + 2;
+    let yields = 0;
+    let disabledDuringReplace = false;
+
+    const outcome = await refreshWebcalSource(
+      store,
+      sourceId,
+      stubHttp(okResponse(body, { etag: 'W/"new"' })),
+      {
+        eventsPerChunk: 1,
+        yieldAfterMs: 0,
+        yieldToMain: async () => {
+          yields += 1;
+          if (yields === cancelAtYield) {
+            disabledDuringReplace = true;
+            cancelBackgroundWebcalRefresh(store, sourceId);
+            store.setSourceEnabled(sourceId, false);
+          }
+        },
+      },
+      { background: true },
+    );
+
+    expect(disabledDuringReplace).toBe(true);
+    expect(outcome.status).toBe("cancelled");
+    expect(store.getSource(sourceId)).toEqual({ ...oldSource, enabled: false });
+    expect(store.listEvents()).toEqual(oldEvents);
+    await store.save();
+    const reopened = (await CalendarStore.open(fileIO, STORE_FILE)).store;
+    expect(reopened.getSource(sourceId)).toEqual({
+      ...oldSource,
+      enabled: false,
+    });
+    expect(reopened.listEvents()).toEqual(oldEvents);
+  });
+
+  it("替换暂存一条新事件后删除订阅不会提交剩余批次", async () => {
+    const { store, fileIO } = await openStore();
+    const sourceId = sourceIdForWebcalUrl(SECRET_URL);
+    await addWebcalSubscription(
+      store,
+      { url: SECRET_URL },
+      stubHttp(okResponse(icsBody("旧缓存事件"))),
+    );
+    const oldEvents = store.listEvents();
+    const body = icsBody(
+      ...Array.from({ length: 260 }, (_unused, index) => `新事件 ${index}`),
+    );
+    const parseYields = countYields(parseIcsCalendarInChunks(body));
+    const deleteAtYield = parseYields + 260 + 260 + oldEvents.length + 2;
+    let yields = 0;
+    let deletedDuringReplace = false;
+
+    const outcome = await refreshWebcalSource(
+      store,
+      sourceId,
+      stubHttp(okResponse(body)),
+      {
+        eventsPerChunk: 1,
+        yieldAfterMs: 0,
+        yieldToMain: async () => {
+          yields += 1;
+          if (yields === deleteAtYield) {
+            deletedDuringReplace = true;
+            removeWebcalSubscription(store, sourceId);
+          }
+        },
+      },
+      { background: true },
+    );
+
+    expect(deletedDuringReplace).toBe(true);
+    expect(outcome.status).toBe("cancelled");
+    expect(store.getSource(sourceId)).toBeUndefined();
+    expect(store.listEvents()).toEqual([]);
+    await store.save();
+    const reopened = (await CalendarStore.open(fileIO, STORE_FILE)).store;
+    expect(reopened.getSource(sourceId)).toBeUndefined();
+    expect(reopened.listEvents()).toEqual([]);
+  });
+
+  it("刷新分片让出期间其他来源的写入不会被替换批次覆盖", async () => {
+    const { store, fileIO } = await openStore();
+    const sourceId = sourceIdForWebcalUrl(SECRET_URL);
+    const otherSourceId = "local:other";
+    await addWebcalSubscription(
+      store,
+      { url: SECRET_URL },
+      stubHttp(okResponse(icsBody("订阅旧事件"))),
+    );
+    store.upsertSource({
+      id: otherSourceId,
+      type: "local-ics",
+      name: "其他日历",
+      enabled: true,
+    });
+    store.upsertEvents(otherSourceId, [
+      {
+        uid: "other-1",
+        sourceId: otherSourceId,
+        title: "既有事件",
+        start: "2026-10-18T16:30:00.000Z",
+        end: "2026-10-18T18:30:00.000Z",
+        allDay: false,
+        rawPayload: "既有事件",
+      },
+    ]);
+    const body = icsBody(
+      ...Array.from({ length: 260 }, (_unused, index) => `新订阅事件 ${index}`),
+    );
+    const parseYields = countYields(parseIcsCalendarInChunks(body));
+    const firstReplacementYield = parseYields + 260 + 1;
+    let yields = 0;
+    let wroteConcurrently = false;
+
+    const outcome = await refreshWebcalSource(
+      store,
+      sourceId,
+      stubHttp(okResponse(body)),
+      {
+        eventsPerChunk: 1,
+        yieldAfterMs: 0,
+        yieldToMain: async () => {
+          yields += 1;
+          if (yields === firstReplacementYield) {
+            wroteConcurrently = true;
+            store.upsertEvents(otherSourceId, [
+              {
+                uid: "other-2",
+                sourceId: otherSourceId,
+                title: "并发写入",
+                start: "2026-10-19T16:30:00.000Z",
+                end: "2026-10-19T18:30:00.000Z",
+                allDay: false,
+                rawPayload: "并发写入",
+              },
+            ]);
+          }
+        },
+      },
+      { background: true },
+    );
+
+    expect(wroteConcurrently).toBe(true);
+    expect(outcome.status).toBe("updated");
+    expect(
+      store
+        .listEvents(otherSourceId)
+        .map((event) => event.title)
+        .sort(),
+    ).toEqual(["并发写入", "既有事件"]);
+    await store.save();
+    const reopened = (await CalendarStore.open(fileIO, STORE_FILE)).store;
+    expect(
+      reopened
+        .listEvents(otherSourceId)
+        .map((event) => event.title)
+        .sort(),
+    ).toEqual(["并发写入", "既有事件"]);
+  });
+
+  it("删除后立即重加同一地址时，旧响应不会覆盖新来源的事件", async () => {
+    const { store } = await openStore();
+    const sourceId = sourceIdForWebcalUrl(SECRET_URL);
+    let resolveOldResponse!: (response: HttpGetResponse) => void;
+    const oldResponse = new Promise<HttpGetResponse>((resolve) => {
+      resolveOldResponse = resolve;
+    });
+    let requests = 0;
+    const http: HttpIO = {
+      get() {
+        requests += 1;
+        return requests === 1
+          ? oldResponse
+          : Promise.resolve(okResponse(icsBody("新来源事件")));
+      },
+    };
+
+    const oldRefresh = addWebcalSubscription(store, { url: SECRET_URL }, http);
+    await Promise.resolve();
+    expect(requests).toBe(1);
+
+    removeWebcalSubscription(store, sourceId);
+    const newRefresh = await addWebcalSubscription(
+      store,
+      { url: SECRET_URL },
+      http,
+    );
+    resolveOldResponse(okResponse(icsBody("旧来源事件")));
+    const oldOutcome = await oldRefresh;
+
+    expect(newRefresh.refresh?.status).toBe("updated");
+    expect(oldOutcome.refresh?.status).toBe("cancelled");
+    expect(store.listEvents().map((event) => event.title)).toEqual([
+      "新来源事件",
+    ]);
+  });
+
+  it("200 后的回调仍在刷新取消范围内", async () => {
+    const { store, fileIO } = await openStore();
+    const added = await addWebcalSubscription(
+      store,
+      { url: SECRET_URL },
+      stubHttp(okResponse(icsBody("既有事件"))),
+    );
+    let release!: () => void;
+    let started!: () => void;
+    const callbackStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const callbackGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let signal: AbortSignal | undefined;
+    let isCurrent: (() => boolean) | undefined;
+
+    const refresh = refreshWebcalSource(
+      store,
+      added.sourceId!,
+      stubHttp(okResponse(icsBody("刷新事件"))),
+      {},
+      {
+        afterUpdated: async (context) => {
+          signal = context.signal;
+          isCurrent = context.isCurrent;
+          started();
+          await callbackGate;
+        },
+      },
+    );
+    await callbackStarted;
+    removeWebcalSubscription(store, added.sourceId!);
+    release();
+
+    await expect(refresh).resolves.toMatchObject({ status: "cancelled" });
+    expect(signal?.aborted).toBe(true);
+    expect(isCurrent?.()).toBe(false);
+    expect(store.getSource(added.sourceId!)).toBeUndefined();
+    expect(store.listEvents()).toEqual([]);
+    await store.save();
+    const reopened = (await CalendarStore.open(fileIO, STORE_FILE)).store;
+    expect(reopened.getSource(added.sourceId!)).toBeUndefined();
+    expect(reopened.listEvents()).toEqual([]);
+  });
+
+  it("删除发生在语义重建中时，保存与重开后也没有增强残留", async () => {
+    const { store, fileIO } = await openStore();
+    const added = await addWebcalSubscription(
+      store,
+      { url: SECRET_URL },
+      stubHttp(okResponse(icsBody("既有事件"))),
+    );
+    const matchingEvents: string[] = [];
+    const stack = {
+      engine: createMatcherEngine([
+        {
+          id: "test-matcher",
+          priority: 1,
+          match: (event) => {
+            matchingEvents.push(event.title);
+            return { type: "holiday" };
+          },
+        },
+      ]),
+    };
+    let yields = 0;
+    const outcome = await refreshWebcalSource(
+      store,
+      added.sourceId!,
+      stubHttp(
+        okResponse(
+          icsBody(
+            ...Array.from({ length: 260 }, (_, index) => `新事件 ${index}`),
+          ),
+        ),
+      ),
+      {},
+      {
+        afterUpdated: async ({ signal }) => {
+          await reEnrichStoreYielding(store, stack, {
+            chunkSize: 1,
+            signal,
+            yieldToMain: async () => {
+              yields += 1;
+              if (yields === 3) {
+                removeWebcalSubscription(store, added.sourceId!);
+              }
+            },
+          });
+        },
+      },
+    );
+
+    expect(outcome.status).toBe("cancelled");
+    expect(matchingEvents).toEqual(["新事件 0"]);
+    expect(store.getSource(added.sourceId!)).toBeUndefined();
+    expect(store.listEvents()).toEqual([]);
+    expect(store.toSnapshot().enrichments).toEqual({});
+    await store.save();
+    const reopened = (await CalendarStore.open(fileIO, STORE_FILE)).store;
+    expect(reopened.getSource(added.sourceId!)).toBeUndefined();
+    expect(reopened.listEvents()).toEqual([]);
+    expect(reopened.toSnapshot().enrichments).toEqual({});
+  });
+
+  it("后台刷新完成事件提交后，停用等待语义与快照完成", async () => {
+    const { store } = await openStore();
+    const added = await addWebcalSubscription(
+      store,
+      { url: SECRET_URL },
+      stubHttp(okResponse(icsBody("既有事件"))),
+    );
+    let release!: () => void;
+    let started!: () => void;
+    const callbackStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const callbackGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let signal: AbortSignal | undefined;
+    const refresh = refreshWebcalSource(
+      store,
+      added.sourceId!,
+      stubHttp(okResponse(icsBody("新事件"))),
+      {},
+      {
+        background: true,
+        afterUpdated: async (context) => {
+          signal = context.signal;
+          started();
+          await callbackGate;
+        },
+      },
+    );
+
+    await callbackStarted;
+    cancelBackgroundWebcalRefresh(store, added.sourceId!);
+    expect(signal?.aborted).toBe(false);
+    release();
+
+    await expect(refresh).resolves.toMatchObject({ status: "updated" });
+    expect(store.getSource(added.sourceId!)).toBeDefined();
+    expect(store.listEvents().map((event) => event.title)).toEqual(["新事件"]);
   });
 });
 
