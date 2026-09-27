@@ -1058,6 +1058,19 @@ button:focus-visible {
   box-shadow: none;
 }
 
+/* 图片保持完整轮廓；缩写占位的圆角不应裁掉队徽边缘。 */
+.mark-lg.is-asset,
+.match-cell .mark.is-asset {
+  border-radius: 0;
+}
+
+/* 深色底板上提亮联赛图形，球队前景保留原色。 */
+:root[data-theme="dark"] .match-cell-bg-image,
+:root[data-theme="dark"] .matchday-bg-image,
+:root[data-theme="dark"] .matchday-competition .mark.is-asset {
+  filter: brightness(0) invert(1);
+}
+
 /* ---------------- 比赛月格（SC-016 / SPORT-004、ui-design §10） ---------------- */
 
 .match-cell {

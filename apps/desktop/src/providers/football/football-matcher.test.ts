@@ -61,7 +61,7 @@ describe("英超比赛标题 Matcher：常见格式（SPORT-002）", () => {
         { type: "team", id: "manchester-city" },
       ],
       confidence: 0.8,
-      reason: "「vs」左侧为主队；按 2025/26 名单推断联赛",
+      reason: "「vs」左侧为主队；按 2026/27 名单推断联赛",
     });
   });
 });
@@ -85,7 +85,7 @@ describe("英超比赛标题 Matcher：对阵分隔符与主客顺序（SPORT-00
     expectTeams("Manchester City @ Arsenal", ["arsenal", "manchester-city"]);
     expect(match("Manchester City @ Arsenal")).toMatchObject({
       confidence: 0.8,
-      reason: "「@」右侧为主队；按 2025/26 名单推断联赛",
+      reason: "「@」右侧为主队；按 2026/27 名单推断联赛",
     });
   });
 
@@ -145,7 +145,7 @@ describe("英超比赛标题 Matcher：联赛认定（SPORT-002 / competition）
   it("标题未写联赛：两队同属已登记名单即可认定，置信度低于明示", () => {
     expect(match("Matchday 12: Arsenal vs Manchester City")).toMatchObject({
       confidence: 0.8,
-      reason: "「vs」左侧为主队；按 2025/26 名单推断联赛",
+      reason: "「vs」左侧为主队；按 2026/27 名单推断联赛",
     });
   });
 
@@ -154,9 +154,9 @@ describe("英超比赛标题 Matcher：联赛认定（SPORT-002 / competition）
       catalogWith({
         seasons: [
           {
-            id: "2026-27",
+            id: "2027-28",
             competitionId: "premier-league",
-            label: "2026/27",
+            label: "2027/28",
             teamIds: ["arsenal", "sunderland"],
           },
           ...SEASONS,
@@ -168,7 +168,7 @@ describe("英超比赛标题 Matcher：联赛认定（SPORT-002 / competition）
       { type: "team", id: "arsenal" },
       { type: "team", id: "sunderland" },
     ]);
-    expect(result?.reason).toContain("2026/27");
+    expect(result?.reason).toContain("2027/28");
   });
 
   it("名单证据是必需的：对手不在联赛名单内就不增强（P-03）", () => {

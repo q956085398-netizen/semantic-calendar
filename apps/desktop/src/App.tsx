@@ -11,6 +11,7 @@ import { MiniMonth } from "./calendar/MiniMonth";
 import { yieldToMain } from "./scheduling/yield-to-main";
 import { createReminderPlanLoad } from "./notifications/reminder-plan-load";
 import { MonthView } from "./calendar/MonthView";
+import { useLocalMarkAssets } from "./display/use-local-mark-assets";
 import { monthOccurrencePendingText } from "./calendar/month-occurrences";
 import { useMonthOccurrences } from "./calendar/use-month-occurrences";
 import { useSelectedDateOccurrences } from "./calendar/use-selected-date-occurrences";
@@ -270,6 +271,7 @@ function describeIpcError(prefix: string, error: unknown): string {
 }
 
 export default function App() {
+  const { assets, assetStatus } = useLocalMarkAssets();
   const [theme, setTheme] = useState<Theme>("light");
   const [storeStatus, setStoreStatus] = useState("正在初始化本地数据层…");
   const storeRef = useRef<CalendarStore | null>(null);
@@ -1341,7 +1343,9 @@ export default function App() {
           onToggleSource={handleToggleSource}
           hiddenBuiltinSourceIds={hiddenBuiltinSourceIds}
           onToggleBuiltinSource={handleToggleBuiltinSource}
-          storeStatus={storeStatus}
+          storeStatus={
+            assetStatus ? `${storeStatus} · ${assetStatus}` : storeStatus
+          }
           miniCalendar={
             <MiniMonth
               grid={grid}
@@ -1360,6 +1364,7 @@ export default function App() {
       }
       inspector={
         <InspectorPanel
+          assets={assets}
           dateKey={selectedDateKey}
           events={selectedEvents}
           pending={selectedEventsPending}
@@ -1416,6 +1421,7 @@ export default function App() {
         />
       ) : (
         <MonthView
+          assets={assets}
           grid={grid}
           selectedDateKey={selectedDateKey}
           onSelectDate={selectDate}
