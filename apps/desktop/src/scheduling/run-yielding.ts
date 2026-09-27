@@ -18,10 +18,13 @@
 
 import { createTimeSlicedRun, type TimeSlicedDeps } from "./time-sliced";
 import { yieldToMain as defaultYieldToMain } from "./yield-to-main";
+import { createAbortError } from "../abort-error";
 
 export interface RunYieldingDeps extends TimeSlicedDeps {
   /** 任务之间让出主线程的方式；缺省用 MessageChannel 任务（见 scheduling/）。 */
   yieldToMain?: () => Promise<void>;
+  /** 允许来源删除或应用退出停止尚未完成的分片工作。 */
+  signal?: AbortSignal;
 }
 
 export async function runYielding<T>(
@@ -32,11 +35,18 @@ export async function runYielding<T>(
   const yieldToMain = deps.yieldToMain ?? defaultYieldToMain;
 
   // 第一个任务与调用方同一帧：常见规模一次算完，界面不会先空一下再填上。
+  throwIfAborted(deps.signal);
   run.advance();
   while (run.hasWork()) {
     await yieldToMain();
+    throwIfAborted(deps.signal);
     run.advance();
   }
   // hasWork() 为 false 即 result() 已有值（createTimeSlicedRun 的约定）。
   return run.result()!;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw createAbortError("任务已取消");
 }

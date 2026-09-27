@@ -30,9 +30,20 @@ const SOURCE_COLORS = [
   "var(--source-sport)",
   "var(--source-solar)",
   "var(--source-holiday)",
+  "var(--source-amber)",
+  "var(--source-teal)",
+  "var(--source-rose)",
+  "var(--source-slate)",
 ];
 
 export function sourceColor(sourceId: string): string {
+  const builtinColors: Record<string, string> = {
+    mine: "var(--source-personal)",
+    "cn-holiday": "var(--source-holiday)",
+    "solar-terms": "var(--source-solar)",
+    "premier-league": "var(--source-sport)",
+  };
+  if (Object.hasOwn(builtinColors, sourceId)) return builtinColors[sourceId];
   let hash = 0;
   for (const char of sourceId) {
     hash = (hash * 31 + char.charCodeAt(0)) | 0;

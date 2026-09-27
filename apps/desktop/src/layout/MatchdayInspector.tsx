@@ -103,13 +103,19 @@ export function MatchdayInspector({
         {time !== "" && (
           <>
             {/* 开赛时间属于二级信息（§13.1）：与三级字段同列但视觉更强 */}
-            <dt className="matchday-fact-primary">开赛</dt>
+            <dt className="matchday-fact-primary">
+              <MatchFactIcon kind="time" />
+              开赛
+            </dt>
             <dd className="matchday-fact-primary">{time}</dd>
           </>
         )}
         {venue !== undefined && venue !== "" && (
           <>
-            <dt>场地</dt>
+            <dt>
+              <MatchFactIcon kind="venue" />
+              场地
+            </dt>
             <dd>{venue}</dd>
           </>
         )}
@@ -117,12 +123,48 @@ export function MatchdayInspector({
           <>
             {/* 提醒行与通知调度共用同一套优先级（SC-017）：
                 建议 / 用户设置 / 事件自带 / 已关闭 */}
-            <dt>{reminder.label}</dt>
+            <dt>
+              <MatchFactIcon kind="reminder" />
+              {reminder.label}
+            </dt>
             <dd>{reminder.detail}</dd>
           </>
         )}
       </dl>
     </section>
+  );
+}
+
+function MatchFactIcon({ kind }: { kind: "time" | "venue" | "reminder" }) {
+  return (
+    <svg
+      className="matchday-fact-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {kind === "time" ? (
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
+        </>
+      ) : kind === "venue" ? (
+        <>
+          <path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z" />
+          <circle cx="12" cy="10" r="2.5" />
+        </>
+      ) : (
+        <>
+          <path d="M6 9a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9Z" />
+          <path d="M10 21h4" />
+        </>
+      )}
+    </svg>
   );
 }
 

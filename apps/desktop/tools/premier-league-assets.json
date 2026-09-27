@@ -1,0 +1,33 @@
+{
+  "season": "2026-27",
+  "repository": "luukhopman/football-logos",
+  "revision": "2a3978f0b4730645c205d855a4bda54c161183e9",
+  "directory": "logos/England - Premier League",
+  "teams": {
+    "arsenal": "Arsenal FC",
+    "aston-villa": "Aston Villa",
+    "bournemouth": "AFC Bournemouth",
+    "brentford": "Brentford FC",
+    "brighton": "Brighton & Hove Albion",
+    "chelsea": "Chelsea FC",
+    "coventry-city": "Coventry City",
+    "crystal-palace": "Crystal Palace",
+    "everton": "Everton FC",
+    "fulham": "Fulham FC",
+    "hull-city": "Hull City",
+    "ipswich-town": "Ipswich Town",
+    "leeds-united": "Leeds United",
+    "liverpool": "Liverpool FC",
+    "manchester-city": "Manchester City",
+    "manchester-united": "Manchester United",
+    "newcastle-united": "Newcastle United",
+    "nottingham-forest": "Nottingham Forest",
+    "sunderland": "Sunderland AFC",
+    "tottenham-hotspur": "Tottenham Hotspur"
+  },
+  "competition": {
+    "ref": "logo.competition.premier-league",
+    "sourceId": "api-sports:football:league:39",
+    "url": "https://media.api-sports.io/football/leagues/39.png"
+  }
+}

@@ -11,8 +11,11 @@ import { MiniMonth } from "./calendar/MiniMonth";
 import { yieldToMain } from "./scheduling/yield-to-main";
 import { createReminderPlanLoad } from "./notifications/reminder-plan-load";
 import { MonthView } from "./calendar/MonthView";
+import { useLocalMarkAssets } from "./display/use-local-mark-assets";
 import { monthOccurrencePendingText } from "./calendar/month-occurrences";
 import { useMonthOccurrences } from "./calendar/use-month-occurrences";
+import { useSelectedDateOccurrences } from "./calendar/use-selected-date-occurrences";
+import { useTodayDate } from "./calendar/use-today-date";
 import { openDesktopCalendarStore } from "./data/desktop-store";
 import type { CalendarSource, EnrichedEvent } from "./data/model";
 import {
@@ -22,6 +25,9 @@ import {
 import { createTauriHttpIO } from "./data/net/tauri-http-io";
 import {
   addWebcalSubscription,
+  cancelAllWebcalRefreshes,
+  cancelBackgroundWebcalRefresh,
+  removeWebcalSubscription,
   refreshWebcalSource,
   type WebcalRefreshOutcome,
 } from "./data/webcal/webcal-refresh";
@@ -41,6 +47,7 @@ import type {
   StoreRecoveryReason,
 } from "./data/store/calendar-store";
 import { reEnrichStoreYielding } from "./semantic/enrich";
+import { createAbortError } from "./abort-error";
 import { createAppSemanticStack } from "./semantic/app-registry";
 import { gateEventsForBuiltinSources } from "./semantic/app-builtin-sources";
 import { lunarLabelsOf } from "./semantic/app-lunar";
@@ -233,6 +240,8 @@ function outcomeDetail(outcome: WebcalRefreshOutcome): string {
       return "：没有变化，继续使用本地缓存";
     case "failed":
       return `：${outcome.error ?? "未知原因"}`;
+    case "cancelled":
+      return "：已取消";
   }
 }
 
@@ -240,6 +249,7 @@ function formatRefreshStatus(
   name: string,
   outcome: WebcalRefreshOutcome,
 ): string {
+  if (outcome.status === "cancelled") return `已取消「${name}」的刷新`;
   return outcome.status === "failed"
     ? `「${name}」刷新失败${outcomeDetail(outcome)}`
     : `已刷新「${name}」${outcomeDetail(outcome)}`;
@@ -261,10 +271,11 @@ function describeIpcError(prefix: string, error: unknown): string {
 }
 
 export default function App() {
+  const { assets, assetStatus } = useLocalMarkAssets();
   const [theme, setTheme] = useState<Theme>("light");
   const [storeStatus, setStoreStatus] = useState("正在初始化本地数据层…");
   const storeRef = useRef<CalendarStore | null>(null);
-  const [today] = useState(() => new Date());
+  const [today, refreshToday] = useTodayDate();
   /**
    * 本地数据层状态（SC-019）：预览模式与“桌面壳在但文件打不开”必须分开说
    * ——前者本来就没有本地文件，后者是真实故障，界面不能把故障说成预览。
@@ -290,7 +301,7 @@ export default function App() {
   const [sources, setSources] = useState<CalendarSource[]>([]);
   const [events, setEvents] = useState<EnrichedEvent[]>([]);
   /** 最近一次读事件时的存储版本（SC-020）：相同就不必再读一遍，见 refreshFromStore。 */
-  const eventsRevisionRef = useRef(-1);
+  const readModelRevisionRef = useRef(-1);
   /** 事件读取的代次（SC-024）：只有最后一次发起的读取才发布结果。 */
   const eventsLoadGenerationRef = useRef(0);
   const [importStatus, setImportStatus] = useState<string | undefined>();
@@ -381,13 +392,34 @@ export default function App() {
     visibleEvents,
     grid,
   );
-  const selectedEvents = eventsByDate.get(selectedDateKey) ?? [];
+  const selectedDateIsInGrid = grid.weeks.some((week) =>
+    week.some((cell) => cell.dateKey === selectedDateKey),
+  );
+  const selectedDateLoad = useSelectedDateOccurrences(
+    visibleEvents,
+    selectedDateKey,
+    !selectedDateIsInGrid,
+  );
+  const selectedEvents = selectedDateIsInGrid
+    ? (eventsByDate.get(selectedDateKey) ?? [])
+    : selectedDateLoad.events;
+  const selectedEventsPending = selectedDateIsInGrid
+    ? monthPending
+    : selectedDateLoad.pending;
 
   /**
    * 农历简写（SC-010 / CN-001）：随网格一起重算，范围外的日期不进 Map。
    * 与事件一样按日期键注入月视图，组件不做换算（业务规则不进 UI）。
    */
   const lunarByDate = useMemo(() => lunarLabelsOf(grid.weeks.flat()), [grid]);
+  const selectedDateInputs = useMemo(
+    () => [{ dateKey: selectedDateKey }],
+    [selectedDateKey],
+  );
+  const selectedLunar = useMemo(
+    () => lunarLabelsOf(selectedDateInputs).get(selectedDateKey),
+    [selectedDateInputs, selectedDateKey],
+  );
 
   /**
    * 休假 / 补班载荷（SC-011 / CN-002–004）：与农历同一条路径，随网格重算；
@@ -398,6 +430,10 @@ export default function App() {
     () => chinaDayLabelsOf(grid.weeks.flat()),
     [grid],
   );
+  const selectedChinaDay = useMemo(
+    () => chinaDayLabelsOf(selectedDateInputs).get(selectedDateKey),
+    [selectedDateInputs, selectedDateKey],
+  );
 
   /**
    * 传统节日 / 节气载荷（SC-012 / CN-005–006）：同样随网格重算，
@@ -407,6 +443,10 @@ export default function App() {
   const chinaSemanticByDate = useMemo(
     () => chinaSemanticLabelsOf(grid.weeks.flat()),
     [grid],
+  );
+  const selectedChinaSemantic = useMemo(
+    () => chinaSemanticLabelsOf(selectedDateInputs).get(selectedDateKey),
+    [selectedDateInputs, selectedDateKey],
   );
 
   /**
@@ -451,6 +491,14 @@ export default function App() {
   const handledIdsRef = useRef<ReadonlySet<string>>(new Set());
   /** 重建代次：晚到的旧重建不会覆盖新结果（数据变化可能让两次重建重叠）。 */
   const planGenerationRef = useRef(0);
+  /** 今天钩子与提醒调度在零点同时触发时，合并相同输入的重建。 */
+  const reminderPlanRequestRef = useRef<{
+    from: string;
+    events: EnrichedEvent[];
+    notificationsEnabled: boolean;
+    matchReminder: MatchReminderSetting;
+    promise: Promise<void>;
+  } | null>(null);
 
   /**
    * 调度器读计划：同步、不重算。已处理的提醒在**读取侧**排除，而不是重建侧
@@ -473,31 +521,52 @@ export default function App() {
    */
   const rebuildReminderPlan = useCallback(async () => {
     const input = reminderInputRef.current;
+    const from = todayKeyFromDate(new Date());
+    const previous = reminderPlanRequestRef.current;
+    if (
+      previous?.from === from &&
+      previous.events === input.events &&
+      previous.notificationsEnabled === input.notificationsEnabled &&
+      previous.matchReminder === input.matchReminder
+    ) {
+      return previous.promise;
+    }
     const generation = planGenerationRef.current + 1;
     planGenerationRef.current = generation;
     const run = createReminderPlanLoad({
       events: input.events,
-      from: todayKeyFromDate(new Date()),
+      from,
       notificationsEnabled: input.notificationsEnabled,
       matchReminder: input.matchReminder,
       nowMs: Date.now(),
     });
     reminderPlanRef.current = [];
-    for (;;) {
-      run.advance();
-      if (!run.hasWork()) {
-        break;
+    const request: NonNullable<typeof reminderPlanRequestRef.current> = {
+      from,
+      events: input.events,
+      notificationsEnabled: input.notificationsEnabled,
+      matchReminder: input.matchReminder,
+      promise: Promise.resolve(),
+    };
+    request.promise = (async () => {
+      for (;;) {
+        run.advance();
+        if (!run.hasWork()) {
+          break;
+        }
+        await yieldToMain();
+        if (planGenerationRef.current !== generation) {
+          return;
+        }
       }
-      await yieldToMain();
       if (planGenerationRef.current !== generation) {
         return;
       }
-    }
-    if (planGenerationRef.current !== generation) {
-      return;
-    }
-    reminderPlanRef.current = run.result() ?? [];
-    reminderSchedulerRef.current?.reschedule();
+      reminderPlanRef.current = run.result() ?? [];
+      reminderSchedulerRef.current?.reschedule();
+    })();
+    reminderPlanRequestRef.current = request;
+    return request.promise;
   }, []);
 
   /** 事件或设置变化 → 重建计划并让调度器重排（启动时的首次排程同此路径）。 */
@@ -508,7 +577,13 @@ export default function App() {
       matchReminder,
     };
     void rebuildReminderPlan();
-  }, [visibleEvents, notificationsEnabled, matchReminder, rebuildReminderPlan]);
+  }, [
+    today,
+    visibleEvents,
+    notificationsEnabled,
+    matchReminder,
+    rebuildReminderPlan,
+  ]);
 
   /**
    * 从本地数据层重建 UI 状态；只显示启用来源的事件（SRC-003）。
@@ -517,7 +592,7 @@ export default function App() {
    * 事件集合没变时**不重新读取事件**（SC-020）：读取模型会逐条克隆
    * （10,000 条约 37 ms），而读取方拿到新数组就会重算月格——一次 304
    * 刷新或一次失败刷新本来什么都没改，却会白读一遍、让月格闪一次“整理中”。
-   * 判断依据是存储的 `eventsRevision()`（只在事件集合真的会变时推进），
+   * 判断依据是存储的 `readModelRevision()`（事件或增强结果提交时推进），
    * 不是“数组换了新对象”。来源行照常更新：304 也要反映最近一次成功时间。
    *
    * 读取本身分片进行（SC-024）：克隆拆成短任务，任务之间让出主线程，读完
@@ -532,8 +607,8 @@ export default function App() {
     async (store: CalendarStore): Promise<void> => {
       const nextSources = store.listSources();
       setSources(nextSources);
-      const revision = store.eventsRevision();
-      if (revision === eventsRevisionRef.current) {
+      const revision = store.readModelRevision();
+      if (revision === readModelRevisionRef.current) {
         return;
       }
       const enabled = new Set(
@@ -550,7 +625,7 @@ export default function App() {
       if (generation !== eventsLoadGenerationRef.current) {
         return;
       }
-      eventsRevisionRef.current = revision;
+      readModelRevisionRef.current = revision;
       setEvents(events);
     },
     [],
@@ -638,13 +713,26 @@ export default function App() {
     async (
       store: CalendarStore,
       sourceId: string,
+      background = false,
     ): Promise<WebcalRefreshOutcome> => {
       markRefreshing(sourceId, true);
       try {
-        const outcome = await refreshWebcalSource(store, sourceId, httpIO);
-        if (outcome.status === "updated") {
-          await reEnrichStoreYielding(store, semanticStack);
-        }
+        const outcome = await refreshWebcalSource(
+          store,
+          sourceId,
+          httpIO,
+          {},
+          {
+            background,
+            afterUpdated: async ({ signal, isCurrent }) => {
+              await reEnrichStoreYielding(store, semanticStack, { signal });
+              if (signal.aborted || !isCurrent()) {
+                throw createAbortError("订阅刷新已取消");
+              }
+            },
+          },
+        );
+        if (outcome.status === "cancelled") return outcome;
         // 落盘失败不影响本次刷新的结论：内存里的事件与来源状态都是新的，
         // 提示由 saveStore 给出，调用方拿到的 outcome 仍然如实。
         await saveStore("订阅刷新结果");
@@ -771,7 +859,7 @@ export default function App() {
       const scheduler = createWebcalScheduler({
         listSources: () => store.listSources(),
         refresh: async (sourceId) => {
-          await refreshSubscription(store, sourceId);
+          await refreshSubscription(store, sourceId, true);
         },
         intervalMs: () => webcalIntervalMs(webcalIntervalRef.current),
         onError: (error, sourceId) => {
@@ -911,6 +999,7 @@ export default function App() {
       cancelled = true;
       schedulerRef.current?.stop();
       schedulerRef.current = null;
+      if (storeRef.current) cancelAllWebcalRefreshes(storeRef.current);
       reminderSchedulerRef.current?.stop();
       reminderSchedulerRef.current = null;
     };
@@ -943,14 +1032,25 @@ export default function App() {
     }
     setSubscribeBusy(true);
     try {
-      const outcome = await addWebcalSubscription(store, { url, name }, httpIO);
+      const outcome = await addWebcalSubscription(
+        store,
+        { url, name },
+        httpIO,
+        {},
+        {
+          afterUpdated: async ({ signal, isCurrent }) => {
+            await reEnrichStoreYielding(store, semanticStack, { signal });
+            if (signal.aborted || !isCurrent()) {
+              throw createAbortError("订阅刷新已取消");
+            }
+          },
+        },
+      );
       if (outcome.error !== undefined) {
         setSubscriptionStatus(`添加订阅失败：${outcome.error}`);
         return false;
       }
-      if (outcome.refresh?.status === "updated") {
-        await reEnrichStoreYielding(store, semanticStack);
-      }
+      if (outcome.refresh?.status === "cancelled") return false;
       await saveStore("订阅");
       await refreshFromStore(store);
       schedulerRef.current?.reschedule();
@@ -1021,6 +1121,9 @@ export default function App() {
     }
     const source = store.getSource(sourceId);
     const name = source ? sourceDisplayName(source) : "该来源";
+    if (!enabled && source?.type === "webcal") {
+      cancelBackgroundWebcalRefresh(store, sourceId);
+    }
     if (!store.setSourceEnabled(sourceId, enabled)) {
       return;
     }
@@ -1040,7 +1143,7 @@ export default function App() {
     }
     const source = store.getSource(sourceId);
     const name = source ? sourceDisplayName(source) : "来源";
-    store.removeSource(sourceId);
+    removeWebcalSubscription(store, sourceId);
     await saveStore("删除结果");
     await refreshFromStore(store);
     schedulerRef.current?.reschedule();
@@ -1054,8 +1157,9 @@ export default function App() {
 
   /** 回到今天：视图月份与选中日期同时归位（CAL-002）。 */
   function goToToday() {
-    setView({ year: today.getFullYear(), month: today.getMonth() + 1 });
-    setSelectedDateKey(todayKey);
+    const now = refreshToday();
+    setView({ year: now.getFullYear(), month: now.getMonth() + 1 });
+    setSelectedDateKey(todayKeyFromDate(now));
   }
 
   /**
@@ -1239,7 +1343,9 @@ export default function App() {
           onToggleSource={handleToggleSource}
           hiddenBuiltinSourceIds={hiddenBuiltinSourceIds}
           onToggleBuiltinSource={handleToggleBuiltinSource}
-          storeStatus={storeStatus}
+          storeStatus={
+            assetStatus ? `${storeStatus} · ${assetStatus}` : storeStatus
+          }
           miniCalendar={
             <MiniMonth
               grid={grid}
@@ -1258,11 +1364,21 @@ export default function App() {
       }
       inspector={
         <InspectorPanel
+          assets={assets}
           dateKey={selectedDateKey}
           events={selectedEvents}
-          lunar={lunarByDate.get(selectedDateKey)}
-          chinaDay={visibleChinaDayByDate.get(selectedDateKey)}
-          chinaSemantic={visibleChinaSemanticByDate.get(selectedDateKey)}
+          pending={selectedEventsPending}
+          lunar={selectedLunar}
+          chinaDay={
+            isBuiltinSourceEnabled(hiddenBuiltinSourceIds, "cn-holiday")
+              ? selectedChinaDay
+              : undefined
+          }
+          chinaSemantic={
+            isBuiltinSourceEnabled(hiddenBuiltinSourceIds, "solar-terms")
+              ? selectedChinaSemantic
+              : undefined
+          }
           followedTeamIds={followedTeamIds}
           matchReminder={matchReminder}
         />
@@ -1305,6 +1421,7 @@ export default function App() {
         />
       ) : (
         <MonthView
+          assets={assets}
           grid={grid}
           selectedDateKey={selectedDateKey}
           onSelectDate={selectDate}

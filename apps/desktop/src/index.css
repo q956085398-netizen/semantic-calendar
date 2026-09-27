@@ -29,6 +29,10 @@
   --source-holiday: #c96a50;
   --source-solar: #6f9a6e;
   --source-sport: #7a6bd1;
+  --source-amber: #ba904b;
+  --source-teal: #4e9996;
+  --source-rose: #b8738a;
+  --source-slate: #7e8fa4;
 
   --sidebar-width: 232px;
   --inspector-width: 288px;
@@ -168,7 +172,7 @@ button:focus-visible {
   padding: var(--pane-gap);
   overflow: hidden;
   background: var(--bg-app);
-  transition: grid-template-columns 200ms ease;
+  /* 页面内容会立即替换，栏宽也必须同时到位，避免设置布局在过渡中反复换行。 */
 }
 
 .app-shell.sidebar-collapsed {
@@ -194,6 +198,7 @@ button:focus-visible {
 }
 
 .pane-sidebar {
+  position: relative;
   grid-column: 1;
   display: flex;
   flex-direction: column;
@@ -245,9 +250,17 @@ button:focus-visible {
 }
 
 .pane-toggle-collapse {
-  flex: none;
-  margin-top: auto;
-  align-self: flex-start;
+  position: absolute;
+  top: 14px;
+  right: 12px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 22px;
+  line-height: 1;
 }
 
 /* 折叠把手拥有独立窄列，不能遮挡日期或设置控件。 */
@@ -314,6 +327,7 @@ button:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
+  padding-right: 30px;
 }
 
 .app-icon {
@@ -389,6 +403,8 @@ button:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 /* 设置入口（SC-018 / ui-design §4 第 5 项）：打开设置页，打开态由 aria-pressed 表达 */
@@ -981,6 +997,12 @@ button:focus-visible {
   line-height: 1.35;
 }
 
+/* 普通事件与比赛不是同一条信息；比赛格里去掉重复的强调条。 */
+.month-cell[data-cell-backdrop="league"] .cell-event {
+  padding-left: 0;
+  border-left: 0;
+}
+
 /* 语义增强（SC-009）：accent 来自 Metadata Resolver 注入的
    --event-accent，月格本身不做任何领域判断 */
 .cell-event.is-semantic {
@@ -1034,6 +1056,19 @@ button:focus-visible {
   object-fit: contain;
   background: none;
   box-shadow: none;
+}
+
+/* 图片保持完整轮廓；缩写占位的圆角不应裁掉队徽边缘。 */
+.mark-lg.is-asset,
+.match-cell .mark.is-asset {
+  border-radius: 0;
+}
+
+/* 深色底板上提亮联赛图形，球队前景保留原色。 */
+:root[data-theme="dark"] .match-cell-bg-image,
+:root[data-theme="dark"] .matchday-bg-image,
+:root[data-theme="dark"] .matchday-competition .mark.is-asset {
+  filter: brightness(0) invert(1);
 }
 
 /* ---------------- 比赛月格（SC-016 / SPORT-004、ui-design §10） ---------------- */
@@ -1138,6 +1173,7 @@ button:focus-visible {
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.18em;
+  padding-right: 26px;
 }
 
 .inspector-date {
@@ -1326,11 +1362,6 @@ button:focus-visible {
   overflow-wrap: anywhere;
 }
 
-.pane-inspector .pane-toggle-collapse {
-  margin: 0 14px 14px;
-  align-self: flex-end;
-}
-
 /* ---------------- 比赛日详情栏（SC-016 / ui-design §13–15） ---------------- */
 
 /* 比赛日整栏换成赛事氛围背景：视觉中心是比赛本身，而不是右栏里再嵌一张卡片 */
@@ -1449,9 +1480,9 @@ button:focus-visible {
 .matchday-facts {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 6px 12px;
+  gap: 0 12px;
   margin: 2px 0 0;
-  padding-top: 10px;
+  padding-top: 0;
   border-top: 1px solid
     color-mix(in srgb, var(--semantic-sport) 22%, transparent);
   font-size: 12.5px;
@@ -1459,6 +1490,11 @@ button:focus-visible {
 
 .matchday-facts dt {
   color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .matchday-facts dd {
@@ -1466,6 +1502,15 @@ button:focus-visible {
   color: var(--text-primary);
   text-align: right;
   overflow-wrap: anywhere;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  align-content: center;
+}
+
+.matchday-fact-icon {
+  width: 17px;
+  height: 17px;
+  flex: none;
 }
 
 /* 开赛时间（§13.1 二级）与场地 / 提醒（三级）同列但视觉更强 */
@@ -1755,6 +1800,23 @@ button:focus-visible {
   max-width: 1160px;
   margin-inline: auto;
   container-type: inline-size;
+  animation: settings-enter 140ms ease-out;
+}
+
+/* 入场只改变透明度，不移动控件、不影响两列布局和容器断点。 */
+@keyframes settings-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-view {
+    animation: none;
+  }
 }
 
 .settings-header {
@@ -1806,7 +1868,7 @@ button:focus-visible {
   font-weight: 700;
 }
 
-.settings-group-title img {
+.settings-group-title svg {
   width: 24px;
   height: 24px;
   object-fit: contain;
@@ -2007,7 +2069,7 @@ button:focus-visible {
 .import-icon {
   width: 16px;
   height: 16px;
-  object-fit: contain;
+  flex: none;
   margin-right: 6px;
 }
 

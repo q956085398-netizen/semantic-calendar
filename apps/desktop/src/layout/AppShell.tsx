@@ -67,11 +67,13 @@ function CollapsiblePane({
       <button
         type="button"
         className="pane-toggle pane-toggle-collapse"
+        aria-label={collapseTitle}
+        title={collapseTitle}
         aria-expanded="true"
         aria-controls={id}
         onClick={onCollapse}
       >
-        {collapseTitle}
+        <span aria-hidden="true">{id === SIDEBAR_PANE_ID ? "‹" : "›"}</span>
       </button>
     </aside>
   );

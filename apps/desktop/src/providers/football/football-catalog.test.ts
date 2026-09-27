@@ -47,13 +47,13 @@ const MINI_SEASON: readonly SeasonRoster[] = [
 ];
 
 describe("英超元数据目录：查询（SC-014 / SPORT-001）", () => {
-  it("默认目录包含 20 支球队与已登记赛季名单", () => {
-    expect(footballCatalog.teams).toHaveLength(20);
+  it("默认目录保留历史球队并提供本赛季 20 队名单", () => {
+    expect(footballCatalog.teams).toHaveLength(23);
     expect(footballCatalog.competitions.map((c) => c.id)).toEqual([
       "premier-league",
     ]);
     const season = footballCatalog.latestSeason();
-    expect(season?.id).toBe("2025-26");
+    expect(season?.id).toBe("2026-27");
     expect(season?.teamIds).toHaveLength(20);
   });
 
@@ -178,17 +178,17 @@ describe("英超元数据目录：赛季名单", () => {
 
   it("赛季变化只改数据：新增赛季后 latestSeason 跟随，查询逻辑不变", () => {
     const nextSeason: SeasonRoster = {
-      id: "2026-27",
+      id: "2027-28",
       competitionId: "premier-league",
-      label: "2026/27",
+      label: "2027/28",
       // 只登记“新赛季确认名单”，球队字典本身不动。
       teamIds: ["arsenal", "manchester-city", "sunderland"],
     };
     const catalog = createFootballCatalog(
       dataWith({ seasons: [nextSeason, ...SEASONS] }),
     );
-    expect(catalog.latestSeason()?.id).toBe("2026-27");
-    expect(catalog.rosterOf("2026-27").map((team) => team.id)).toEqual([
+    expect(catalog.latestSeason()?.id).toBe("2027-28");
+    expect(catalog.rosterOf("2027-28").map((team) => team.id)).toEqual([
       "arsenal",
       "manchester-city",
       "sunderland",
@@ -203,7 +203,7 @@ describe("英超元数据目录：赛季名单", () => {
         "arsenal",
         "manchester-city",
       ])?.id,
-    ).toBe("2025-26");
+    ).toBe("2026-27");
     // 只认得一侧、或联赛未登记：拿不到证据，返回 undefined（不猜）。
     expect(
       footballCatalog.newestRosterContaining("premier-league", [
@@ -236,7 +236,7 @@ describe("英超元数据目录：赛季名单", () => {
         "arsenal",
         "manchester-city",
       ])?.id,
-    ).toBe("2025-26");
+    ).toBe("2026-27");
   });
 
   it("latestSeason 不依赖数据文件书写顺序", () => {

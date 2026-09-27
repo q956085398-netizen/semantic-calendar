@@ -37,7 +37,8 @@ import {
   webcalDisplayName,
 } from "./webcal-url";
 
-export type WebcalRefreshStatus = "updated" | "not-modified" | "failed";
+export type WebcalRefreshStatus =
+  "updated" | "not-modified" | "failed" | "cancelled";
 
 export interface WebcalRefreshOutcome {
   sourceId: string;
@@ -67,6 +68,11 @@ export interface WebcalAddOutcome {
   refresh?: WebcalRefreshOutcome;
 }
 
+export interface WebcalRefreshContext {
+  signal: AbortSignal;
+  isCurrent: () => boolean;
+}
+
 export interface WebcalDeps {
   /** 订阅状态时钟（lastCheckedAt）；与分片时钟同名不同义，因此不整体透传。 */
   now?: () => Date;
@@ -81,9 +87,20 @@ export interface WebcalDeps {
   eventsPerChunk?: number;
 }
 
+export interface WebcalRefreshOptions {
+  /** 后台操作会在停用来源时取消；手动刷新保持现有行为。 */
+  background?: boolean;
+  /** 200 刷新后的工作也属于这次刷新，来源删除时一并取消。 */
+  afterUpdated?: (context: WebcalRefreshContext) => Promise<void>;
+}
+
 /** 分片注入项：字段名与 WebcalDeps 的 `now` 冲突，逐项映射而不是整体透传。 */
-function sliceOptions(deps: WebcalDeps): RunYieldingDeps {
-  return { yieldToMain: deps.yieldToMain, yieldAfterMs: deps.yieldAfterMs };
+function sliceOptions(deps: WebcalDeps, signal: AbortSignal): RunYieldingDeps {
+  return {
+    yieldToMain: deps.yieldToMain,
+    yieldAfterMs: deps.yieldAfterMs,
+    signal,
+  };
 }
 
 /**
@@ -97,6 +114,7 @@ export async function addWebcalSubscription(
   input: WebcalAddInput,
   http: HttpIO,
   deps: WebcalDeps = {},
+  options: WebcalRefreshOptions = {},
 ): Promise<WebcalAddOutcome> {
   const normalized = normalizeWebcalUrl(input.url);
   if (!normalized.ok) {
@@ -124,38 +142,136 @@ export async function addWebcalSubscription(
       };
   store.upsertSource(source);
 
-  const refresh = await refreshWebcalSource(store, sourceId, http, deps);
+  const refresh = await refreshWebcalSource(
+    store,
+    sourceId,
+    http,
+    deps,
+    options,
+  );
   return { sourceId, source: store.getSource(sourceId), refresh };
 }
 
 /** 同一来源的并发刷新共用一次请求，避免重复下载（§12）。 */
-const inFlightByStore = new WeakMap<
+interface ActiveRefresh {
+  controller: AbortController;
+  background: boolean;
+  /** 事件已提交后的增强与保存必须完成，避免持久化半成品。 */
+  finalizing: boolean;
+  promise: Promise<WebcalRefreshOutcome>;
+}
+
+const activeRefreshesByStore = new WeakMap<
   CalendarStore,
-  Map<string, Promise<WebcalRefreshOutcome>>
+  Map<string, ActiveRefresh>
 >();
+
+function activeRefreshesFor(store: CalendarStore): Map<string, ActiveRefresh> {
+  let active = activeRefreshesByStore.get(store);
+  if (!active) {
+    active = new Map();
+    activeRefreshesByStore.set(store, active);
+  }
+  return active;
+}
 
 export function refreshWebcalSource(
   store: CalendarStore,
   sourceId: string,
   http: HttpIO,
   deps: WebcalDeps = {},
+  options: WebcalRefreshOptions = {},
 ): Promise<WebcalRefreshOutcome> {
-  let inFlight = inFlightByStore.get(store);
-  if (inFlight === undefined) {
-    inFlight = new Map();
-    inFlightByStore.set(store, inFlight);
+  const active = activeRefreshesFor(store);
+  const running = active.get(sourceId);
+  if (running && !running.controller.signal.aborted) {
+    // 前台手动操作加入后台刷新时，停用来源不能再中止这次明确请求。
+    if (!options.background) running.background = false;
+    return running.promise;
   }
 
-  const running = inFlight.get(sourceId);
-  if (running !== undefined) {
-    return running;
-  }
+  const operation: ActiveRefresh = {
+    controller: new AbortController(),
+    background: options.background === true,
+    finalizing: false,
+    promise: Promise.resolve(cancelled(sourceId)),
+  };
+  active.set(sourceId, operation);
+  const isCurrent = () =>
+    active.get(sourceId) === operation &&
+    store.getSource(sourceId) !== undefined;
+  operation.promise = Promise.resolve()
+    .then(() =>
+      performRefresh(
+        store,
+        sourceId,
+        http,
+        deps,
+        operation.controller.signal,
+        isCurrent,
+      ),
+    )
+    .then(async (result) => {
+      if (result.status !== "updated" || options.afterUpdated === undefined) {
+        return result;
+      }
+      operation.finalizing = true;
+      await options.afterUpdated({
+        signal: operation.controller.signal,
+        isCurrent,
+      });
+      return operation.controller.signal.aborted || !isCurrent()
+        ? cancelled(sourceId)
+        : result;
+    })
+    .catch((error: unknown) => {
+      if (
+        operation.controller.signal.aborted ||
+        isAbortError(error) ||
+        !isCurrent()
+      ) {
+        return cancelled(sourceId);
+      }
+      throw error;
+    })
+    .finally(() => {
+      if (isCurrent()) active.delete(sourceId);
+    });
+  return operation.promise;
+}
 
-  const task = performRefresh(store, sourceId, http, deps).finally(() => {
-    inFlight.delete(sourceId);
-  });
-  inFlight.set(sourceId, task);
-  return task;
+/** 删除来源前使其请求与所有尚未完成的分片失效，再级联清理存储数据。 */
+export function removeWebcalSubscription(
+  store: CalendarStore,
+  sourceId: string,
+): void {
+  const active = activeRefreshesByStore.get(store);
+  const operation = active?.get(sourceId);
+  if (operation) {
+    active?.delete(sourceId);
+    operation.controller.abort();
+  }
+  store.removeSource(sourceId);
+}
+
+/** 停用来源只取消后台刷新；用户明确发起的手动刷新继续完成。 */
+export function cancelBackgroundWebcalRefresh(
+  store: CalendarStore,
+  sourceId: string,
+): void {
+  const active = activeRefreshesByStore.get(store);
+  const operation = active?.get(sourceId);
+  if (!operation?.background || operation.finalizing) return;
+  active?.delete(sourceId);
+  operation.controller.abort();
+}
+
+/** 关闭 App 时终止所有在途刷新与分片工作。 */
+export function cancelAllWebcalRefreshes(store: CalendarStore): void {
+  const active = activeRefreshesByStore.get(store);
+  if (!active) return;
+  for (const operation of active.values()) operation.controller.abort();
+  active.clear();
 }
 
 async function performRefresh(
@@ -163,6 +279,8 @@ async function performRefresh(
   sourceId: string,
   http: HttpIO,
   deps: WebcalDeps,
+  signal: AbortSignal,
+  isCurrent: () => boolean,
 ): Promise<WebcalRefreshOutcome> {
   const now = deps.now ?? (() => new Date());
   const source = store.getSource(sourceId);
@@ -179,12 +297,18 @@ async function performRefresh(
 
   let response;
   try {
-    response = await http.get({
-      url: cache.url,
-      etag: cache.etag,
-      lastModified: cache.lastModified,
-    });
+    response = await http.get(
+      {
+        url: cache.url,
+        etag: cache.etag,
+        lastModified: cache.lastModified,
+      },
+      signal,
+    );
   } catch (error) {
+    if (signal.aborted || isAbortError(error) || !isCurrent()) {
+      return cancelled(sourceId);
+    }
     return markFailed(
       store,
       sourceId,
@@ -196,8 +320,8 @@ async function performRefresh(
 
   // 抓取期间来源可能已被删除（用户点了删除）：此时写入会留下无主的
   // 事件记录，永远不再显示，也不再被任何来源管理。
-  if (store.getSource(sourceId) === undefined) {
-    return failed(sourceId, "订阅已删除，结果已丢弃");
+  if (!isCurrent()) {
+    return cancelled(sourceId);
   }
 
   if (response.notModified) {
@@ -222,8 +346,9 @@ async function performRefresh(
 
   const parsed = await runYielding(
     parseIcsCalendarInChunks(response.body ?? ""),
-    sliceOptions(deps),
+    sliceOptions(deps, signal),
   );
+  if (!isCurrent() || signal.aborted) return cancelled(sourceId);
   const skipped = parsed.issues.filter(
     (issue) => issue.eventIndex !== undefined,
   ).length;
@@ -258,12 +383,19 @@ async function performRefresh(
   // 10,000 条的订阅刷新因此也不再整段占着主线程（性能文档 §3.5）。
   const stored = await runYielding(
     normalizeEventsInChunks(parsed.events, sourceId, deps.eventsPerChunk),
-    sliceOptions(deps),
+    sliceOptions(deps, signal),
   );
+  if (!isCurrent() || signal.aborted) return cancelled(sourceId);
   const { inserted, updated, removed } = await runYielding(
-    store.replaceSourceEventsInChunks(sourceId, stored, deps.eventsPerChunk),
-    sliceOptions(deps),
+    store.replaceSourceEventsInChunks(
+      sourceId,
+      stored,
+      deps.eventsPerChunk,
+      () => isCurrent() && !signal.aborted,
+    ),
+    sliceOptions(deps, signal),
   );
+  if (!isCurrent() || signal.aborted) return cancelled(sourceId);
   store.updateSourceStatus(sourceId, {
     lastSyncStatus: "ok",
     lastSyncAt: checkedAt,
@@ -304,6 +436,19 @@ function markFailed(
 
 function failed(sourceId: string, error: string): WebcalRefreshOutcome {
   return outcome(sourceId, "failed", { error });
+}
+
+function cancelled(sourceId: string): WebcalRefreshOutcome {
+  return outcome(sourceId, "cancelled");
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "AbortError"
+  );
 }
 
 function outcome(

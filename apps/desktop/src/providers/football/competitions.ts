@@ -9,7 +9,7 @@ import type { FixtureCompetitionDisplay } from "../../semantic/metadata-resolver
  * Resolver 或任何 UI 代码。
  *
  * 名单口径：SEASONS 中只登记已确认的完整参赛名单。
- * 当前登记的 2025/26 名单来自该赛季开幕前公布的 20 支参赛球队；
+ * 当前登记 2026/27 与 2025/26 两季的完整名单；
  * 新赛季名单确认后作为新条目追加，latestSeason() 自然会跟随最新条目。
  * 未确认的名单不要预先写入——宁可暂缺，也不给出错误事实（P-03）。
  */
@@ -64,6 +64,35 @@ export const COMPETITIONS: readonly CompetitionMetadata[] = [
 
 /** 按赛季倒序登记（最新的在前）；装配期会校验赛季 ID 不重复。 */
 export const SEASONS: readonly SeasonRoster[] = [
+  {
+    id: "2026-27",
+    competitionId: "premier-league",
+    label: "2026/27",
+    // 核对日期：2026-09-27；英超官方 2026/27 squad lists（2026-09-03）。
+    // https://www.premierleague.com/en/news/4706139/see-all-the-202627-premier-league-squad-lists
+    teamIds: [
+      "arsenal",
+      "aston-villa",
+      "bournemouth",
+      "brentford",
+      "brighton",
+      "chelsea",
+      "coventry-city",
+      "crystal-palace",
+      "everton",
+      "fulham",
+      "hull-city",
+      "ipswich-town",
+      "leeds-united",
+      "liverpool",
+      "manchester-city",
+      "manchester-united",
+      "newcastle-united",
+      "nottingham-forest",
+      "sunderland",
+      "tottenham-hotspur",
+    ],
+  },
   {
     id: "2025-26",
     competitionId: "premier-league",

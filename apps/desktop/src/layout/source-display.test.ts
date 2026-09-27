@@ -23,7 +23,7 @@ import {
  * - 「上次成功」写的是**上次成功**的时间，失败时它也必须在（失败时用户更
  *   需要知道缓存有多旧，SRC-004）；
  * - 同步状态集中在设置中展示；侧栏只使用共享的显示名称与识别色；
- * - 识别色只由来源 id 派生，且四支色都真的取得到——增删来源不会改变既有
+ * - 识别色只由来源 id 派生，且八支色都真的取得到——增删来源不会改变既有
  *   来源的颜色，调色板也不会退化成一支。
  *
  * 已知边界：`lastSyncError` 在应用自己的写入路径上与 `error` 一起出现
@@ -52,6 +52,10 @@ const SOURCE_COLOR_TOKENS = [
   "var(--source-sport)",
   "var(--source-solar)",
   "var(--source-holiday)",
+  "var(--source-amber)",
+  "var(--source-teal)",
+  "var(--source-rose)",
+  "var(--source-slate)",
 ];
 
 describe("来源名称与地址", () => {
@@ -196,9 +200,9 @@ describe("来源识别色（SC-006 / SRC-003）", () => {
     // 两个真实形态的 id（订阅地址派生 / 本地文件名派生）。改动哈希或取模
     // 会让所有既有来源一起换色——用户看得见，因此不该无声发生。
     expect(sourceColor("webcal:https://calendar.example.com/feed.ics")).toBe(
-      "var(--source-personal)",
+      "var(--source-amber)",
     );
-    expect(sourceColor("local:team.ics")).toBe("var(--source-holiday)");
+    expect(sourceColor("local:team.ics")).toBe("var(--source-slate)");
   });
 
   it("只由来源 id 决定：同一 id 每次都是同一支色", () => {
@@ -206,14 +210,14 @@ describe("来源识别色（SC-006 / SRC-003）", () => {
     expect(sourceColor(id)).toBe(sourceColor(id));
   });
 
-  it("四支色都取得到：调色板没有退化成一支", () => {
+  it("八支色都取得到：调色板没有退化成一支", () => {
     const tokens = new Set(
       Array.from({ length: 400 }, (_, index) => sourceColor(`source-${index}`)),
     );
     expect([...tokens].sort()).toEqual([...SOURCE_COLOR_TOKENS].sort());
   });
 
-  it("四支色都在 index.css 里定义（改名会让来源圆点变透明）", () => {
+  it("八支色都在 index.css 里定义（改名会让来源圆点变透明）", () => {
     const css = readFileSync(resolve(SRC_ROOT, "index.css"), "utf8");
     for (const token of SOURCE_COLOR_TOKENS) {
       const name = token.slice("var(".length, -1);
