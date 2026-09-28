@@ -48,12 +48,14 @@ const MINI_SEASON: readonly SeasonRoster[] = [
 
 describe("英超元数据目录：查询（SC-014 / SPORT-001）", () => {
   it("默认目录包含 20 支球队与已登记赛季名单", () => {
-    expect(footballCatalog.teams).toHaveLength(20);
+    expect(footballCatalog.teams).toHaveLength(54);
     expect(footballCatalog.competitions.map((c) => c.id)).toEqual([
       "premier-league",
+      "champions-league",
+      "football",
     ]);
-    const season = footballCatalog.latestSeason();
-    expect(season?.id).toBe("2025-26");
+    const season = footballCatalog.latestSeason("premier-league");
+    expect(season?.id).toBe("2026-27");
     expect(season?.teamIds).toHaveLength(20);
   });
 
@@ -99,7 +101,9 @@ describe("英超元数据目录：查询（SC-014 / SPORT-001）", () => {
       nameEn: "Premier League",
       accent: "var(--semantic-sport)",
     });
-    expect(footballCatalog.competitionById("champions-league")).toBeUndefined();
+    expect(
+      footballCatalog.competitionById("unknown-competition"),
+    ).toBeUndefined();
   });
 });
 
@@ -185,7 +189,14 @@ describe("英超元数据目录：赛季名单", () => {
       teamIds: ["arsenal", "manchester-city", "sunderland"],
     };
     const catalog = createFootballCatalog(
-      dataWith({ seasons: [nextSeason, ...SEASONS] }),
+      dataWith({
+        seasons: [
+          nextSeason,
+          ...SEASONS.filter(
+            (s) => s.id !== "2026-27" && s.id !== "2026-27-champions-league",
+          ),
+        ],
+      }),
     );
     expect(catalog.latestSeason()?.id).toBe("2026-27");
     expect(catalog.rosterOf("2026-27").map((team) => team.id)).toEqual([
@@ -203,7 +214,7 @@ describe("英超元数据目录：赛季名单", () => {
         "arsenal",
         "manchester-city",
       ])?.id,
-    ).toBe("2025-26");
+    ).toBe("2026-27");
     // 只认得一侧、或联赛未登记：拿不到证据，返回 undefined（不猜）。
     expect(
       footballCatalog.newestRosterContaining("premier-league", [
@@ -212,7 +223,7 @@ describe("英超元数据目录：赛季名单", () => {
       ]),
     ).toBeUndefined();
     expect(
-      footballCatalog.newestRosterContaining("champions-league", [
+      footballCatalog.newestRosterContaining("unknown-competition", [
         "arsenal",
         "manchester-city",
       ]),
@@ -227,7 +238,9 @@ describe("英超元数据目录：赛季名单", () => {
             label: "2024/25",
             teamIds: ["arsenal", "manchester-city"],
           },
-          ...SEASONS,
+          ...SEASONS.filter(
+            (s) => s.id !== "2026-27" && s.id !== "2026-27-champions-league",
+          ),
         ],
       }),
     );

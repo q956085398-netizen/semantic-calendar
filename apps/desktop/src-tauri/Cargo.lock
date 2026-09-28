@@ -3104,6 +3104,7 @@ dependencies = [
 name = "semantic-calendar"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "reqwest",
  "serde",
  "serde_json",
@@ -3111,6 +3112,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-notification",
  "tauri-plugin-single-instance",
+ "tokio",
 ]
 
 [[package]]

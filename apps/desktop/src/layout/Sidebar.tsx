@@ -67,6 +67,11 @@ export function Sidebar({
                       onToggleBuiltinSource(source.id, event.target.checked)
                     }
                   />
+                  <span
+                    className="source-dot"
+                    style={{ background: sourceColor(source.id) }}
+                    aria-hidden="true"
+                  />
                   <span className="source-name">{source.name}</span>
                 </label>
               </li>

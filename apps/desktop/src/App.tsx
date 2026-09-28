@@ -53,6 +53,7 @@ import {
   type ChinaDaySemanticLabel,
 } from "./semantic/app-china-festivals";
 import { semanticTypeDefaults } from "./semantic/metadata-resolver";
+import { useLocalMarkAssets } from "./semantic/use-local-mark-assets";
 import { reminderLabel } from "./format/reminder";
 import {
   BUILTIN_SOURCES_SETTING_KEY,
@@ -382,6 +383,7 @@ export default function App() {
     grid,
   );
   const selectedEvents = eventsByDate.get(selectedDateKey) ?? [];
+  const { source: markAssets, status: assetStatus } = useLocalMarkAssets(visibleEvents);
 
   /**
    * 农历简写（SC-010 / CN-001）：随网格一起重算，范围外的日期不进 Map。
@@ -1239,7 +1241,7 @@ export default function App() {
           onToggleSource={handleToggleSource}
           hiddenBuiltinSourceIds={hiddenBuiltinSourceIds}
           onToggleBuiltinSource={handleToggleBuiltinSource}
-          storeStatus={storeStatus}
+          storeStatus={[storeStatus, assetStatus].filter(Boolean).join(" · ")}
           miniCalendar={
             <MiniMonth
               grid={grid}
@@ -1258,6 +1260,7 @@ export default function App() {
       }
       inspector={
         <InspectorPanel
+          assets={markAssets}
           dateKey={selectedDateKey}
           events={selectedEvents}
           lunar={lunarByDate.get(selectedDateKey)}
@@ -1305,6 +1308,7 @@ export default function App() {
         />
       ) : (
         <MonthView
+          assets={markAssets}
           grid={grid}
           selectedDateKey={selectedDateKey}
           onSelectDate={selectDate}

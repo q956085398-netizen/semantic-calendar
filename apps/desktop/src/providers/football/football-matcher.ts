@@ -1,37 +1,13 @@
 import type { NormalizedEvent } from "../../data/model";
-import { titleKey } from "../../normalize/title";
+import { normalizeEventTitle, titleKey } from "../../normalize/title";
 import type { EventMatcher, MatchOutput } from "../../semantic/matcher-engine";
-import type { CompetitionMetadata, SeasonRoster } from "./competitions";
+import type { CompetitionMetadata } from "./competitions";
 import type { FootballCatalog } from "./football-catalog";
+import { unknownTeamId } from "./unknown-team";
 
-/**
- * 英超比赛标题 Matcher（SC-015 / SPORT-002–003，app-spec §9）。
- *
- * 职责边界：只回答“这个标题是不是一场英超比赛、双方是谁、谁在主场”，
- * 不回答“队徽在哪、怎么显示”（Metadata Resolver，SC-014）。
- * 词表来自 FootballCatalog（别名 / 规范名 / 赛季名单），这里不硬编码球队名。
- *
- * 判定链（任一步不成立就返回 null，事件按普通事件显示，SEM-003）：
- * 1. 标题里恰好出现两支可确定归属的球队；
- * 2. 两队之间是一个已知的对阵分隔符（vs / - / @ …）；
- * 3. 标题除“两队 + 分隔符 + 联赛名 + `标签: ` 前缀”之外没有别的词；
- * 4. 联赛可确定：标题写明已登记联赛，或两队同属某个已登记赛季名单。
- *
- * 第 3 条是“不误伤”的关键：只要求“两个词表里的球队 + 一个分隔符”时，
- * 一次展览（Kensington Palace - Chelsea Flower Show）或一趟火车
- * （Brighton - Leeds train）都会被判成比赛——它们的两侧不是球队名，
- * 而是包含球队名的短语。宁可漏掉一场真比赛（P-03），
- * 也不给普通事件挂上英超。
- *
- * 主客队（SPORT-003）用 entities 顺序表达：第 0 个是主队、第 1 个是客队——
- * 这正是 SC-014 Resolver 已经依赖的接口（展示载荷按该顺序渲染）。
- * 顺序由分隔符决定：`A @ B` 明示 A 客场作战（B 为主队）；`A vs B` / `A - B`
- * 按赛程列表惯例左侧为主队。方向只靠惯例、或联赛只靠名单推断时，
- * confidence 低于 1，并把依据写进 reason（§14 可解释状态）。
- *
- * 边界：v0.1 只登记英超，因此“两队都在英超名单内”即认定为英超比赛——
- * 两支英超球队的杯赛（如足总杯）在 v0.1 也会标为英超。多联赛支持是
- * SPORT-001 的扩展点：登记新联赛与名单后，本 Matcher 的判定链自动适用。
+/** 足球对阵识别：球队身份与赛事身份分开解析。只接受明确的对阵和
+ * 白名单赛程附加信息；未注明赛事使用中性足球载荷，不以国内名单猜杯赛。
+ * 队徽解析由 Metadata Resolver 和本地资源层负责。
  */
 
 export const FOOTBALL_MATCHER_ID = "football.fixture-title";
@@ -50,7 +26,7 @@ const TEAM_COUNT = 2;
 /** 判定依据强度；整体置信度取最弱的一环。 */
 const EXPLICIT_EVIDENCE = 1;
 const CONVENTION_EVIDENCE = 0.9;
-const ROSTER_EVIDENCE = 0.8;
+const NEUTRAL_EVIDENCE = 0.8;
 
 type MentionKind = "team" | "competition";
 
@@ -105,11 +81,10 @@ const ASCII_WORD_END = /[a-z0-9]$/;
 /** “单词”的判定（不误伤用）：字母或数字，中文与拉丁字母一视同仁。 */
 const WORD = /[\p{L}\p{N}]/u;
 
-/** 联赛认定结果：联赛本身、命中的赛季名单与证据强度。 */
+/** 赛事认定结果：是否有标题明示证据。 */
 interface CompetitionMatch {
   competition: CompetitionMetadata;
-  season: SeasonRoster;
-  /** 标题是否写明了联赛（false 表示按名单推断）。 */
+  /** 未写明赛事时使用中性足球展示。 */
   explicit: boolean;
 }
 
@@ -130,7 +105,11 @@ export function createFootballMatcher(catalog: FootballCatalog): EventMatcher {
       const mentions = scanMentions(needles, text);
       const teams = mentions.filter((mention) => mention.kind === "team");
       if (teams.length !== TEAM_COUNT) {
-        return null;
+        return explicitFixtureWithUnknownTeams(
+          catalog,
+          normalizeEventTitle(event.normalizedTitle),
+          mentions,
+        );
       }
       const [left, right] = teams;
       if (left.id === right.id) {
@@ -147,10 +126,7 @@ export function createFootballMatcher(catalog: FootballCatalog): EventMatcher {
         return null;
       }
 
-      const competition = resolveCompetition(catalog, mentions, [
-        left.id,
-        right.id,
-      ]);
+      const competition = resolveCompetition(catalog, mentions);
       if (competition === undefined) {
         return null;
       }
@@ -166,7 +142,7 @@ export function createFootballMatcher(catalog: FootballCatalog): EventMatcher {
         ],
         confidence: Math.min(
           separator.explicit ? EXPLICIT_EVIDENCE : CONVENTION_EVIDENCE,
-          competition.explicit ? EXPLICIT_EVIDENCE : ROSTER_EVIDENCE,
+          competition.explicit ? EXPLICIT_EVIDENCE : NEUTRAL_EVIDENCE,
         ),
         reason: `${orderReason(between, separator)}；${competitionReason(competition)}`,
       };
@@ -254,19 +230,17 @@ function classifySeparator(between: string): Separator | undefined {
 }
 
 /**
- * 标题除“两队 + 对阵分隔符 + 联赛名 + `标签: ` 前缀”之外不应再有别的单词。
+ * 标题只接受两队、分隔符、赛事名、赛季、轮次和 `标签: ` 前缀。
  *
  * 只靠“两个词表里的球队 + 一个分隔符”判定是不够的：标题里的球队名可能只是
  * 一个更长短语的一部分，而短语本身讲的是别的事——
  * "Kensington Palace - Chelsea Flower Show"（展览）、
  * "Brighton - Leeds train"（车次）、"Liverpool - Everton derby tickets"。
- * 这些标题的两侧不是球队名，所以只要**别的单词**一出现就不增强（P-03：
- * 宁可漏掉一场真比赛，也不给普通事件挂上英超）。
+ * 这些标题的两侧不是球队名，因此白名单之外的单词会阻止增强。
  *
  * 括号不构成豁免：括号里的词同样要能被解释（联赛名，或纯标点），
- * 否则 "Brighton - Leeds (train)" 这类括号备注又会漏进来。代价是标题带
- * 自由文本时（"… - Matchday 12"、"(Emirates Stadium)"）会漏判——这是刻意
- * 取舍：漏判只是少一次增强，误判会给普通事件挂上英超徽标。
+ * 否则 "Brighton - Leeds (train)" 这类括号备注又会漏进来。
+ * Matchday / Round 属于赛程白名单，场地等自由文本仍留作普通事件。
  */
 function isFixtureOnlyTitle(
   text: string,
@@ -286,6 +260,19 @@ function isFixtureOnlyTitle(
   const labelEnd = labelPrefixEnd(text, left.start);
   if (labelEnd > 0) {
     allowed.push([0, labelEnd]);
+  }
+  // 只接受对阵之后的赛季与轮次。自由文本（球票、车次、地点）仍然拒绝。
+  const suffix = text.slice(right.end);
+  for (const match of suffix.matchAll(
+    /\b(?:season\s+)?(20\d{2})[/-](20\d{2}|\d{2})\b|\b(?:round|matchday|md)\s+[1-9]\d?\b|第[1-9]\d?轮/gu,
+  )) {
+    if (match[1] !== undefined) {
+      const year = Number(match[1]);
+      const next = Number(match[2]);
+      if (next !== year + 1 && next !== (year + 1) % 100) continue;
+    }
+    const begin = right.end + match.index;
+    allowed.push([begin, begin + match[0].length]);
   }
   return !hasWordOutside(text, allowed);
 }
@@ -320,53 +307,79 @@ function hasWordOutside(
   return cursor < text.length && WORD.test(text.slice(cursor));
 }
 
-/**
- * 联赛认定：标题写明已登记联赛就用它，否则要求两队同属某个已登记赛季名单。
- * 两种情况都必须能在名单里找到两队——名单是“两队确实同属这个联赛”的证据，
- * 拿不到证据就不增强，而不是给一个可能错的联赛（P-03）。
- */
+/** 明示赛事优先。球队参赛资格不由历史名单推断，名单只服务赛季展示。 */
 function resolveCompetition(
   catalog: FootballCatalog,
   mentions: readonly Mention[],
-  [homeId, awayId]: readonly [string, string],
 ): CompetitionMatch | undefined {
-  const named = mentions.filter((mention) => mention.kind === "competition");
-  if (new Set(named.map((mention) => mention.id)).size > 1) {
-    // 标题里出现两个不同的联赛名：自相矛盾，不猜（当前只登记一个联赛，
-    // 多联赛登记后这条才会被触发）。
-    return undefined;
-  }
-
-  const mentioned = named[0];
-  if (mentioned !== undefined) {
-    const competition = catalog.competitionById(mentioned.id);
-    const season =
-      competition === undefined
-        ? undefined
-        : catalog.newestRosterContaining(competition.id, [homeId, awayId]);
-    return competition === undefined || season === undefined
-      ? undefined
-      : { competition, season, explicit: true };
-  }
-
-  const candidates = catalog.competitions.flatMap((competition) => {
-    const season = catalog.newestRosterContaining(competition.id, [
-      homeId,
-      awayId,
-    ]);
-    return season === undefined
-      ? []
-      : [{ competition, season, explicit: false }];
-  });
-  return candidates.length === 1 ? candidates[0] : undefined;
+  const ids = new Set(
+    mentions.filter((m) => m.kind === "competition").map((m) => m.id),
+  );
+  if (ids.size > 1) return undefined;
+  const id = [...ids][0];
+  const competition = catalog.competitionById(id ?? "football");
+  return competition ? { competition, explicit: id !== undefined } : undefined;
 }
 
 function orderReason(between: string, separator: Separator): string {
   return `「${between}」${separator.homeSide === "left" ? "左侧" : "右侧"}为主队`;
 }
 
+/** 未知队名仅在明确赛事和严格对阵结构下接受，避免把普通短语当作球队。 */
+function explicitFixtureWithUnknownTeams(
+  catalog: FootballCatalog,
+  text: string,
+  mentions: readonly Mention[],
+): MatchOutput | null {
+  const competitions = mentions.filter((m) => m.kind === "competition");
+  if (competitions.length !== 1) return null;
+  const competition = competitions[0];
+  let body = (
+    text.slice(0, competition.start) +
+    " " +
+    text.slice(competition.end)
+  ).trim();
+  body = body
+    .replace(
+      /\b(?:season\s+)?(20\d{2})[/-](20\d{2}|\d{2})\b/gi,
+      (whole, first, second) => {
+        const year = Number(first),
+          next = Number(second);
+        return next === year + 1 || next === (year + 1) % 100 ? " " : whole;
+      },
+    )
+    .replace(/\b(?:round|matchday|md)\s+[1-9]\d?\b|第[1-9]\d?轮/giu, " ")
+    .replace(/^[\s:：()（）\-–—]+|[\s:：()（）\-–—]+$/gu, "")
+    .trim();
+  const sides = /^(.+?)\s+(vs\.?|v\.?|versus|@|[-–—])\s+(.+)$/iu.exec(body);
+  if (!sides) return null;
+  const [, left, between, right] = sides;
+  const validName = (name: string) =>
+    name.length <= 80 &&
+    /^[\p{L}\p{N}][\p{L}\p{N}\s.'’&/-]+$/u.test(name) &&
+    !/\b(?:tickets?|train|meeting|show|stadium|training|sale|review)\b/iu.test(
+      name,
+    ) &&
+    !/\b20\d{2}[/-]\d+/u.test(name);
+  if (!validName(left) || !validName(right) || left === right) return null;
+  const ids = [left, right].map(
+    (name) => catalog.teamByAlias(name)?.id ?? unknownTeamId(name),
+  );
+  if (ids[0] === ids[1]) return null;
+  const separator = classifySeparator(between.toLowerCase());
+  if (!separator) return null;
+  if (separator.homeSide === "right") ids.reverse();
+  return {
+    type: "sport.fixture",
+    subtype: competition.id,
+    entities: ids.map((id) => ({ type: "team", id })),
+    confidence: 0.7,
+    reason: `${orderReason(between, separator)}；标题标注赛事；未收录球队使用通用队徽`,
+  };
+}
+
 function competitionReason(competition: CompetitionMatch): string {
   return competition.explicit
     ? `标题标注联赛「${competition.competition.label}」`
-    : `按 ${competition.season.label} 名单推断联赛`;
+    : "标题未注明赛事，使用中性足球背景";
 }

@@ -56,6 +56,8 @@ export interface FixtureCompetitionDisplay {
   nameEn: string;
   /** 联赛 Logo 逻辑引用；同样只是引用，资源由资源包提供。 */
   logoRef?: string;
+  /** 未明确赛事时保留对阵，使用中性背景。 */
+  backgroundEnabled?: boolean;
   colors: MarkColors;
 }
 
@@ -360,6 +362,7 @@ function narrowCompetition(
     nameEn,
     colors,
     ...(typeof logoRef === "string" ? { logoRef } : {}),
+    ...(value.backgroundEnabled === false ? { backgroundEnabled: false } : {}),
   };
 }
 

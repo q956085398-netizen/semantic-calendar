@@ -1,7 +1,8 @@
+import additionalTeams from './international-teams.json';
 import type { MarkColors } from "../../semantic/metadata-resolver";
 
 /**
- * 英超球队字典（SC-014 / SPORT-001，app-spec §9）。
+ * 足球球队字典（SC-014 / SPORT-001，app-spec §9）。
  *
  * 这里只保存“某支球队是谁”的稳定事实：稳定 ID、中英文名、别名、
  * 3 字母代码、近似球队色与队徽逻辑引用。判定“这个事件是不是英超比赛”
@@ -262,4 +263,5 @@ export const TEAMS: readonly TeamMetadata[] = [
     colors: { primary: "#FDB913", secondary: "#231F20" },
     crestRef: "crest.team.wolverhampton-wanderers",
   },
+  ...additionalTeams,
 ];

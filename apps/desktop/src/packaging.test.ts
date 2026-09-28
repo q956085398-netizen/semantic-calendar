@@ -42,6 +42,7 @@ const nsis = windowsBundle.nsis as Record<string, unknown>;
 
 /** 仓库内的二进制资产只有这几处，且每一处都要在 docs/third-party-assets.md 里有记录。 */
 const ALLOWED_ASSET_PREFIXES = [
+  "apps/desktop/src/display/unknown-team.svg",
   "apps/desktop/src-tauri/app-icon.png",
   "apps/desktop/src-tauri/app-icon.svg",
   "apps/desktop/src-tauri/icons/", // `npm run icon` 的产物

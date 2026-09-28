@@ -8,6 +8,7 @@ import {
 import { competitionDisplay } from "./competitions";
 import type { FootballCatalog } from "./football-catalog";
 import type { TeamMetadata } from "./teams";
+import { unknownTeamDisplay } from "./unknown-team";
 
 /**
  * 足球赛事的 Metadata Resolver（SC-014 / app-spec §7.5）。
@@ -18,7 +19,7 @@ import type { TeamMetadata } from "./teams";
  *
  * 降级规则（P-01 / P-03，SEM-003）：
  * - 非 sport.fixture：返回 null，交给后续 Resolver；
- * - 联赛未登记（如未来的欧冠）：返回 null，走内置默认值，
+ * - 赛事未登记：返回 null，走内置默认值，
  *   不把“不认识”渲染成错误信息；
  * - 可解析球队不足两支：返回 null，按普通增强事件显示——
  *   “队标 VS 队标”少一侧就不成立（SPORT-004）；
@@ -79,6 +80,11 @@ export function fixtureTeams(
     }
     const team = catalog.teamById(entity.id);
     if (team === undefined) {
+      const unknown = unknownTeamDisplay(entity.id);
+      if (unknown !== undefined) {
+        seen.add(entity.id);
+        teams.push(unknown);
+      }
       continue;
     }
     seen.add(entity.id);

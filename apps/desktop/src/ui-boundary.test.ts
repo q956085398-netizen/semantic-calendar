@@ -320,8 +320,18 @@ function nameOffenders(
   const offenders: string[] = [];
   for (const needle of needles) {
     const lower = needle.toLowerCase();
+    // Latin team names must be complete tokens: Inter must not match interface,
+    // and Porto must not match importOutcome. Chinese names retain substring matching.
+    const escaped = lower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = /^[a-z0-9]/.test(lower)
+      ? new RegExp(`(?<![a-z0-9_])${escaped}(?![a-z0-9_])`, "i")
+      : undefined;
     for (const source of sources) {
-      if (source.source.toLowerCase().includes(lower)) {
+      if (
+        pattern
+          ? pattern.test(source.source)
+          : source.source.toLowerCase().includes(lower)
+      ) {
         offenders.push(`${source.file} 出现「${needle}」`);
       }
     }

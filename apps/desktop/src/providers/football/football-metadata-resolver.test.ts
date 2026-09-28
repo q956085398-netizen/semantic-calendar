@@ -92,6 +92,7 @@ describe("足球赛事 Metadata Resolver（SC-014 / app-spec §7.5）", () => {
   it("联赛语义色来自联赛数据（改数据即可换强调色，无需改代码）", () => {
     const custom = createFootballCatalog({
       competitions: [
+        ...COMPETITIONS.slice(1),
         { ...COMPETITIONS[0], accent: "var(--custom-league-accent)" },
       ],
       teams: TEAMS,
@@ -169,7 +170,7 @@ describe("足球赛事 Metadata Resolver（SC-014 / app-spec §7.5）", () => {
   it("未登记的联赛或非比赛语义一律返回 null，交给后续 Resolver", () => {
     expect(
       resolver.resolve(
-        fixtureSemantic("champions-league", ["arsenal", "chelsea"]),
+        fixtureSemantic("unknown-competition", ["arsenal", "chelsea"]),
         EVENT,
       ),
     ).toBeNull();
@@ -205,7 +206,7 @@ describe("与解析链和读取边界一起工作（SC-009 + SC-014）", () => {
   it("未登记联赛落回内置默认值：通用标签 + 默认提醒（SEM-003）", () => {
     expect(
       stack.resolve(
-        fixtureSemantic("champions-league", ["arsenal", "chelsea"]),
+        fixtureSemantic("unknown-competition", ["arsenal", "chelsea"]),
         EVENT,
       ),
     ).toMatchObject({ label: "体育赛事", accent: "var(--semantic-sport)" });
@@ -328,7 +329,7 @@ describe("集成：ICS 导入 → Matcher 识别 → 元数据解析 → 队徽 
         "VERSION:2.0",
         "BEGIN:VEVENT",
         "UID:pl-match@example.com",
-        "SUMMARY:Arsenal vs Manchester City",
+        "SUMMARY:Arsenal vs Manchester City - Premier League",
         "DTSTART:20261018T163000Z",
         "END:VEVENT",
         "END:VCALENDAR",

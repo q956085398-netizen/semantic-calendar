@@ -53,7 +53,10 @@ export function gateEventsForBuiltinSources(
 
 /** 比赛事件在视图里退回普通事件：语义与展示元数据都不再进入视图。 */
 function stripFixtureSemantics(event: EnrichedEvent): EnrichedEvent {
-  if (event.semantic?.type !== "sport.fixture") {
+  if (
+    event.semantic?.type !== "sport.fixture" ||
+    event.semantic.subtype !== "premier-league"
+  ) {
     return event;
   }
   return { ...event, semantic: undefined, metadata: undefined };

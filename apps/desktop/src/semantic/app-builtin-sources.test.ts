@@ -58,6 +58,17 @@ describe("我的日历开关", () => {
 });
 
 describe("英超赛程开关", () => {
+  it("关闭英超不隐藏欧冠与通用足球对阵", () => {
+    for (const subtype of ["champions-league", "football"]) {
+      const other = {
+        ...FIXTURE,
+        semantic: { type: "sport.fixture" as const, subtype },
+      };
+      expect(gateEventsForBuiltinSources([other], ["premier-league"])[0]).toBe(
+        other,
+      );
+    }
+  });
   it("关闭后比赛摘掉视图字段，事件本身与原始字段保留", () => {
     const [gated] = gateEventsForBuiltinSources([FIXTURE], ["premier-league"]);
 

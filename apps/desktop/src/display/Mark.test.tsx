@@ -26,6 +26,23 @@ const COMPETITION: FixtureCompetitionDisplay = {
 const ASSETS = { urlFor: (ref: string) => `/assets/${ref}.svg` };
 
 describe("标记渲染的加载失败降级（SC-016）", () => {
+  it("失败资源被新的本地图片替换后恢复图片显示", () => {
+    const props = { competition: COMPETITION, className: "match-cell-bg" };
+    const { rerender } = render(
+      <CompetitionBackdrop {...props} assets={{ urlFor: () => "/bad.png" }} />,
+    );
+    fireEvent.error(document.querySelector(".match-cell-bg-image")!);
+    expect(document.querySelector(".match-cell-bg-image")).toBeNull();
+    rerender(
+      <CompetitionBackdrop
+        {...props}
+        assets={{ urlFor: () => "/fixed.png" }}
+      />,
+    );
+    expect(
+      document.querySelector(".match-cell-bg-image")?.getAttribute("src"),
+    ).toBe("/fixed.png");
+  });
   it("图片加载失败时换成 fallback 文字，不留破图", () => {
     render(
       <Mark

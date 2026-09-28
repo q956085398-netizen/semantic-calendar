@@ -16,9 +16,10 @@ export function useMarkAsset(resolution: MarkResolution): {
   /** 交给 `<img onError>`：只对 asset 分支有意义。 */
   onAssetError: () => void;
 } {
-  const [failed, setFailed] = useState(false);
-  const onAssetError = useCallback(() => setFailed(true), []);
-  if (resolution.kind === "asset" && failed) {
+  const [failedUrl, setFailedUrl] = useState<string>();
+  const url = resolution.kind === "asset" ? resolution.url : undefined;
+  const onAssetError = useCallback(() => setFailedUrl(url), [url]);
+  if (resolution.kind === "asset" && failedUrl === resolution.url) {
     return {
       mark: {
         kind: "fallback",

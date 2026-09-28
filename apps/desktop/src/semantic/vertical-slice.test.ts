@@ -159,7 +159,7 @@ describe("垂直链路：ICS → Normalize → Match → Persist → 月格（ap
     [
       "UID:match@example.com",
       // 全角 + 多余空格：Normalizer 的标题规范化必须是这条链的一部分。
-      "SUMMARY:　Ａｒｓｅｎａｌ　ｖｓ　Ｍａｎｃｈｅｓｔｅｒ　Ｃｉｔｙ　",
+      "SUMMARY:　Ａｒｓｅｎａｌ　ｖｓ　Ｍａｎｃｈｅｓｔｅｒ　Ｃｉｔｙ　 - Premier League",
       "LOCATION:Emirates Stadium",
       "DTSTART:20261018T120000Z",
       "DTEND:20261018T140000Z",
@@ -179,7 +179,7 @@ describe("垂直链路：ICS → Normalize → Match → Persist → 月格（ap
 
     const buckets = bucketsOf(store, "2026-10-01", "2026-10-31");
     const match = eventOn(buckets, "2026-10-18", "match@example.com");
-    expect(match?.normalizedTitle).toBe("Arsenal vs Manchester City");
+    expect(match?.normalizedTitle).toBe("Arsenal vs Manchester City - Premier League");
     expect(match?.semantic).toMatchObject({
       type: "sport.fixture",
       subtype: "premier-league",
@@ -221,7 +221,7 @@ describe("垂直链路：WebCal refresh → dedupe → update → 重新匹配�
   const FIRST_FEED = ics([
     [
       "UID:match-1@example.com",
-      "SUMMARY:Arsenal vs Manchester City",
+      "SUMMARY:Arsenal vs Manchester City - Premier League",
       "DTSTART:20261018T120000Z",
       "DTEND:20261018T140000Z",
     ],
@@ -242,7 +242,7 @@ describe("垂直链路：WebCal refresh → dedupe → update → 重新匹配�
     ],
     [
       "UID:match-2@example.com",
-      "SUMMARY:Liverpool vs Chelsea",
+      "SUMMARY:Liverpool vs Chelsea - Premier League",
       "DTSTART:20261018T130000Z",
       "DTEND:20261018T150000Z",
     ],
@@ -322,7 +322,7 @@ describe("垂直链路：WebCal refresh → dedupe → update → 重新匹配�
     expect(afterRefresh[0]).toMatchObject({
       source: "resolver-policy",
       fireAtMs: Date.parse("2026-10-18T12:30:00.000Z"),
-      title: "Liverpool vs Chelsea",
+      title: "Liverpool vs Chelsea - Premier League",
     });
     expect(afterRefresh[0].eventId).toContain("match-2@example.com");
   });

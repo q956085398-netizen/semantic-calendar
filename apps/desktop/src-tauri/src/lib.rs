@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use tauri::Manager;
 
+mod football_assets;
 mod notify;
 mod shell;
 mod webcal;
@@ -99,6 +100,13 @@ async fn webcal_fetch(
     webcal::fetch(url, etag, last_modified).await
 }
 
+#[tauri::command]
+async fn football_assets_download(
+    refs: Vec<String>,
+) -> Result<football_assets::DownloadResult, String> {
+    football_assets::download(refs).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -131,6 +139,7 @@ pub fn run() {
             data_store_write,
             data_store_rename,
             webcal_fetch,
+            football_assets_download,
             notify::notification_status,
             notify::notification_request_permission,
             notify::notification_send,

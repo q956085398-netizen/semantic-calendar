@@ -9,8 +9,8 @@ import type { FixtureCompetitionDisplay } from "../../semantic/metadata-resolver
  * Resolver 或任何 UI 代码。
  *
  * 名单口径：SEASONS 中只登记已确认的完整参赛名单。
- * 当前登记的 2025/26 名单来自该赛季开幕前公布的 20 支参赛球队；
- * 新赛季名单确认后作为新条目追加，latestSeason() 自然会跟随最新条目。
+ * 保留英超 2025/26 名单，追加英超与欧冠 2026/27 名单。
+ * 按赛事查询 latestSeason(competitionId)，避免跨赛事混用参赛集合。
  * 未确认的名单不要预先写入——宁可暂缺，也不给出错误事实（P-03）。
  */
 
@@ -36,6 +36,7 @@ export interface CompetitionMetadata {
   colors: { primary: string; secondary: string };
   /** 联赛 Logo 逻辑引用；资源由资源包提供，缺失走 fallback。 */
   logoRef: string;
+  backgroundEnabled?: boolean;
 }
 
 export interface SeasonRoster {
@@ -60,10 +61,101 @@ export const COMPETITIONS: readonly CompetitionMetadata[] = [
     colors: { primary: "#37003C", secondary: "#00FF87" },
     logoRef: "logo.competition.premier-league",
   },
+  {
+    id: "champions-league",
+    label: "欧冠",
+    name: "欧洲冠军联赛",
+    nameEn: "UEFA Champions League",
+    aliases: ["champions league", "ucl", "欧洲冠军杯", "欧冠联赛"],
+    accent: "var(--semantic-sport)",
+    colors: { primary: "#142E73", secondary: "#FFFFFF" },
+    logoRef: "logo.competition.champions-league",
+  },
+  {
+    id: "football",
+    label: "足球",
+    name: "足球比赛",
+    nameEn: "Football fixture",
+    aliases: [],
+    accent: "var(--semantic-sport)",
+    colors: { primary: "#607080", secondary: "#FFFFFF" },
+    logoRef: "logo.competition.football",
+    backgroundEnabled: false,
+  },
 ];
 
 /** 按赛季倒序登记（最新的在前）；装配期会校验赛季 ID 不重复。 */
 export const SEASONS: readonly SeasonRoster[] = [
+  {
+    id: "2026-27",
+    competitionId: "premier-league",
+    label: "2026/27",
+    teamIds: [
+      "arsenal",
+      "aston-villa",
+      "bournemouth",
+      "brentford",
+      "brighton",
+      "chelsea",
+      "coventry-city",
+      "crystal-palace",
+      "everton",
+      "fulham",
+      "hull-city",
+      "ipswich-town",
+      "leeds-united",
+      "liverpool",
+      "manchester-city",
+      "manchester-united",
+      "newcastle-united",
+      "nottingham-forest",
+      "sunderland",
+      "tottenham-hotspur",
+    ],
+  },
+  {
+    id: "2026-27-champions-league",
+    competitionId: "champions-league",
+    label: "2026/27",
+    teamIds: [
+      "aek-athens",
+      "atletico-madrid",
+      "borussia-dortmund",
+      "barcelona",
+      "bayern-munich",
+      "bodo-glimt",
+      "club-brugge",
+      "como",
+      "fenerbahce",
+      "feyenoord",
+      "galatasaray",
+      "inter-milan",
+      "lask",
+      "rb-leipzig",
+      "lens",
+      "lille",
+      "napoli",
+      "paris-saint-germain",
+      "porto",
+      "psv",
+      "real-betis",
+      "real-madrid",
+      "roma",
+      "slovan-bratislava",
+      "sabah",
+      "shakhtar-donetsk",
+      "slavia-prague",
+      "sporting-cp",
+      "stuttgart",
+      "viking",
+      "villarreal",
+      "arsenal",
+      "aston-villa",
+      "liverpool",
+      "manchester-city",
+      "manchester-united",
+    ],
+  },
   {
     id: "2025-26",
     competitionId: "premier-league",
@@ -103,6 +195,9 @@ export function competitionDisplay(
     nameZh: competition.name,
     nameEn: competition.nameEn,
     logoRef: competition.logoRef,
+    ...(competition.backgroundEnabled === false
+      ? { backgroundEnabled: false }
+      : {}),
     colors: { ...competition.colors },
   };
 }

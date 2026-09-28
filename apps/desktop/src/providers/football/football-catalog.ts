@@ -27,7 +27,7 @@ export interface FootballCatalog {
   teamByAlias(text: string): TeamMetadata | undefined;
   competitionById(id: string): CompetitionMetadata | undefined;
   /** 已登记名单中最新的赛季（不是“今天正在进行”的赛季）。 */
-  latestSeason(): SeasonRoster | undefined;
+  latestSeason(competitionId?: string): SeasonRoster | undefined;
   /** 某赛季参赛球队，按名单顺序解析为球队对象；未登记赛季返回空数组。 */
   rosterOf(seasonId: string): TeamMetadata[];
   /**
@@ -179,7 +179,12 @@ export function createFootballCatalog(
       text: entry.text,
       competitionId: entry.owner.id,
     })),
-    latestSeason: () => newestSeason(seasons),
+    latestSeason: (competitionId) =>
+      newestSeason(
+        competitionId === undefined
+          ? seasons
+          : seasons.filter((s) => s.competitionId === competitionId),
+      ),
     rosterOf,
     newestRosterContaining: (competitionId, teamIds) =>
       newestSeason(

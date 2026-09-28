@@ -32,6 +32,7 @@ export function CompetitionBackdrop({
   const { mark, onAssetError } = useMarkAsset(
     resolveCompetitionMark(competition, assets),
   );
+  if (competition.backgroundEnabled === false) return null;
 
   return (
     <span className={className} aria-hidden="true">

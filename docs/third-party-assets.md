@@ -132,3 +132,8 @@ cargo tree --prefix none                                   # 直接与传递依�
   `docs/examples/ui/` 下每一个目录或文件的名字都要在本文里出现（换一次验收记录就要登记一次）。
 - 升级依赖时：确认仍然只有 MIT / Apache-2.0 一类宽松许可；若引入 GPL/AGPL 系依赖，
   需要先确认它与本仓库 MIT 的兼容性，并在这里记录结论。
+# 通用未知球队队徽
+
+`apps/desktop/src/display/unknown-team.svg`：本项目绘制的灰色问号盾牌，随应用打包，使用项目 MIT 许可。它不是任何球队的商标。
+
+足球真实队徽与赛事图标不随应用打包；下载清单与本地缓存说明见 [football-assets.md](football-assets.md)。

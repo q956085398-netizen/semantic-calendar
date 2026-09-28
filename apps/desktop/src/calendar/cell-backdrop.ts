@@ -87,7 +87,9 @@ export function cellBackdropOf(input: CellBackdropInput): CellBackdrop {
     return { kind: primary.kind, ref: primary.backgroundRef };
   }
 
-  const competition = input.fixtures?.[0]?.fixture.competition;
+  const competition = input.fixtures?.find(
+    ({ fixture }) => fixture.competition.backgroundEnabled !== false,
+  )?.fixture.competition;
   if (competition !== undefined) {
     return { kind: "league", competition };
   }

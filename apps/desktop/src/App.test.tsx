@@ -20,6 +20,7 @@ import {
 const invokeMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@tauri-apps/api/core", () => ({
+  isTauri: () => true,
   invoke: (cmd: string, args?: Record<string, unknown>) =>
     invokeMock(cmd, args),
 }));
@@ -34,6 +35,8 @@ function asPromise(value: unknown): Promise<unknown> {
 function mockBackend(
   overrides: {
     dataStoreRead?: string | null | Error;
+    assetStoreRead?: string | null | Error;
+    assetDownload?: (args: Record<string, unknown>) => unknown;
     /** 落盘结果（SC-019）：默认成功，可注入磁盘错误。 */
     dataStoreWrite?: unknown;
     webcalFetch?: (args: Record<string, unknown>) => unknown;
@@ -47,11 +50,20 @@ function mockBackend(
   invokeMock.mockImplementation(
     (cmd: string, args?: Record<string, unknown>) => {
       if (cmd === "data_store_read") {
+        if (args?.fileName === "football-assets.json")
+          return asPromise(overrides.assetStoreRead ?? null);
         return asPromise(overrides.dataStoreRead ?? null);
       }
       if (cmd === "data_store_write") {
         return asPromise(overrides.dataStoreWrite ?? null);
       }
+      if (cmd === "football_assets_download")
+        return asPromise(
+          overrides.assetDownload?.(args ?? {}) ?? {
+            assets: {},
+            failedRefs: [],
+          },
+        );
       if (cmd === "webcal_fetch") {
         return asPromise(
           overrides.webcalFetch ? overrides.webcalFetch(args ?? {}) : null,
@@ -112,7 +124,12 @@ async function advanceTo(
 
 function writtenSnapshots(): Array<Record<string, unknown>> {
   return invokeMock.mock.calls
-    .filter(([cmd]) => cmd === "data_store_write")
+    .filter(
+      ([cmd, args]) =>
+        cmd === "data_store_write" &&
+        typeof args?.fileName === "string" &&
+        args.fileName.startsWith("calendar-store.json"),
+    )
     .map(
       ([, args]) =>
         JSON.parse(String(args?.contents)) as Record<string, unknown>,
@@ -1387,7 +1404,7 @@ const MATCH_ICS = [
   "VERSION:2.0",
   "BEGIN:VEVENT",
   "UID:match-1@example.com",
-  "SUMMARY:Arsenal vs Manchester City",
+  "SUMMARY:Arsenal vs Manchester City - Premier League",
   "LOCATION:Emirates Stadium",
   "DTSTART:20260926T233000",
   "END:VEVENT",
@@ -1400,6 +1417,87 @@ const MATCH_ICS = [
  * 旧快照里的关注状态会读不出来，而只引用常量的话这种回归测不出来。
  */
 const FOLLOWED_TEAMS_KEY = "football.followedTeams";
+
+describe("足球图片缓存在应用中的接线", () => {
+  const png =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==";
+  it("已有本地资源进入月格与详情栏，不再次下载", async () => {
+    mockBackend({
+      assetStoreRead: JSON.stringify({
+        version: 1,
+        assets: [
+          "crest.team.arsenal",
+          "crest.team.manchester-city",
+          "logo.competition.premier-league",
+        ].map((ref) => ({ ref, dataUrl: png })),
+      }),
+    });
+    await renderReadyApp();
+    await importMatchIcs();
+    closeSettings();
+    const cell = calendarGrid("2026年9月").querySelector(
+      '[data-date="2026-09-26"]',
+    )!;
+    await waitFor(() =>
+      expect(cell.querySelectorAll(".mark.is-asset")).toHaveLength(2),
+    );
+    fireEvent.click(cell);
+    expect(
+      document.querySelector(".matchday-team .mark-lg")?.getAttribute("src"),
+    ).toBe(png);
+    expect(
+      invokeMock.mock.calls.filter(
+        ([cmd]) => cmd === "football_assets_download",
+      ),
+    ).toHaveLength(0);
+  });
+  it("导入新赛事补齐图标，未知一侧使用通用盾牌并保留原名", async () => {
+    mockBackend({
+      assetDownload: (args) => ({
+        assets: Object.fromEntries(
+          (args.refs as string[]).map((ref) => [ref, png]),
+        ),
+        failedRefs: [],
+      }),
+    });
+    await renderReadyApp();
+    chooseImportFile(
+      icsFile(
+        MATCH_ICS.replace(
+          "Arsenal vs Manchester City - Premier League",
+          "Arsenal vs New Rovers - UEFA Champions League 2026/27 Round 1",
+        ),
+        "europe.ics",
+      ),
+    );
+    await waitFor(() => expect(screen.getByText(/新增 1/)).toBeTruthy());
+    closeSettings();
+    const cell = calendarGrid("2026年9月").querySelector(
+      '[data-date="2026-09-26"]',
+    )!;
+    await waitFor(() =>
+      expect(cell.querySelectorAll(".mark.is-asset")).toHaveLength(2),
+    );
+    expect(invokeMock).toHaveBeenCalledWith("football_assets_download", {
+      refs: ["crest.team.arsenal", "logo.competition.champions-league"],
+    });
+    fireEvent.click(cell);
+    const details = screen.getByRole("complementary", { name: "详情栏" });
+    expect(
+      within(details).getByRole("img", { name: "New Rovers" }).tagName,
+    ).toBe("IMG");
+    expect(within(details).getByText("欧冠")).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        invokeMock.mock.calls.some(
+          ([cmd, args]) =>
+            cmd === "data_store_rename" &&
+            args?.toName === "football-assets.json",
+        ),
+      ).toBe(true),
+    );
+  });
+});
 
 function followedTeamsInSnapshot(): unknown {
   const settings = writtenSnapshots().at(-1)!.settings as Record<
@@ -1803,12 +1901,12 @@ const TWO_MATCHES_ICS = [
   "VERSION:2.0",
   "BEGIN:VEVENT",
   "UID:match-a@example.com",
-  "SUMMARY:Arsenal vs Manchester City",
+  "SUMMARY:Arsenal vs Manchester City - Premier League",
   "DTSTART:20260926T233000",
   "END:VEVENT",
   "BEGIN:VEVENT",
   "UID:match-b@example.com",
-  "SUMMARY:Liverpool vs Chelsea",
+  "SUMMARY:Liverpool vs Chelsea - Premier League",
   "DTSTART:20260927T200000",
   "END:VEVENT",
   "END:VCALENDAR",
@@ -1839,7 +1937,7 @@ describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
     await advanceTo(2026, 9, 26, 23, 0);
     expect(sentNotifications()).toEqual([
       {
-        title: "Arsenal vs Manchester City",
+        title: "Arsenal vs Manchester City - Premier League",
         body: expect.stringContaining("赛前 30 分钟"),
       },
     ]);
@@ -1861,7 +1959,7 @@ describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
     // 第一场 2026-09-26 23:30 → 23:00 触发；第二场次日 20:00 → 19:30 触发。
     await advanceTo(2026, 9, 26, 23, 0);
     expect(sentNotifications().map((entry) => entry.title)).toEqual([
-      "Arsenal vs Manchester City",
+      "Arsenal vs Manchester City - Premier League",
     ]);
 
     // 重启：用同一份快照重新启动应用（去重日志随快照一起恢复）。
@@ -1880,8 +1978,8 @@ describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
     expect(sentNotifications()).toHaveLength(1);
     await advanceTo(2026, 9, 27, 19, 30);
     expect(sentNotifications().map((entry) => entry.title)).toEqual([
-      "Arsenal vs Manchester City",
-      "Liverpool vs Chelsea",
+      "Arsenal vs Manchester City - Premier League",
+      "Liverpool vs Chelsea - Premier League",
     ]);
   });
 
@@ -1901,7 +1999,7 @@ describe("本地通知与提醒调度（SC-017 / NOTIFY-001–004）", () => {
     await advanceTo(2026, 9, 26, 22, 30);
     expect(sentNotifications()).toEqual([
       {
-        title: "Arsenal vs Manchester City",
+        title: "Arsenal vs Manchester City - Premier League",
         body: expect.stringContaining("赛前 60 分钟"),
       },
     ]);
@@ -2237,14 +2335,18 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     // 联赛视觉让位（这一天在中秋假期里，主背景回到假期底色）。
     expect(cell.getAttribute("data-cell-backdrop")).not.toBe("league");
     expect(
-      within(cell).getByText("23:30 Arsenal vs Manchester City"),
+      within(cell).getByText(
+        "23:30 Arsenal vs Manchester City - Premier League",
+      ),
     ).toBeTruthy();
 
     // 详情栏：没有比赛详情，事件列在普通事件区。
     const inspector = screen.getByRole("complementary", { name: "详情栏" });
     expect(inspector.querySelector(".matchday")).toBeNull();
     expect(
-      within(inspector).getByText("Arsenal vs Manchester City"),
+      within(inspector).getByText(
+        "Arsenal vs Manchester City - Premier League",
+      ),
     ).toBeTruthy();
 
     // 识别结果与事件都在数据层：增强分区仍记着这场比赛（P-04 只管显示）。
@@ -2623,7 +2725,9 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
 
     await advanceTo(2026, 9, 26, 23, 10);
     await waitFor(() => expect(sentNotifications()).toHaveLength(1));
-    expect(sentNotifications()[0].title).toBe("Arsenal vs Manchester City");
+    expect(sentNotifications()[0].title).toBe(
+      "Arsenal vs Manchester City - Premier League",
+    );
   });
 
   it("改「比赛提醒」提前量立即按新时刻重排（验收 1，不需要重启）", async () => {
@@ -2904,11 +3008,11 @@ describe("月切换的分片读取（SC-020 / app-spec §15）", () => {
     // 比赛 2026-09-26 23:30，默认提前 30 分钟。
     await advanceTo(2026, 9, 26, 22, 59);
     expect(sentNotifications().map((entry) => entry.title)).not.toContain(
-      "Arsenal vs Manchester City",
+      "Arsenal vs Manchester City - Premier League",
     );
     await advanceTo(2026, 9, 26, 23, 0);
     expect(sentNotifications().map((entry) => entry.title)).toContain(
-      "Arsenal vs Manchester City",
+      "Arsenal vs Manchester City - Premier League",
     );
   });
 

@@ -24,7 +24,9 @@ export const FOLLOWED_TEAMS_SETTING_KEY = "football.followedTeams";
 export function followableTeams(
   catalog: FootballCatalog,
 ): FixtureTeamDisplay[] {
-  const season = catalog.latestSeason();
+  const season = catalog.competitionById("premier-league")
+    ? catalog.latestSeason("premier-league")
+    : catalog.latestSeason();
   const teams = season === undefined ? [] : catalog.rosterOf(season.id);
   return teams.map(teamDisplay);
 }

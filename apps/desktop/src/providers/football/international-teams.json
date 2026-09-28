@@ -1,0 +1,416 @@
+[
+  {
+    "id": "coventry-city",
+    "name": "Coventry City",
+    "nameZh": "考文垂",
+    "code": "COV",
+    "aliases": ["coventry", "coventry city fc"],
+    "colors": {
+      "primary": "#69B3E7",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.coventry-city"
+  },
+  {
+    "id": "hull-city",
+    "name": "Hull City",
+    "nameZh": "赫尔城",
+    "code": "HUL",
+    "aliases": ["hull", "hull city afc"],
+    "colors": {
+      "primary": "#F5A12D",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.hull-city"
+  },
+  {
+    "id": "ipswich-town",
+    "name": "Ipswich Town",
+    "nameZh": "伊普斯维奇",
+    "code": "IPS",
+    "aliases": ["ipswich", "ipswich town fc"],
+    "colors": {
+      "primary": "#0057B8",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.ipswich-town"
+  },
+  {
+    "id": "aek-athens",
+    "name": "AEK Athens",
+    "nameZh": "雅典AEK",
+    "code": "AEK",
+    "aliases": ["aek"],
+    "colors": {
+      "primary": "#FDD017",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.aek-athens"
+  },
+  {
+    "id": "atletico-madrid",
+    "name": "Atlético Madrid",
+    "nameZh": "马德里竞技",
+    "code": "ATM",
+    "aliases": ["atleti", "atletico madrid", "马竞"],
+    "colors": {
+      "primary": "#CB3524",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.atletico-madrid"
+  },
+  {
+    "id": "borussia-dortmund",
+    "name": "Borussia Dortmund",
+    "nameZh": "多特蒙德",
+    "code": "BVB",
+    "aliases": ["b. dortmund", "dortmund"],
+    "colors": {
+      "primary": "#FDE100",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.borussia-dortmund"
+  },
+  {
+    "id": "barcelona",
+    "name": "Barcelona",
+    "nameZh": "巴塞罗那",
+    "code": "BAR",
+    "aliases": ["fc barcelona", "barça", "巴萨"],
+    "colors": {
+      "primary": "#A50044",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.barcelona"
+  },
+  {
+    "id": "bayern-munich",
+    "name": "Bayern München",
+    "nameZh": "拜仁慕尼黑",
+    "code": "BAY",
+    "aliases": [
+      "bayern",
+      "bayern munich",
+      "bayern munchen",
+      "fc bayern münchen",
+      "拜仁"
+    ],
+    "colors": {
+      "primary": "#DC052D",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.bayern-munich"
+  },
+  {
+    "id": "bodo-glimt",
+    "name": "Bodø/Glimt",
+    "nameZh": "博德闪耀",
+    "code": "BOD",
+    "aliases": ["bodø glimt", "bodo/glimt", "bodo glimt", "fk bodø/glimt"],
+    "colors": {
+      "primary": "#FFDC00",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.bodo-glimt"
+  },
+  {
+    "id": "club-brugge",
+    "name": "Club Brugge",
+    "nameZh": "布鲁日",
+    "code": "BRU",
+    "aliases": ["club brugge kv"],
+    "colors": {
+      "primary": "#0078BF",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.club-brugge"
+  },
+  {
+    "id": "como",
+    "name": "Como",
+    "nameZh": "科莫",
+    "code": "COM",
+    "aliases": ["como 1907"],
+    "colors": {
+      "primary": "#005CA9",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.como"
+  },
+  {
+    "id": "fenerbahce",
+    "name": "Fenerbahçe",
+    "nameZh": "费内巴切",
+    "code": "FEN",
+    "aliases": ["fenerbahce", "fenerbahçe sk"],
+    "colors": {
+      "primary": "#FFED00",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.fenerbahce"
+  },
+  {
+    "id": "feyenoord",
+    "name": "Feyenoord",
+    "nameZh": "费耶诺德",
+    "code": "FEY",
+    "aliases": ["feyenoord rotterdam"],
+    "colors": {
+      "primary": "#E30613",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.feyenoord"
+  },
+  {
+    "id": "galatasaray",
+    "name": "Galatasaray",
+    "nameZh": "加拉塔萨雷",
+    "code": "GAL",
+    "aliases": ["galatasaray sk"],
+    "colors": {
+      "primary": "#A90432",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.galatasaray"
+  },
+  {
+    "id": "inter-milan",
+    "name": "Inter",
+    "nameZh": "国际米兰",
+    "code": "INT",
+    "aliases": ["inter milan", "internazionale", "fc internazionale milano"],
+    "colors": {
+      "primary": "#0068A8",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.inter-milan"
+  },
+  {
+    "id": "lask",
+    "name": "LASK",
+    "nameZh": "林茨",
+    "code": "LAS",
+    "aliases": ["lask linz"],
+    "colors": {
+      "primary": "#191919",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.lask"
+  },
+  {
+    "id": "rb-leipzig",
+    "name": "RB Leipzig",
+    "nameZh": "莱比锡",
+    "code": "RBL",
+    "aliases": ["leipzig", "rasenballsport leipzig"],
+    "colors": {
+      "primary": "#DD0741",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.rb-leipzig"
+  },
+  {
+    "id": "lens",
+    "name": "Lens",
+    "nameZh": "朗斯",
+    "code": "LEN",
+    "aliases": ["rc lens"],
+    "colors": {
+      "primary": "#E02020",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.lens"
+  },
+  {
+    "id": "lille",
+    "name": "Lille",
+    "nameZh": "里尔",
+    "code": "LIL",
+    "aliases": ["losc", "lille osc"],
+    "colors": {
+      "primary": "#E31E24",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.lille"
+  },
+  {
+    "id": "napoli",
+    "name": "Napoli",
+    "nameZh": "那不勒斯",
+    "code": "NAP",
+    "aliases": ["ssc napoli"],
+    "colors": {
+      "primary": "#12A0D7",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.napoli"
+  },
+  {
+    "id": "paris-saint-germain",
+    "name": "Paris Saint-Germain",
+    "nameZh": "巴黎圣日耳曼",
+    "code": "PSG",
+    "aliases": ["paris", "psg", "paris saint germain"],
+    "colors": {
+      "primary": "#004170",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.paris-saint-germain"
+  },
+  {
+    "id": "porto",
+    "name": "Porto",
+    "nameZh": "波尔图",
+    "code": "POR",
+    "aliases": ["fc porto"],
+    "colors": {
+      "primary": "#00428C",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.porto"
+  },
+  {
+    "id": "psv",
+    "name": "PSV Eindhoven",
+    "nameZh": "埃因霍温",
+    "code": "PSV",
+    "aliases": ["psv", "psv eindhoven"],
+    "colors": {
+      "primary": "#ED1C24",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.psv"
+  },
+  {
+    "id": "real-betis",
+    "name": "Real Betis",
+    "nameZh": "皇家贝蒂斯",
+    "code": "BET",
+    "aliases": ["real betis balompié"],
+    "colors": {
+      "primary": "#00954C",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.real-betis"
+  },
+  {
+    "id": "real-madrid",
+    "name": "Real Madrid",
+    "nameZh": "皇家马德里",
+    "code": "RMA",
+    "aliases": ["real madrid cf", "皇马"],
+    "colors": {
+      "primary": "#00529F",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.real-madrid"
+  },
+  {
+    "id": "roma",
+    "name": "Roma",
+    "nameZh": "罗马",
+    "code": "ROM",
+    "aliases": ["as roma"],
+    "colors": {
+      "primary": "#8E1F2F",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.roma"
+  },
+  {
+    "id": "slovan-bratislava",
+    "name": "Slovan Bratislava",
+    "nameZh": "布拉迪斯拉发",
+    "code": "SLO",
+    "aliases": ["s. bratislava", "sk slovan bratislava"],
+    "colors": {
+      "primary": "#6CABDD",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.slovan-bratislava"
+  },
+  {
+    "id": "sabah",
+    "name": "Sabah",
+    "nameZh": "萨巴赫",
+    "code": "SAB",
+    "aliases": ["sabah fc", "sabah fk"],
+    "colors": {
+      "primary": "#182E60",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.sabah"
+  },
+  {
+    "id": "shakhtar-donetsk",
+    "name": "Shakhtar Donetsk",
+    "nameZh": "顿涅茨克矿工",
+    "code": "SHA",
+    "aliases": ["shakhtar", "fc shakhtar donetsk"],
+    "colors": {
+      "primary": "#F36F21",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.shakhtar-donetsk"
+  },
+  {
+    "id": "slavia-prague",
+    "name": "Slavia Praha",
+    "nameZh": "布拉格斯拉维亚",
+    "code": "SLA",
+    "aliases": ["slavia prague", "sk slavia prague", "sk slavia praha"],
+    "colors": {
+      "primary": "#E31E24",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.slavia-prague"
+  },
+  {
+    "id": "sporting-cp",
+    "name": "Sporting CP",
+    "nameZh": "葡萄牙体育",
+    "code": "SCP",
+    "aliases": ["sporting", "sporting lisbon"],
+    "colors": {
+      "primary": "#008057",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.sporting-cp"
+  },
+  {
+    "id": "stuttgart",
+    "name": "Stuttgart",
+    "nameZh": "斯图加特",
+    "code": "STU",
+    "aliases": ["vfb stuttgart"],
+    "colors": {
+      "primary": "#E32219",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.stuttgart"
+  },
+  {
+    "id": "viking",
+    "name": "Viking",
+    "nameZh": "维京",
+    "code": "VIK",
+    "aliases": ["viking fk"],
+    "colors": {
+      "primary": "#122C58",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.viking"
+  },
+  {
+    "id": "villarreal",
+    "name": "Villarreal",
+    "nameZh": "比利亚雷亚尔",
+    "code": "VIL",
+    "aliases": ["villarreal cf"],
+    "colors": {
+      "primary": "#FFE667",
+      "secondary": "#FFFFFF"
+    },
+    "crestRef": "crest.team.villarreal"
+  }
+]

@@ -13,7 +13,7 @@ import {
   type FootballCatalogData,
 } from "./football-catalog";
 import { createFootballMatcher, FOOTBALL_MATCHER_ID } from "./football-matcher";
-import { TEAMS, type TeamMetadata } from "./teams";
+import { TEAMS } from "./teams";
 
 /**
  * 英超比赛标题 Matcher（SC-015 / SPORT-002–003）。
@@ -55,13 +55,13 @@ describe("英超比赛标题 Matcher：常见格式（SPORT-002）", () => {
   it("Arsenal vs Manchester City：识别为英超比赛，给出两队稳定 ID 与主客顺序", () => {
     expect(match("Arsenal vs Manchester City")).toEqual({
       type: "sport.fixture",
-      subtype: "premier-league",
+      subtype: "football",
       entities: [
         { type: "team", id: "arsenal" },
         { type: "team", id: "manchester-city" },
       ],
       confidence: 0.8,
-      reason: "「vs」左侧为主队；按 2025/26 名单推断联赛",
+      reason: "「vs」左侧为主队；标题未注明赛事，使用中性足球背景",
     });
   });
 });
@@ -70,7 +70,6 @@ describe("英超比赛标题 Matcher：常见格式（SPORT-002）", () => {
 function expectTeams(title: string, ids: readonly string[]): void {
   const result = match(title);
   expect(result?.entities).toEqual(ids.map((id) => ({ type: "team", id })));
-  expect(result?.subtype).toBe("premier-league");
 }
 
 describe("英超比赛标题 Matcher：对阵分隔符与主客顺序（SPORT-002–003）", () => {
@@ -85,7 +84,7 @@ describe("英超比赛标题 Matcher：对阵分隔符与主客顺序（SPORT-00
     expectTeams("Manchester City @ Arsenal", ["arsenal", "manchester-city"]);
     expect(match("Manchester City @ Arsenal")).toMatchObject({
       confidence: 0.8,
-      reason: "「@」右侧为主队；按 2025/26 名单推断联赛",
+      reason: "「@」右侧为主队；标题未注明赛事，使用中性足球背景",
     });
   });
 
@@ -145,51 +144,25 @@ describe("英超比赛标题 Matcher：联赛认定（SPORT-002 / competition）
   it("标题未写联赛：两队同属已登记名单即可认定，置信度低于明示", () => {
     expect(match("Matchday 12: Arsenal vs Manchester City")).toMatchObject({
       confidence: 0.8,
-      reason: "「vs」左侧为主队；按 2025/26 名单推断联赛",
+      reason: "「vs」左侧为主队；标题未注明赛事，使用中性足球背景",
     });
   });
 
-  it("名单跟随赛季数据：新赛季名单同样可用（不必改 Matcher）", () => {
-    const custom = createFootballMatcher(
-      catalogWith({
-        seasons: [
-          {
-            id: "2026-27",
-            competitionId: "premier-league",
-            label: "2026/27",
-            teamIds: ["arsenal", "sunderland"],
-          },
-          ...SEASONS,
-        ],
-      }),
-    );
-    const result = custom.match(eventWithTitle("Arsenal vs Sunderland"));
-    expect(result?.entities).toEqual([
-      { type: "team", id: "arsenal" },
-      { type: "team", id: "sunderland" },
-    ]);
-    expect(result?.reason).toContain("2026/27");
-  });
-
-  it("名单证据是必需的：对手不在联赛名单内就不增强（P-03）", () => {
-    const rival: TeamMetadata = {
-      id: "rival-fc",
-      name: "Rival FC",
-      nameZh: "对手队",
-      code: "RIV",
-      aliases: [],
-      colors: { primary: "#123456", secondary: "#FFFFFF" },
-      crestRef: "crest.team.rival-fc",
-    };
-    const custom = createFootballMatcher(
-      catalogWith({ teams: [...TEAMS, rival] }),
-    );
-    // 两队都认得出，但没有任何已登记名单同时收录它们：不猜联赛。
-    expect(custom.match(eventWithTitle("Arsenal vs Rival FC"))).toBeNull();
-    // 标题写明英超也一样——与名单矛盾时不增强，而不是给出可能错的联赛。
+  it("赛事明确时与国内名单无关；同一球队跨赛事复用稳定 ID", () => {
     expect(
-      custom.match(eventWithTitle("Premier League: Arsenal vs Rival FC")),
-    ).toBeNull();
+      match("Arsenal vs Barcelona - UEFA Champions League 2026/27 Round 1"),
+    ).toMatchObject({
+      subtype: "champions-league",
+      entities: [
+        { type: "team", id: "arsenal" },
+        { type: "team", id: "barcelona" },
+      ],
+    });
+    expect(
+      match("Arsenal vs Manchester City - Premier League 2026/27 Matchday 3")
+        ?.subtype,
+    ).toBe("premier-league");
+    expect(match("Arsenal vs Manchester City")?.subtype).toBe("football");
   });
 
   it("两队同属多个联赛名单时不猜；标题写明联赛时才落地", () => {
@@ -203,7 +176,7 @@ describe("英超比赛标题 Matcher：联赛认定（SPORT-002 / competition）
     };
     const custom = createFootballMatcher(
       catalogWith({
-        competitions: [COMPETITIONS[0], second],
+        competitions: [...COMPETITIONS, second],
         seasons: [
           SEASONS[0],
           {
@@ -216,8 +189,8 @@ describe("英超比赛标题 Matcher：联赛认定（SPORT-002 / competition）
       }),
     );
     expect(
-      custom.match(eventWithTitle("Arsenal vs Manchester City")),
-    ).toBeNull();
+      custom.match(eventWithTitle("Arsenal vs Manchester City"))?.subtype,
+    ).toBe("football");
     expect(
       custom.match(eventWithTitle("Premier League: Arsenal vs Manchester City"))
         ?.subtype,
@@ -250,7 +223,7 @@ describe("英超比赛标题 Matcher：不增强的情况（P-03 / SEM-003）", 
 
   it("只有一支球队、或对手不在字典里：不增强", () => {
     for (const title of [
-      "Arsenal vs Barcelona",
+      "Arsenal vs Unknown Rovers",
       "Arsenal training",
       "阿森纳主场",
     ]) {
@@ -292,7 +265,6 @@ describe("英超比赛标题 Matcher：不增强的情况（P-03 / SEM-003）", 
       "Arsenal vs Manchester City 3-1",
       "Arsenal vs Manchester City, Emirates Stadium",
       "Arsenal vs Manchester City (Emirates Stadium)",
-      "Arsenal vs Manchester City matchday 12",
     ]) {
       expect(match(title)).toBeNull();
     }

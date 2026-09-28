@@ -14,6 +14,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+tokio = { version = "1", features = ["rt"] }
 # tray-icon（SC-002）：系统托盘需要 tauri 的 tray-icon feature，图标直接复用
 # bundle 里的应用图标，不额外引入图片依赖。
 tauri = { version = "2", features = ["tray-icon"] }
