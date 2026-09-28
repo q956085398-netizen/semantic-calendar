@@ -1,95 +1,89 @@
-import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
+// Explicit local validation download; no API credentials or automatic network access.
+import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { createHash } from "node:crypto";
-import { fileURLToPath } from "node:url";
 
-const outputFlag = process.argv.indexOf("--output");
-if (outputFlag < 0 || !process.argv[outputFlag + 1]) {
-  console.error(
+const outputIndex = process.argv.indexOf("--output");
+if (outputIndex < 0 || !process.argv[outputIndex + 1]) {
+  throw new Error(
     "Usage: node tools/download-football-assets.mjs --output <football-assets.json>",
   );
-  process.exit(2);
 }
-const output = resolve(process.argv[outputFlag + 1]);
-const manifest = JSON.parse(
+const output = resolve(process.argv[outputIndex + 1]);
+const catalog = JSON.parse(
   await readFile(
-    fileURLToPath(
-      new URL("../src/providers/football/asset-manifest.json", import.meta.url),
-    ),
+    new URL("./premier-league-assets.json", import.meta.url),
     "utf8",
   ),
 );
-let old = [];
-try {
-  const pack = JSON.parse(await readFile(output, "utf8"));
-  if (pack.version !== 1 || !Array.isArray(pack.assets))
-    throw new Error("Invalid existing asset pack; refusing to overwrite");
-  old = pack.assets;
-} catch (error) {
-  if (error.code !== "ENOENT") throw error;
-}
-const assets = new Map(
-  old
-    .filter((a) => Object.hasOwn(manifest, a.ref) && isPng(a.dataUrl))
-    .map((a) => [a.ref, a]),
-);
-const pending = Object.entries(manifest).filter(([ref]) => !assets.has(ref));
-const failed = [];
-for (let offset = 0; offset < pending.length; offset += 4) {
-  await Promise.all(
-    pending.slice(offset, offset + 4).map(async ([ref, sourceUrl]) => {
-      try {
-        const response = await fetch(sourceUrl, {
-          signal: AbortSignal.timeout(15000),
-          redirect: "error",
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const bytes = Buffer.from(await response.arrayBuffer());
-        const dataUrl = `data:image/png;base64,${bytes.toString("base64")}`;
-        if (!isPng(dataUrl)) throw new Error("Invalid PNG");
-        assets.set(ref, {
-          ref,
-          sourceUrl,
-          dataUrl,
-          width: bytes.readUInt32BE(16),
-          height: bytes.readUInt32BE(20),
-          sha256: createHash("sha256").update(bytes).digest("hex"),
-        });
-        console.log(`Downloaded ${ref}`);
-      } catch (error) {
-        failed.push(ref);
-        console.error(`Failed ${ref}: ${error.message}`);
-      }
-    }),
-  );
-}
-await mkdir(dirname(output), { recursive: true });
-await writeFile(
-  output + ".tmp",
-  JSON.stringify({
-    version: 1,
-    downloadedAt: new Date().toISOString(),
-    usage: "local cache; image rights remain with their owners",
-    assets: [...assets.values()].sort((a, b) => a.ref.localeCompare(b.ref)),
-  }),
-);
-await rename(output + ".tmp", output);
-console.log(JSON.stringify({ cached: assets.size, failed, output }));
-if (failed.length) process.exitCode = 1;
+const entries = Object.entries(catalog.teams).map(([id, name]) => ({
+  ref: `crest.team.${id}`,
+  sourceId: `${catalog.repository}@${catalog.revision}:${catalog.directory}/${name}.png`,
+  sourceUrl: `https://raw.githubusercontent.com/${catalog.repository}/${catalog.revision}/${[...catalog.directory.split("/"), `${name}.png`].map(encodeURIComponent).join("/")}`,
+}));
+entries.push({
+  ref: catalog.competition.ref,
+  sourceId: catalog.competition.sourceId,
+  sourceUrl: catalog.competition.url,
+});
 
-function isPng(value) {
-  if (typeof value !== "string" || !value.startsWith("data:image/png;base64,"))
-    return false;
-  const bytes = Buffer.from(value.slice(22), "base64");
-  return (
-    bytes.length >= 33 &&
-    bytes.length <= 1024 * 1024 &&
-    bytes
-      .subarray(0, 8)
-      .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) &&
-    bytes.toString("ascii", 12, 16) === "IHDR" &&
-    [bytes.readUInt32BE(16), bytes.readUInt32BE(20)].every(
-      (n) => n > 0 && n <= 2048,
-    )
-  );
+const assets = [];
+for (const entry of entries) {
+  const bytes = await download(entry);
+  if (
+    bytes.length < 24 ||
+    !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+  ) {
+    throw new Error(`${entry.ref}: invalid PNG signature`);
+  }
+  const width = bytes.readUInt32BE(16);
+  const height = bytes.readUInt32BE(20);
+  if (!width || !height || width > 4096 || height > 4096)
+    throw new Error(`${entry.ref}: invalid dimensions`);
+  assets.push({
+    ...entry,
+    width,
+    height,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    dataUrl: `data:image/png;base64,${bytes.toString("base64")}`,
+  });
+  console.log(`${entry.ref}: ${width}x${height}, ${bytes.length} bytes`);
+}
+// Publish only after every download passed; failure preserves the previous pack.
+const pack = {
+  version: 1,
+  season: catalog.season,
+  downloadedAt: new Date().toISOString(),
+  usage: "local-validation; image redistribution rights unverified",
+  assets,
+};
+await mkdir(dirname(output), { recursive: true });
+await writeFile(`${output}.tmp`, JSON.stringify(pack), "utf8");
+await rename(`${output}.tmp`, output);
+console.log(`Saved ${assets.length} images to ${output}`);
+
+async function download(entry) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const response = await fetch(entry.sourceUrl, {
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const contentType = response.headers.get("content-type")?.split(";")[0];
+      if (contentType !== "image/png")
+        throw new Error(`not PNG (${contentType})`);
+      const chunks = [];
+      let size = 0;
+      for await (const chunk of response.body) {
+        size += chunk.length;
+        if (size > 1024 * 1024) throw new Error("image exceeds 1 MiB");
+        chunks.push(chunk);
+      }
+      return Buffer.concat(chunks);
+    } catch (error) {
+      if (attempt === 3)
+        throw new Error(`${entry.ref}: ${error.message}`, { cause: error });
+      console.log(`${entry.ref}: retry ${attempt}/2`);
+    }
+  }
 }

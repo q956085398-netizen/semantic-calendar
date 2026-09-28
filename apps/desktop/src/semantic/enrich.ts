@@ -1,8 +1,11 @@
 import { asNormalizedEvent, identityOfEvent } from "../data/model";
+import type { EventIdentity } from "../data/model";
 import type { CalendarStore } from "../data/store/calendar-store";
+import type { EventEnrichment } from "../data/store/schema";
 import { isChunkBoundary } from "../scheduling/chunk-boundary";
 import { drain, NO_SLICES } from "../scheduling/drain";
 import { yieldToMain as defaultYieldToMain } from "../scheduling/yield-to-main";
+import { createAbortError } from "../abort-error";
 import type { MatcherEngine } from "./matcher-engine";
 import type { MetadataResolverStack } from "./metadata-resolver";
 
@@ -45,6 +48,8 @@ export interface EnrichmentChunkDeps {
   yieldToMain?: () => Promise<void>;
   /** 分片大小；只供测试注入更小的值，生产路径用 ENRICH_CHUNK_SIZE。 */
   chunkSize?: number;
+  /** 来源被删除或 App 关闭时，放弃这次增强结果。 */
+  signal?: AbortSignal;
 }
 
 /**
@@ -55,16 +60,20 @@ function* enrichStoreInChunks(
   store: CalendarStore,
   stack: SemanticStack,
   chunkSize: number = ENRICH_CHUNK_SIZE,
+  signal?: AbortSignal,
 ): Generator<void, EnrichmentStats, void> {
+  const startingRevision = store.eventsRevision();
   // 取输入这一步本身也要分片（SC-024）：它是逐条克隆（10,000 条约 43 ms），
   // 放在第一个任务里等于把整段重建的门槛留在了主线程上。
   const events = yield* store.listEventsInChunks();
-  // 先整体清空再重建：旧 Matcher 的产物（含孤儿记录）不会残留。
-  store.clearEnrichments();
 
   let matched = 0;
   let unmatched = 0;
   let processed = 0;
+  const nextEnrichments: Array<{
+    identity: EventIdentity;
+    enrichment: EventEnrichment;
+  }> = [];
   for (const stored of events) {
     const view = asNormalizedEvent(stored);
     const result = stack.engine.match(view);
@@ -73,9 +82,12 @@ function* enrichStoreInChunks(
     } else {
       matched += 1;
       const metadata = stack.resolver?.resolve(result.semantic, view);
-      store.saveEnrichment(identityOfEvent(stored), {
-        semantic: result.semantic,
-        ...(metadata ? { metadata } : {}),
+      nextEnrichments.push({
+        identity: identityOfEvent(stored),
+        enrichment: {
+          semantic: result.semantic,
+          ...(metadata ? { metadata } : {}),
+        },
       });
     }
     processed += 1;
@@ -83,6 +95,14 @@ function* enrichStoreInChunks(
     if (processed < events.length && isChunkBoundary(processed, chunkSize)) {
       yield;
     }
+  }
+  const committed = yield* store.replaceEnrichmentsInChunks(
+    nextEnrichments,
+    chunkSize,
+    () => !signal?.aborted && store.eventsRevision() === startingRevision,
+  );
+  if (!committed && signal?.aborted) {
+    throw createAbortError("语义增强已取消");
   }
   return { matched, unmatched };
 }
@@ -139,15 +159,23 @@ async function runChunkedRebuild(
   deps: EnrichmentChunkDeps,
 ): Promise<EnrichmentStats> {
   const yieldToMain = deps.yieldToMain ?? defaultYieldToMain;
-  const steps = enrichStoreInChunks(
-    store,
-    stack,
-    deps.chunkSize ?? ENRICH_CHUNK_SIZE,
-  );
-  let step = steps.next();
-  while (!step.done) {
-    await yieldToMain();
-    step = steps.next();
+  for (;;) {
+    if (deps.signal?.aborted) throw createAbortError("语义增强已取消");
+    const startingRevision = store.eventsRevision();
+    const steps = enrichStoreInChunks(
+      store,
+      stack,
+      deps.chunkSize ?? ENRICH_CHUNK_SIZE,
+      deps.signal,
+    );
+    let step = steps.next();
+    while (!step.done) {
+      await yieldToMain();
+      if (deps.signal?.aborted) throw createAbortError("语义增强已取消");
+      step = steps.next();
+    }
+    // 如果任何来源在让出期间变化，放弃旧快照后从最新事件集合重建。
+    // 这既避免孤儿记录，也确保本次刷新不会把新事件留在无语义状态。
+    if (store.eventsRevision() === startingRevision) return step.value;
   }
-  return step.value;
 }

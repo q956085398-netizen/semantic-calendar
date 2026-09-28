@@ -42,6 +42,33 @@ export interface TeamMetadata {
  */
 export const TEAMS: readonly TeamMetadata[] = [
   {
+    id: "coventry-city",
+    name: "Coventry City",
+    nameZh: "考文垂",
+    code: "COV",
+    aliases: ["coventry", "coventry city fc", "考文垂城"],
+    colors: { primary: "#87CEEB", secondary: "#FFFFFF" },
+    crestRef: "crest.team.coventry-city",
+  },
+  {
+    id: "hull-city",
+    name: "Hull City",
+    nameZh: "赫尔城",
+    code: "HUL",
+    aliases: ["hull", "hull city afc", "侯城"],
+    colors: { primary: "#F5A623", secondary: "#000000" },
+    crestRef: "crest.team.hull-city",
+  },
+  {
+    id: "ipswich-town",
+    name: "Ipswich Town",
+    nameZh: "伊普斯维奇",
+    code: "IPS",
+    aliases: ["ipswich", "ipswich town fc", "伊普斯维奇城", "伊镇"],
+    colors: { primary: "#0044AA", secondary: "#FFFFFF" },
+    crestRef: "crest.team.ipswich-town",
+  },
+  {
     id: "arsenal",
     name: "Arsenal",
     nameZh: "阿森纳",

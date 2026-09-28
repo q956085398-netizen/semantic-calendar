@@ -1,3 +1,5 @@
+import { createAbortError } from "../../abort-error";
+
 /**
  * 网络访问端口（SC-007 / app-spec §12）。
  *
@@ -28,5 +30,10 @@ export interface HttpGetResponse {
 }
 
 export interface HttpIO {
-  get(request: HttpGetRequest): Promise<HttpGetResponse>;
+  get(request: HttpGetRequest, signal?: AbortSignal): Promise<HttpGetResponse>;
+}
+
+/** 主动取消使用独立错误名，便于刷新链路与普通网络失败分开处理。 */
+export function httpAbortError(): Error {
+  return createAbortError("请求已取消");
 }

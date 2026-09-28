@@ -179,7 +179,9 @@ describe("垂直链路：ICS → Normalize → Match → Persist → 月格（ap
 
     const buckets = bucketsOf(store, "2026-10-01", "2026-10-31");
     const match = eventOn(buckets, "2026-10-18", "match@example.com");
-    expect(match?.normalizedTitle).toBe("Arsenal vs Manchester City - Premier League");
+    expect(match?.normalizedTitle).toBe(
+      "Arsenal vs Manchester City - Premier League",
+    );
     expect(match?.semantic).toMatchObject({
       type: "sport.fixture",
       subtype: "premier-league",

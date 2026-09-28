@@ -236,6 +236,7 @@ semantic-calendar/
 - [x] 基础性能测试（SC-020，基线与缓存策略见 [performance.md](docs/performance.md)）
 - [x] 导入链路的分片（SC-024：解析 / 标准化 / 落库 / 读取 / 落盘拆成短任务，10,000 条导入的最长任务 10.4 ms）
 - [x] Windows 安装包与发布检查（SC-022：NSIS 安装包、正式图标、MIT License、资产与许可清单、发布门槛逐项核对；发布文档与真实实现的引用一致性由 `src/release-docs.test.ts` 守住）
+- [ ] V0.1 可靠性与发布收尾（SC-025：修复切月详情丢失、跨午夜今天状态过期和删除订阅后刷新写回残留，补齐请求取消、资产待处理项与当前安装包验收；[规格](docs/specs/sc-025-v01-closeout.md)、[工单 #27](https://github.com/q956085398-netizen/semantic-calendar/issues/27)）
 - [x] 测试与人工验收（SC-021 / SC-023，见 [ui-acceptance.md](docs/ui-acceptance.md)）
 
 ## v0.1 暂不考虑
@@ -370,7 +371,7 @@ npm run tauri -- build
 
 改动一条链路时不必每次跑全量：在 `apps/desktop` 下用 `npx vitest run <文件>` 只跑相关文件
 （例如 `npx vitest run src/ics/parse-ics.test.ts`），改动完成后在仓库根目录跑一次
-`npm run test` 与 `npm run lint`。当前全量是 88 个文件、994 个用例，本机约 35–80 秒
+`npm run test` 与 `npm run lint`。当前全量是 91 个文件、1016 个用例，本机通常约 35–90 秒
 （波动主要在 `App.test.tsx` 一组：它是界面接线的集成层，单文件先跑它最省时间）。
 
 测试与人工验收的分工写在 [docs/ui-acceptance.md](docs/ui-acceptance.md)：哪些 §26 验收项
@@ -468,7 +469,7 @@ v0.1 已知限制：同一文件改名后再次导入会视为新来源（新增
 
 英超元数据 Provider（SC-014）位于 `apps/desktop/src/providers/football/`，把“识别这是什么”（Matcher）与“展示素材从哪来”（Metadata）分开（架构草案 §5 / SPORT-001）：
 
-- 球队字典 `teams.ts`：20 支球队的稳定 ID（`arsenal` / `manchester-city`…）、中英文名、常见别名、3 字母代码、近似球队色与 `crestRef` 逻辑引用；有歧义的简称（裸 `city` / `united` 之类）刻意不收录——宁可不识别，也不误识别（P-03）；
+- 球队字典 `teams.ts`：跨赛季 23 支球队的稳定 ID（`arsenal` / `manchester-city`…）、中英文名、常见别名、3 字母代码、近似球队色与 `crestRef` 逻辑引用；有歧义的简称（裸 `city` / `united` 之类）刻意不收录——宁可不识别，也不误识别（P-03）；
 - 联赛与赛季 `competitions.ts`：联赛 ID / 中文短标签（“英超”）/ 视觉基线色 / Logo 逻辑引用，以及赛季参赛名单（`SeasonRoster`）。名单是独立数据条目，新赛季只需追加一条，Matcher（SC-015）、Resolver 与 UI 都不用改；
 - 目录装配 `football-catalog.ts`：装配期即校验坏数据——球队 id / 代码重复、别名跨队冲突或未规范化、赛季引用未知球队、颜色非法，都会在启动装配阶段直接抛错，而不是让 UI 在运行期渲染出半支球队。查询接口 `teamById` / `teamByAlias` / `competitionById` / `rosterOf` / `latestSeason` / `newestRosterContaining`（两队同属某季名单的查询，SC-015 用），以及识别词表 `teamAliasEntries` / `competitionAliasEntries`（别名 + 规范名，SC-015 的 Matcher 扫描标题用，与 `teamByAlias` 同源）；别名匹配复用 SC-008 的标题比较键（`titleKey`），所以 `MAN CITY`、`Ａｒｓｅｎａｌ`、`阿森纳` 都能命中；
 - 队徽与联赛 Logo 解析 `semantic/marks.ts`（SC-016 从 Provider 移到核心）：仓库不携带任何图片二进制（开发原则 §10 版权边界），元数据只保存逻辑引用；`resolveTeamMark` / `resolveCompetitionMark` 在资源包缺失、未收录该引用、甚至资源包自身抛错时都确定性降级为 fallback（球队 3 字母代码 / 联赛短标签 + 主题色），因此 Logo 缺失不会破坏 UI。放在核心是因为解析规则针对的是核心展示契约（`FixtureDisplay`），且 UI 不能 import Provider 目录（`ui-boundary.test.ts`）——月格与 Inspector 都要渲染标记，核心是唯一同时满足这两条的位置；
@@ -476,7 +477,7 @@ v0.1 已知限制：同一文件改名后再次导入会视为新来源（新增
 - 读取边界 `displayMetadataOf` 同步收窄嵌套的 `fixture` 载荷：磁盘 JSON 被改写时逐字段校验、畸形字段丢弃，两侧凑不齐时整块丢弃，UI 拿不到半张卡片；
 - UI 不承载领域知识：`src/ui-boundary.test.ts` 把 app-spec §7.6 变成可执行断言，三条规则——UI 源码里不出现任何领域名称（球队的名称 / 别名 / 稳定 ID，联赛完整名称与英文名，节日 / 节气的名称 / 英文名 / 稳定 ID，法定节假日的假期名；清单全部从各自的 Provider 数据推导，不另抄一份），不对事件文本（title / normalizedTitle / description / location）做判定型字符串操作（`title.includes(...)` 这类写法连同 startsWith / matchAll / split 一起拦下），也不直接 import Provider 目录；扫描用排除法覆盖 `src/` 下所有 UI 目录，三条规则各有「牙齿」测试（把违规写法喂给对应的判定函数必须报出来，否则守卫失效也无人察觉）。判定规则的已知边界写在守卫文件头部：它认同一条语句里的字段名与判定操作，改名后的局部变量不在范围内，是评审的抓手而不是数据流证明。UI 只消费 Resolver 与日级载荷的输出。
 
-SC-014 的数据边界：赛季名单是数据维护动作——当前登记的是 2025/26 已确认名单，`latestSeason()` 表示“已登记名单里最新的一季”，不等于“今天正在进行的一季”，2026/27 名单确认后追加条目即可；球队色是用于低透明度背景的近似值；队徽与联赛 Logo 资源不随仓库分发（版权），默认全部走 fallback；这是 SC-022 定下的 v0.1 口径——策略与将来接入资源包时必须满足的条件见 [docs/third-party-assets.md](docs/third-party-assets.md) §3。
+SC-014 的数据边界：赛季名单是数据维护动作——当前登记的是 2026/27 与 2025/26 已确认名单，`latestSeason()` 表示“已登记名单里最新的一季”，不等于“今天正在进行的一季”，后续赛季确认后追加条目即可；球队色是用于低透明度背景的近似值；队徽与联赛 Logo 资源不随仓库分发（版权），默认全部走 fallback；这是 SC-022 定下的 v0.1 口径——策略与将来接入资源包时必须满足的条件见 [docs/third-party-assets.md](docs/third-party-assets.md) §3。
 
 英超比赛标题 Matcher（SC-015）位于 `apps/desktop/src/providers/football/football-matcher.ts`，把标题文本变成 `sport.fixture` 语义（SPORT-002 / SPORT-003）：
 
@@ -484,7 +485,7 @@ SC-014 的数据边界：赛季名单是数据维护动作——当前登记的�
 - 判定链：恰好两支可确定归属的球队 → 两队之间是已知对阵分隔符（`vs` / `vs.` / `v` / `v.` / `versus` / `-` / `–` / `—` / `@` / `对`）→ 标题除“两队 + 分隔符 + 联赛名 + 装饰”外没有别的单词 → 联赛可确定（标题写明已登记联赛，或两队同属某个已登记赛季名单，查询走目录的 `newestRosterContaining`）。任一步不成立就返回 null，事件按普通事件显示（SEM-003）；
 - 不误伤（SPORT-002 验收）：第三条规定“两侧必须是球队名本身”。只靠“两个词表里的球队 + 分隔符”会把一次展览（`Kensington Palace - Chelsea Flower Show`）或一趟火车（`Brighton - Leeds train`）判成比赛——它们的两侧是包含球队名的短语。允许的装饰只有 `标签: ` 前缀（`Premier League: ` / `Matchday 12: ` / `英超：`）与联赛名本身；括号不构成豁免（括号里的词同样要能被解释），代价是标题带自由文本时会漏判（`… - Matchday 12`、`(Emirates Stadium)`）——刻意取舍，P-03。多于两支球队、同一支球队出现两次、比分、没有分隔符、对手不在字典里（`Arsenal vs Barcelona`）同样不增强；
 - 主客队（SPORT-003）：`A @ B` 表示 A 客场作战（B 为主队），`A vs B` / `A - B` 按赛程列表惯例左侧为主队；顺序落在 `entities` 上（第 0 个主队），即 SC-014 Resolver 渲染 `fixture.teams` 的顺序；
-- 可解释性：`reason` 写清依据（如「vs」左侧为主队；按 2025/26 名单推断联赛，引号里是标题里实际出现的分隔符），`confidence` 取两项证据里较弱的一项——联赛明示 1 / 名单推断 0.8，方向明示 `@` 1 / 赛程惯例 0.9，供 SC-019 做可解释状态；
+- 可解释性：`reason` 写清依据（如「vs」左侧为主队；按 2026/27 名单推断联赛，引号里是标题里实际出现的分隔符），`confidence` 取两项证据里较弱的一项——联赛明示 1 / 名单推断 0.8，方向明示 `@` 1 / 赛程惯例 0.9，供 SC-019 做可解释状态；
 - 接线：`semantic/app-registry.ts` 静态注册（priority 100，约定 0–99 留给按日期判定的语义），启动与每次导入后随分片入口 `reEnrichStoreYielding` 重跑（见上文 SC-009 的增强管线）；`semantic/app-registry.test.ts` 断言应用真正装配出来的那一套（Matcher 掉出注册表时不会静默退回普通事件），`src/ui-boundary.test.ts` 同时保证识别逻辑不进 UI。
 
 SC-015 的边界：v0.1 只登记英超，因此“两队都在英超名单内”即认定为英超比赛——两支英超球队的杯赛（如足总杯）在 v0.1 也会标为英超；多联赛支持是 SPORT-001 的扩展点（登记新联赛与名单后判定链自动适用，标题写明联赛名时优先采信标题）。3 字母代码（`ARS` / `MCI`）刻意不进词表：`EVE` / `SUN` / `NEW` 这类代码在普通标题里会误命中（P-03）。
@@ -612,3 +613,5 @@ SC-024 的边界：不把管线搬进 Web Worker——分片已经能把最长�
 - 人工验收发现一条不通过：默认窗口尺寸（1180×760）且左右栏展开时，比赛格的「队标 VS 队标」放不下（可用 62px / 内容需要 81px），第二个队标被格子裁掉一截。jsdom 没有布局，`MonthView.test.tsx` 只能断言「格子里只有队标与 VS」，而 `cell-visual-contract.test.ts` 断言的正是「格子必须裁切」（§10.1 对狮标的要求）——裁切恰好是这里把队标切掉的原因，因此只有真实渲染能看出来。另一条只能算部分通过：中秋 / 寒露 / 霜降的照片型背景在本次画面里不存在（仓库不分发图片资源，渲染走文字降级），能力由 `DayBackdrop.test.tsx` 覆盖；SC-022 的口径是 v0.1 不接入照片资源（无可用许可），这一条按「能力成立、默认走文字降级」收尾，见 `docs/ui-acceptance.md` §5.2。两条的现象、量化与建议方向记在 `docs/ui-acceptance.md` §5；前者由 SC-023 修复后复检通过（`match-cell-fit-contract.test.ts` 把同一条从「靠眼睛」变成断言），后者按 SC-022 的 v0.1 口径接受（仍记为部分通过），本单据此结单。
 
 SC-021 的边界：不引入浏览器驱动的截图回归——§26 的条目在 jsdom 与 CSS 契约层面就能判定结构与算术（裁切、优先级、只渲染一次、对阵块放得下、默认窗口下月历是最大的一栏），必须用眼睛看的仍然只有观感与整屏构图；多一层截图基线要维护的是渲染噪音而不是产品行为，截图是人工验收的记录，不是回归门。测试数量本身不是目标，本案只补链路、差集、预览判据与默认窗口布局这四处缺口，其余验收项用既有测试对齐（各单记录的「测试」一段就是索引）。覆盖不到的仍然是「观感」这一类判断：字重、留白、渐变是否舒服，靠人看，不靠断言。图片型背景（中秋 / 寒露 / 霜降的照片层）的能力由 `display/DayBackdrop.test.tsx` 覆盖，但仓库不分发图片资源，默认渲染走文字降级——v0.1 按此口径收尾（SC-022 的决定，见 [docs/third-party-assets.md](docs/third-party-assets.md) §1、§3）。
+
+英超本地图标验证包：当前 2026/27 赛季的 20 个队徽与联赛狮标可下载至本机，由月格和详情栏共用；图片不随安装包分发。下载、缓存及验证说明见 [docs/football-assets.md](docs/football-assets.md)。

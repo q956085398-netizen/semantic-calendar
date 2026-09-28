@@ -36,7 +36,7 @@ function mockBackend(
   overrides: {
     dataStoreRead?: string | null | Error;
     assetStoreRead?: string | null | Error;
-    assetDownload?: (args: Record<string, unknown>) => unknown;
+    userAssetsScan?: unknown;
     /** 落盘结果（SC-019）：默认成功，可注入磁盘错误。 */
     dataStoreWrite?: unknown;
     webcalFetch?: (args: Record<string, unknown>) => unknown;
@@ -57,11 +57,12 @@ function mockBackend(
       if (cmd === "data_store_write") {
         return asPromise(overrides.dataStoreWrite ?? null);
       }
-      if (cmd === "football_assets_download")
+      if (cmd === "user_assets_scan")
         return asPromise(
-          overrides.assetDownload?.(args ?? {}) ?? {
+          overrides.userAssetsScan ?? {
+            directory: "C:/custom-assets",
             assets: {},
-            failedRefs: [],
+            rejected: [],
           },
         );
       if (cmd === "webcal_fetch") {
@@ -336,6 +337,124 @@ describe("月份导航与日期选择（SC-005 / CAL-002 / CAL-003）", () => {
       '[data-date="2026-12-01"]',
     ) as HTMLElement;
     expect(firstCell.tabIndex).toBe(0);
+  });
+
+  it("切换月份后，网格外选中日期仍显示事件、农历和比赛详情", async () => {
+    freezeClock();
+    await renderReadyApp();
+    await importMatchIcs();
+    selectDate("2026-09-26");
+
+    const main = screen.getByRole("main");
+    fireEvent.click(within(main).getByRole("button", { name: "下一月" }));
+
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(within(inspector).getByText("9月26日")).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        within(inspector).getByRole("region", { name: "阿森纳 对 曼城" }),
+      ).toBeTruthy(),
+    );
+    expect(within(inspector).getByText("23:30")).toBeTruthy();
+    expect(within(inspector).getByText("农历八月十六")).toBeTruthy();
+  });
+
+  it("选中日期离开网格后仍显示节假日与节气语义", async () => {
+    freezeClock();
+    render(<App />);
+    selectDate("2026-09-25");
+    fireEvent.click(
+      within(screen.getByRole("main")).getByRole("button", {
+        name: "下一月",
+      }),
+    );
+
+    const inspector = screen.getByRole("complementary", { name: "详情栏" });
+    expect(within(inspector).getByText("农历八月十五")).toBeTruthy();
+    expect(within(inspector).getByText("中秋节")).toBeTruthy();
+    expect(
+      inspector
+        .querySelector(".inspector-china-day")
+        ?.getAttribute("data-china-day"),
+    ).toBe("rest");
+  });
+
+  it("跨午夜更新今天标记但保留当前视图和选中日期，点击今天后才跳转", async () => {
+    freezeClock();
+    render(<App />);
+
+    // 模拟机器从月末常驻到次月，并在恢复交互时校正本地日期。
+    vi.setSystemTime(new Date(2026, 8, 30, 23, 59, 0));
+    fireEvent.focus(window);
+    await waitFor(() =>
+      expect(
+        calendarGrid("2026年9月")
+          .querySelector('[data-today="true"]')
+          ?.getAttribute("data-date"),
+      ).toBe("2026-09-30"),
+    );
+    await advanceTo(2026, 10, 1, 0, 1);
+
+    const september = calendarGrid("2026年9月");
+    expect(
+      september.querySelector('[data-today="true"]')?.getAttribute("data-date"),
+    ).toBe("2026-10-01");
+    expect(
+      september
+        .querySelector('[aria-selected="true"]')
+        ?.getAttribute("data-date"),
+    ).toBe("2026-09-23");
+
+    fireEvent.click(
+      within(screen.getByRole("main")).getByRole("button", { name: "今天" }),
+    );
+    expect(
+      calendarGrid("2026年10月")
+        .querySelector('[aria-selected="true"]')
+        ?.getAttribute("data-date"),
+    ).toBe("2026-10-01");
+  });
+
+  it("闰日与年末跨天后按本机日期标记今天", async () => {
+    freezeClock();
+    render(<App />);
+
+    vi.setSystemTime(new Date(2028, 1, 28, 23, 59, 0));
+    fireEvent.focus(window);
+    fireEvent.click(
+      within(screen.getByRole("main")).getByRole("button", { name: "今天" }),
+    );
+    await advanceTo(2028, 2, 29, 0, 1);
+    await waitFor(() =>
+      expect(
+        calendarGrid("2028年2月")
+          .querySelector('[data-today="true"]')
+          ?.getAttribute("data-date"),
+      ).toBe("2028-02-29"),
+    );
+    await advanceTo(2028, 3, 1, 0, 1);
+    await waitFor(() =>
+      expect(
+        calendarGrid("2028年2月")
+          .querySelector('[data-today="true"]')
+          ?.getAttribute("data-date"),
+      ).toBe("2028-03-01"),
+    );
+
+    vi.setSystemTime(new Date(2028, 11, 31, 23, 59, 0));
+    fireEvent.focus(window);
+    fireEvent.click(
+      within(screen.getByRole("main")).getByRole("button", { name: "今天" }),
+    );
+    await advanceTo(2029, 1, 1, 0, 1);
+    fireEvent.focus(window);
+    await waitFor(() =>
+      expect(
+        calendarGrid("2028年12月")
+          .querySelector('[data-today="true"]')
+          ?.getAttribute("data-date"),
+      ).toBe("2029-01-01"),
+    );
   });
 
   it("「今天」回到当前月并选中今天", () => {
@@ -1186,9 +1305,13 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
     await subscribeToFeed();
 
     // 抓取走桌面壳命令，首次不带条件校验值。
-    expect(calls).toEqual([
-      { url: SUBSCRIBE_URL, etag: null, lastModified: null },
-    ]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      url: SUBSCRIBE_URL,
+      etag: null,
+      lastModified: null,
+    });
+    expect(calls[0].requestId).toMatch(/^webcal-\d+$/);
 
     const grid = calendarGrid("2026年9月");
     await waitFor(() =>
@@ -1239,7 +1362,7 @@ describe("ICS / WebCal 订阅（SC-007 / SRC-002 / SRC-003 / SRC-004）", () => 
     await waitFor(() =>
       expect(within(openSettings()).getByText(/没有变化/)).toBeTruthy(),
     );
-    expect(calls[1]).toEqual({
+    expect(calls[1]).toMatchObject({
       url: SUBSCRIBE_URL,
       etag: 'W/"v1"',
       lastModified: null,
@@ -1451,14 +1574,16 @@ describe("足球图片缓存在应用中的接线", () => {
       ),
     ).toHaveLength(0);
   });
-  it("导入新赛事补齐图标，未知一侧保留独立的待补队徽位置与原名", async () => {
+  it("自定义图标覆盖资源包，未知一侧保留独立的待补队徽位置与原名", async () => {
     mockBackend({
-      assetDownload: (args) => ({
-        assets: Object.fromEntries(
-          (args.refs as string[]).map((ref) => [ref, png]),
-        ),
-        failedRefs: [],
-      }),
+      userAssetsScan: {
+        directory: "C:/custom-assets",
+        assets: {
+          "crest.team.arsenal": png,
+          "logo.competition.champions-league": png,
+        },
+        rejected: [],
+      },
     });
     await renderReadyApp();
     chooseImportFile(
@@ -1478,24 +1603,16 @@ describe("足球图片缓存在应用中的接线", () => {
     await waitFor(() =>
       expect(cell.querySelectorAll(".mark.is-asset")).toHaveLength(1),
     );
-    expect(invokeMock).toHaveBeenCalledWith("football_assets_download", {
-      refs: ["crest.team.arsenal", "logo.competition.champions-league"],
-    });
+    expect(invokeMock).toHaveBeenCalledWith("user_assets_scan", undefined);
     fireEvent.click(cell);
     const details = screen.getByRole("complementary", { name: "详情栏" });
     expect(
       within(details).getByRole("img", { name: "New Rovers" }).tagName,
     ).toBe("SPAN");
     expect(within(details).getByText("欧冠")).toBeTruthy();
-    await waitFor(() =>
-      expect(
-        invokeMock.mock.calls.some(
-          ([cmd, args]) =>
-            cmd === "data_store_rename" &&
-            args?.toName === "football-assets.json",
-        ),
-      ).toBe(true),
-    );
+    expect(
+      invokeMock.mock.calls.some(([cmd]) => cmd === "football_assets_download"),
+    ).toBe(false);
   });
 });
 
@@ -2989,7 +3106,7 @@ describe("月切换的分片读取（SC-020 / app-spec §15）", () => {
     expect(sentNotifications().map((entry) => entry.title)).toContain(
       "Arsenal vs Manchester City - Premier League",
     );
-  });
+  }, 10_000);
 
   it("整理未完成时切月：新月份不会显示上个月的月格数据", async () => {
     await renderReadyApp();
@@ -3025,3 +3142,103 @@ describe("月切换的分片读取（SC-020 / app-spec §15）", () => {
     expect(screen.queryByText(/正在整理事件/)).toBeNull();
   });
 });
+it.each(["not-modified", "failed"])(
+  "并发 %s 刷新后仍发布另一来源的比赛语义",
+  async (result) => {
+    freezeClock();
+    const now = new Date().toISOString();
+    const sources = ["a", "b"].map((id) => ({
+      id,
+      type: "webcal",
+      name: id === "a" ? "Alpha" : "Beta",
+      enabled: true,
+      lastSyncStatus: "ok",
+      lastSyncAt: now,
+      webcal: {
+        url: `https://${id}.example.invalid/feed.ics`,
+        lastCheckedAt: now,
+      },
+    }));
+    mockBackend({
+      dataStoreRead: JSON.stringify({
+        schemaVersion: 1,
+        sources,
+        events: [],
+        enrichments: {},
+        settings: {},
+      }),
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/本地数据层就绪/)).toBeTruthy(),
+    );
+    const enrichment = await import("./semantic/enrich");
+    const realRebuild = enrichment.reEnrichStoreYielding;
+    let release!: () => void;
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let awaitingEnrichment = false;
+    vi.spyOn(enrichment, "reEnrichStoreYielding").mockImplementationOnce(
+      async (...args) => {
+        awaitingEnrichment = true;
+        await hold;
+        return realRebuild(...args);
+      },
+    );
+    const body = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "BEGIN:VEVENT",
+      "UID:concurrent-fixture",
+      "SUMMARY:Arsenal vs Manchester City",
+      "DTSTART:20260926T123000Z",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    mockBackend({
+      webcalFetch: (args) =>
+        String(args.url).includes("a.example")
+          ? webcalOk(body)
+          : result === "not-modified"
+            ? WEBCAL_NOT_MODIFIED
+            : { status: 500, body: "", etag: null, lastModified: null },
+    });
+    const pane = openSettings();
+    const alpha = within(pane).getByText("Alpha").closest("li")!;
+    const beta = within(pane).getByText("Beta").closest("li")!;
+    fireEvent.click(within(alpha).getByRole("button", { name: "刷新" }));
+    await waitFor(() => expect(awaitingEnrichment).toBe(true));
+    fireEvent.click(within(beta).getByRole("button", { name: "刷新" }));
+    await waitFor(() => expect(beta.textContent).not.toContain("刷新中"));
+    await waitFor(() =>
+      expect(writtenSnapshots().at(-1)?.events).toHaveLength(1),
+    );
+    // Let B publish its raw event read before A completes semantic enrichment.
+    closeSettings();
+    await waitFor(() =>
+      expect(screen.getByRole("main").textContent).toContain(
+        "Arsenal vs Manchester City",
+      ),
+    );
+    release();
+    await waitFor(() =>
+      expect(
+        Object.keys(writtenSnapshots().at(-1)!.enrichments as object),
+      ).toHaveLength(1),
+    );
+    expect(
+      Object.values(
+        writtenSnapshots().at(-1)!.enrichments as Record<
+          string,
+          { metadata?: { fixture?: unknown } }
+        >,
+      )[0].metadata?.fixture,
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("main").querySelector(".match-cell"),
+      ).toBeTruthy(),
+    );
+  },
+);

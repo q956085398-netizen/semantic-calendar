@@ -100,6 +100,8 @@ export const SEASONS: readonly SeasonRoster[] = [
     id: "2026-27",
     competitionId: "premier-league",
     label: "2026/27",
+    // 核对日期：2026-09-27；英超官方 2026/27 squad lists（2026-09-03）。
+    // https://www.premierleague.com/en/news/4706139/see-all-the-202627-premier-league-squad-lists
     teamIds: [
       "arsenal",
       "aston-villa",

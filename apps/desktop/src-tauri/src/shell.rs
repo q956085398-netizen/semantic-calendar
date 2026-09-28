@@ -149,8 +149,8 @@ fn menu_error(error: tauri::Error) -> String {
 /// 返回 `Err` 表示托盘不可用（例如没有应用图标），调用方据此把
 /// `tray_available` 置为 false，让关闭行为退化为退出而不是隐藏。
 pub fn install_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    let show_item = MenuItem::with_id(app, MENU_SHOW, "显示主窗口", true, None::<&str>)
-        .map_err(menu_error)?;
+    let show_item =
+        MenuItem::with_id(app, MENU_SHOW, "显示主窗口", true, None::<&str>).map_err(menu_error)?;
     let quit_item =
         MenuItem::with_id(app, MENU_QUIT, "退出", true, None::<&str>).map_err(menu_error)?;
     let menu = Menu::with_items(app, &[&show_item, &quit_item]).map_err(menu_error)?;
@@ -205,7 +205,8 @@ pub fn shell_set_close_behavior(
     state: tauri::State<'_, ShellState>,
     behavior: String,
 ) -> Result<CloseBehaviorStatus, String> {
-    let parsed = CloseBehavior::parse(&behavior).ok_or_else(|| format!("未知的关闭行为：{behavior}"))?;
+    let parsed =
+        CloseBehavior::parse(&behavior).ok_or_else(|| format!("未知的关闭行为：{behavior}"))?;
     state.set_close_behavior(parsed);
     Ok(CloseBehaviorStatus {
         behavior: state.effective_close_behavior().as_str(),

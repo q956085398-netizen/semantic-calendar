@@ -1,41 +1,5 @@
 [
   {
-    "id": "coventry-city",
-    "name": "Coventry City",
-    "nameZh": "考文垂",
-    "code": "COV",
-    "aliases": ["coventry", "coventry city fc"],
-    "colors": {
-      "primary": "#69B3E7",
-      "secondary": "#FFFFFF"
-    },
-    "crestRef": "crest.team.coventry-city"
-  },
-  {
-    "id": "hull-city",
-    "name": "Hull City",
-    "nameZh": "赫尔城",
-    "code": "HUL",
-    "aliases": ["hull", "hull city afc"],
-    "colors": {
-      "primary": "#F5A12D",
-      "secondary": "#FFFFFF"
-    },
-    "crestRef": "crest.team.hull-city"
-  },
-  {
-    "id": "ipswich-town",
-    "name": "Ipswich Town",
-    "nameZh": "伊普斯维奇",
-    "code": "IPS",
-    "aliases": ["ipswich", "ipswich town fc"],
-    "colors": {
-      "primary": "#0057B8",
-      "secondary": "#FFFFFF"
-    },
-    "crestRef": "crest.team.ipswich-town"
-  },
-  {
     "id": "aek-athens",
     "name": "AEK Athens",
     "nameZh": "雅典AEK",

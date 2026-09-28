@@ -44,7 +44,9 @@ interface InspectorPanelProps {
   /** 选中的本地日期键 YYYY-MM-DD。 */
   dateKey: string;
   /** 选中日期上的事件（由 App 按日期键分桶后注入）。 */
-  events: EnrichedEvent[];
+  events: readonly EnrichedEvent[];
+  /** 选中日期仍在分片读取；这时不能把空事件列表解释为没有日程。 */
+  pending?: boolean;
   /** 选中日期的农历展示载荷（SC-010）；范围外缺省，不显示该行。 */
   lunar?: LunarLabel;
   /** 选中日期的休假 / 补班载荷（SC-011）；不是假期就缺省，不显示该行。 */
@@ -62,6 +64,7 @@ interface InspectorPanelProps {
 export function InspectorPanel({
   dateKey,
   events,
+  pending = false,
   lunar,
   chinaDay,
   chinaSemantic,
@@ -137,6 +140,12 @@ export function InspectorPanel({
               {chinaDay.position}
             </span>
           )}
+        </p>
+      )}
+
+      {pending && (
+        <p className="inspector-events-pending" role="status">
+          正在整理这一天的日程…
         </p>
       )}
 

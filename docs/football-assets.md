@@ -1,55 +1,40 @@
-# 足球赛事图标与队徽
+# 英超本地图标验证
 
-球队身份与赛事身份独立：同一支球队参加英超或欧冠时使用同一个 `crest.team.*` 引用，赛事图标由标题中明确标注的赛事决定。未注明赛事的已知球队对阵显示队徽与中性背景，不再根据国内联赛名单猜赛事。
+2026-09-27：为当前 **2026/27** 赛季建立 20 队 + 1 联赛图标的可重复下载映射。
+名单核对自[英超官方赛季阵容名单](https://www.premierleague.com/en/news/4706139/see-all-the-202627-premier-league-squad-lists)；保留 2025/26 名单与历史球队条目。
 
-目前登记英超、欧冠、欧国联，以及 74 支俱乐部或国家队。赛季名单只服务赛季查询，不用于否定标题明确标注的比赛。没有登记的赛事若按 `主队 vs 客队 - 赛事名 2026/27 Round 1` 一类明确格式导入，也使用同一套对阵模板。
+## 资源与关联
 
-支持示例：
+- 队徽：`luukhopman/football-logos` 的 2026/27 `logos/England - Premier League`，固定提交 `2a3978f0b4730645c205d855a4bda54c161183e9`，透明 PNG，139 × 181。
+- 联赛：API-Sports 的 `https://media.api-sports.io/football/leagues/39.png`，150 × 150 透明狮标。没有采用 football-data.org 的 `PL.png`，因为该图含完整文字，作为月格水印会干扰正文。
+- 映射位于 `apps/desktop/tools/premier-league-assets.json`；键直接使用领域球队稳定 ID，文件名逐个核对，不使用运行时模糊匹配。
+- 图片来源可访问不等于取得再分发权。当前为用户本地验证包，许可状态记为未核实，不提交图片、不随安装包分发。使用条件见 [API-Football 条款](https://www.api-football.com/terms)；GitHub 图片包未提供可用于队徽再分发的许可证据。
 
-- `PSV vs Shakhtar - UEFA Champions League 2026/27 Round 1`
-- `Bayern München vs Bodø/Glimt - UEFA Champions League 2026/27 Round 1`
-- `Arsenal vs Manchester City - Premier League 2026/27 Matchday 3`
+## 下载与本机安装
 
-识别仍保持严格边界：额外的球票、车次、会议等自由文本、互相矛盾的赛事名、无效赛季标记会按原始事件显示。已识别赛事中的未知球队保留原名和独立队徽位，缺图时显示问号；已知一方正常显示队徽。没有明确赛事且双方都未知时不猜测。
+在 `apps/desktop` 目录执行 PowerShell：
 
-## 本地缓存
+```powershell
+$assetOutput = Join-Path $env:APPDATA 'com.semanticcalendar.desktop/store/football-assets.json'
+node tools/download-football-assets.mjs --output $assetOutput
+```
 
-桌面启动读取 `%APPDATA%\com.semanticcalendar.desktop\store\football-assets.json`，兼容之前的 `version: 1` 资源包。导入或订阅产生新的已识别比赛后，只下载缺失的已登记资源。月格与详情栏共用同一份缓存，已获取的图片离线可用。
+这是用户主动执行的下载，不会在应用启动、切换月份或重绘时联网。下载器有超时、有限重试、1 MiB 单图上限、PNG 签名及尺寸检查，记录来源、校验值与获取日期；21 张全部成功后才替换整包，失败保留旧包。
 
-下载通过桌面命令进行，界面显示下载或失败状态。每个已登记引用每次启动最多尝试一次；失败后保留已有资源，使用文字或通用队徽回退，重启后可重试。缓存使用临时文件与重命名保存，多个导入不会互相覆盖。整份缓存格式损坏时保留原文件，提示读取失败；先备份该文件再移走，重启即可重新建立缓存。
+本地包是含 PNG data URL 的 JSON（约 810 KiB），由已有桌面文件读取接口加载。`App` 将同一个 `assets` 传给月视图和详情栏。解析只接受本地 PNG，不接受远程 URL 或 SVG；缺图显示球队缩写／联赛短标签，损坏包显示回退状态。不会修改日历快照。
 
-网络只接收资源目录中固定的公开图片 URL，不发送导入日历的正文、订阅地址或未知球队名称。只接收有限大小的 PNG，拒绝未登记引用和重定向。缺图时显示球队缩写或问号。
+新代码需要运行开发构建或重新构建桌面应用；旧安装版本没有资源包接线，仅放入文件不会使其显示图片。修改资源包后重启应用读取。
 
 ## 用户自定义图片
 
-设置 → 自定义图片会显示本机的准确素材目录和当前赛程缺失的文件名。目录在应用数据目录的 `custom-assets` 下：
-同一处还列出当前日历页的特殊日期背景文件名，切换到目标月份后可直接照该清单放置图片。
+设置页会显示当前用户的素材目录。可在其中放置 PNG：`teams/<球队稳定 ID>.png`、`competitions/<赛事稳定 ID>.png`，以及 `days/festival-<节日 ID>.png`、`days/solar-term-<节气 ID>.png`、`days/holiday-<日期或类型>.png`。文件名使用小写字母、数字和短横线。设置页的“重新读取图片”可在不重启应用的情况下加载修改。
 
-- `teams/<球队标识>.png`：例如 `teams/national-china.png`。尚未登记的球队会显示自己的 `teams/custom-名称-校验码.png` 准确文件名。
-- `competitions/<赛事标识>.png`：例如 `competitions/nations-league.png`。未登记赛事也有独立文件名。
-- `days/festival-<节日标识>.png` 与 `days/solar-term-<节气标识>.png`：节日和节气背景。
-- `days/holiday-rest.png`、`days/holiday-makeup.png`：通用假期和补班背景；`days/holiday-YYYY-MM-DD.png` 可替换某一天，优先于通用背景。
-
-只接受文件名由小写英文字母、数字、短横线组成的 PNG；每张不超过 1 MB、宽高不超过 2048 像素。素材由用户自行放入，点击“重新扫描素材”后月格和详情栏立即使用；再次启动也会扫描。自定义图片优先于已下载缓存，原始 ICS 不被改写。
-
-## 手动准备或补齐资源包
-
-从仓库根目录运行：
-
-```powershell
-node apps/desktop/tools/download-football-assets.mjs --output "$env:APPDATA\com.semanticcalendar.desktop\store\football-assets.json"
-```
-
-该命令复用有效缓存，下载资源目录中的全部图标，保留其他有效已登记图片。修改赛事或队徽数据时维护 `apps/desktop/src/providers/football/asset-manifest.json` 与相应球队、赛事目录；不需要在 UI 中添加队名判断。
-
-资源来源是 UEFA 公开球队图片、API-Sports 赛事图标与固定版本的 `luukhopman/football-logos`。图片权利属于原权利人，下载与软件开源许可不等于图片再分发授权；图片只作为本地缓存，仓库和安装包不包含真实商标图片。内置未知盾牌由本项目绘制。
+自定义图片优先于上述英超本地资源包。桌面壳只从自己的应用数据目录读取 PNG，并检查签名、尺寸和大小；拒绝的文件数量会在设置页提示。赛事和球队词表现在包含更多国内外俱乐部、国家队以及未收录的对阵名称，但这些条目不随应用附带图片。缺少对应 PNG 时会用缩写或名称占位；用户可按设置页列出的待补图片路径逐项添加。应用不会自动下载队徽或赛事标志。
 
 ## 验证范围
 
-自动化验证包含截图中的五组欧冠标题、中文与重音别名、跨赛事共享队徽、未知球队盾牌、错误标题拒绝、本地缓存复用、增量下载合并、失败回退及月格与详情栏接线。下载脚本实测获取资源，生产桌面下载命令也单独进行实时联网验证。
-
-2026-09-28 验证：85 个前端测试文件、989 个用例通过；Windows 生产下载命令成功取得 PSV、Sabah 与欧冠 PNG，并拒绝未登记引用。英超与欧冠当前球队所需的 53 个资源实际下载成功；1180×760 视图验证全部显示图片已加载、两种主题与未知盾牌正常、未标注赛事的对阵没有赛事背景。验证视图使用分散日期的导入标题样例，不表示真实比赛日期。
-
-历史名单中的 Burnley、West Ham、Wolverhampton 三个图片来源本次访问超时，暂时保留球队缩写回退；不影响当前英超和欧冠的图片覆盖。
-
-以上为此前版本的历史验证记录；本次新增了节日、节气和假期图片替换入口，仍沿用日期语义与背景优先级。此次没有随安装包分发图片。
+- 在线下载 20 队 + 联赛图标；PNG 尺寸与哈希逐个记录。
+- 实际浏览器渲染生产月格与详情组件，10 组明确标注的模拟对阵覆盖本赛季 20 队，不代表真实赛程。
+- 明暗主题检查：全部图片解码成功；图片地址全部为本地 data URL；联赛背景的父格 `overflow: hidden`。
+- 自动测试覆盖名单与资源映射一致、资源加载、缺失与损坏回退、更新地址后恢复图片、现有月格和详情栏行为。
+- 未重新安装正式桌面版本；未接入自动后台同步、账户密钥配置或节日／节气背景。

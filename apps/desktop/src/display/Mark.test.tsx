@@ -43,6 +43,39 @@ describe("标记渲染的加载失败降级（SC-016）", () => {
       document.querySelector(".match-cell-bg-image")?.getAttribute("src"),
     ).toBe("/fixed.png");
   });
+  it("更新图片资源后可恢复显示，不沿用旧地址的失败状态", () => {
+    const fallback = {
+      text: "TMA",
+      colors: { primary: "#123456", secondary: "#FFFFFF" },
+    };
+    const { rerender } = render(
+      <Mark
+        resolution={{
+          kind: "asset",
+          url: "/old.png",
+          ref: "crest.team.a",
+          fallback,
+        }}
+        label="甲队"
+      />,
+    );
+    fireEvent.error(screen.getByRole("img", { name: "甲队" }));
+    expect(screen.getByRole("img", { name: "甲队" }).tagName).toBe("SPAN");
+    rerender(
+      <Mark
+        resolution={{
+          kind: "asset",
+          url: "/new.png",
+          ref: "crest.team.a",
+          fallback,
+        }}
+        label="甲队"
+      />,
+    );
+    expect(screen.getByRole("img", { name: "甲队" }).getAttribute("src")).toBe(
+      "/new.png",
+    );
+  });
   it("图片加载失败时换成 fallback 文字，不留破图", () => {
     render(
       <Mark

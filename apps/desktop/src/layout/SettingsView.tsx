@@ -37,6 +37,49 @@ import type { FixtureTeamDisplay } from "../semantic/metadata-resolver";
 
 /** 设置页集中管理来源、导入、订阅和偏好；所有控件即时生效。 */
 
+function SettingsGlyph({
+  kind,
+  className,
+}: {
+  kind: "preferences" | "calendar" | "import";
+  className?: string;
+}) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      focusable="false"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.7"
+      viewBox="0 0 24 24"
+    >
+      {kind === "preferences" && (
+        <>
+          <path d="M4 6h6m4 0h6M4 12h3m4 0h9M4 18h8m4 0h4" />
+          <circle cx="12" cy="6" r="2" />
+          <circle cx="9" cy="12" r="2" />
+          <circle cx="14" cy="18" r="2" />
+        </>
+      )}
+      {kind === "calendar" && (
+        <>
+          <rect x="3.5" y="5" width="17" height="16" rx="2.5" />
+          <path d="M7.5 3.5v3M16.5 3.5v3M3.5 9.5h17M8 13h2m4 0h2M8 17h2m4 0h2" />
+        </>
+      )}
+      {kind === "import" && (
+        <>
+          <path d="M13 3.5H6.5A1.5 1.5 0 0 0 5 5v14a1.5 1.5 0 0 0 1.5 1.5h5" />
+          <path d="M13 3.5V8h4.5M13 3.5l4.5 4.5M17 13v7m-3-3 3 3 3-3" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 /** 通知一组设置与状态（SC-017）：设置页只渲染，不决定语义。 */
 export interface SettingsNotificationsProps {
   /** 通知总开关（NOTIFY-001）。 */
@@ -247,7 +290,7 @@ export function SettingsView({
       <div className="settings-body">
         <div className="settings-group">
           <h2 className="settings-group-title">
-            <img src="/design/added-079-gear.svg" alt="" />
+            <SettingsGlyph kind="preferences" />
             偏好设置
           </h2>
           {/* 外观（THEME-001–003）：即时生效，落盘键 app.theme。 */}
@@ -338,7 +381,7 @@ export function SettingsView({
         </div>
         <div className="settings-group">
           <h2 className="settings-group-title">
-            <img src="/design/cutout-107-084f75d8eae6.png" alt="" />
+            <SettingsGlyph kind="calendar" />
             日历与提醒
           </h2>
           <section
@@ -383,11 +426,7 @@ export function SettingsView({
             <h4 className="settings-subheading">订阅与导入</h4>
             <div className="source-add-controls">
               <label className={`import-button${importBusy ? " is-busy" : ""}`}>
-                <img
-                  className="import-icon"
-                  src="/design/cutout-73-cbde5ae527ff.png"
-                  alt=""
-                />
+                <SettingsGlyph kind="import" className="import-icon" />
                 导入 ICS 文件…
                 <input
                   type="file"
