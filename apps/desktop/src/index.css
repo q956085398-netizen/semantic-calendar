@@ -1894,6 +1894,24 @@ button:focus-visible {
 .settings-section .followed-teams {
   margin: 0;
 }
+.followed-only-toggle {
+  margin-top: 8px;
+}
+.asset-directory {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-cell-hover);
+  font-size: 12px;
+  user-select: text;
+}
+.asset-missing-list ul {
+  max-height: 180px;
+  overflow: auto;
+  margin: 8px 0;
+  padding-left: 20px;
+}
 
 .settings-subheading {
   margin: 6px 0 0;

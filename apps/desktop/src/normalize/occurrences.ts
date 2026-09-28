@@ -653,6 +653,12 @@ function overlapsWindow(
   event: EnrichedEvent,
   window: OccurrenceWindow,
 ): boolean {
+  if (event.semantic?.type === "sport.fixture") {
+    const kickoffDay = event.allDay
+      ? event.start.slice(0, 10)
+      : localDayKey(event.start);
+    return kickoffDay >= window.from && kickoffDay <= window.to;
+  }
   if (event.allDay) {
     const startDay = event.start.slice(0, 10);
     const endDay = event.end

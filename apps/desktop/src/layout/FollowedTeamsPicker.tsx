@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { FixtureTeamDisplay } from "../semantic/metadata-resolver";
 
 /**
@@ -22,6 +23,12 @@ export function FollowedTeamsPicker({
   followedIds,
   onToggleTeam,
 }: FollowedTeamsPickerProps) {
+  const [query, setQuery] = useState("");
+  const matching = teams.filter((team) =>
+    `${team.nameZh} ${team.nameEn} ${team.code}`
+      .toLocaleLowerCase()
+      .includes(query.trim().toLocaleLowerCase()),
+  );
   return (
     <details className="followed-teams">
       <summary className="followed-teams-summary">
@@ -32,11 +39,21 @@ export function FollowedTeamsPicker({
             : `已关注 ${followedIds.length} 支`}
         </span>
       </summary>
+      <input
+        className="subscribe-input followed-teams-search"
+        type="search"
+        aria-label="搜索球队或国家队"
+        placeholder="搜索俱乐部或国家队"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+      />
       {teams.length === 0 ? (
         <p className="followed-teams-empty">暂无可关注的球队</p>
+      ) : matching.length === 0 ? (
+        <p className="followed-teams-empty">没有找到球队</p>
       ) : (
         <ul className="followed-teams-list">
-          {teams.map((team) => (
+          {matching.map((team) => (
             <li key={team.id}>
               <label className="followed-team">
                 <input

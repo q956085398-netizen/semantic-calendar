@@ -9,6 +9,7 @@ import { competitionDisplay } from "./competitions";
 import type { FootballCatalog } from "./football-catalog";
 import type { TeamMetadata } from "./teams";
 import { unknownTeamDisplay } from "./unknown-team";
+import { unknownCompetitionDisplay } from "./unknown-competition";
 
 /**
  * 足球赛事的 Metadata Resolver（SC-014 / app-spec §7.5）。
@@ -44,7 +45,12 @@ export function createFootballMetadataResolver(
       const competition = semantic.subtype
         ? catalog.competitionById(semantic.subtype)
         : undefined;
-      if (competition === undefined) {
+      const competitionView = competition
+        ? competitionDisplay(competition)
+        : semantic.subtype
+          ? unknownCompetitionDisplay(semantic.subtype)
+          : undefined;
+      if (competitionView === undefined) {
         return null;
       }
       const teams = fixtureTeams(catalog, semantic);
@@ -56,10 +62,10 @@ export function createFootballMetadataResolver(
       // 联赛自己的语义色与短标签覆盖默认值——色值只有 competitions.ts 一处。
       return {
         ...sportFixtureMetadataDefaults(),
-        accent: competition.accent,
-        label: competition.label,
+        accent: competition?.accent ?? "var(--semantic-sport)",
+        label: competitionView.label,
         fixture: {
-          competition: competitionDisplay(competition),
+          competition: competitionView,
           teams: teams.slice(0, SIDES),
         },
       };

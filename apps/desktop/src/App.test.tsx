@@ -1451,7 +1451,7 @@ describe("足球图片缓存在应用中的接线", () => {
       ),
     ).toHaveLength(0);
   });
-  it("导入新赛事补齐图标，未知一侧使用通用盾牌并保留原名", async () => {
+  it("导入新赛事补齐图标，未知一侧保留独立的待补队徽位置与原名", async () => {
     mockBackend({
       assetDownload: (args) => ({
         assets: Object.fromEntries(
@@ -1476,7 +1476,7 @@ describe("足球图片缓存在应用中的接线", () => {
       '[data-date="2026-09-26"]',
     )!;
     await waitFor(() =>
-      expect(cell.querySelectorAll(".mark.is-asset")).toHaveLength(2),
+      expect(cell.querySelectorAll(".mark.is-asset")).toHaveLength(1),
     );
     expect(invokeMock).toHaveBeenCalledWith("football_assets_download", {
       refs: ["crest.team.arsenal", "logo.competition.champions-league"],
@@ -1485,7 +1485,7 @@ describe("足球图片缓存在应用中的接线", () => {
     const details = screen.getByRole("complementary", { name: "详情栏" });
     expect(
       within(details).getByRole("img", { name: "New Rovers" }).tagName,
-    ).toBe("IMG");
+    ).toBe("SPAN");
     expect(within(details).getByText("欧冠")).toBeTruthy();
     await waitFor(() =>
       expect(
@@ -2169,7 +2169,9 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
       "关闭窗口时",
       "关于",
       "数据源",
+      "年度数据更新",
       "关注球队",
+      "自定义图片",
       "通知",
     ]) {
       expect(within(pane).getByRole("heading", { name: heading })).toBeTruthy();
@@ -2309,47 +2311,26 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     expect(within(gatedInspector).getByText("农历八月十五")).toBeTruthy();
   });
 
-  it("关闭「英超赛程」：比赛回到普通事件显示，识别结果仍在快照里", async () => {
+  it("只看关注球队时隐藏无关比赛，保留原始赛程", async () => {
     await renderReadyApp();
     await importMatchIcs();
-    selectDate("2026-09-26");
-
-    const grid = calendarGrid("2026年9月");
     expect(
-      grid.querySelector('[data-date="2026-09-26"] .match-cell'),
+      calendarGrid("2026年9月").querySelector(
+        '[data-date="2026-09-26"] .match-cell',
+      ),
     ).toBeTruthy();
-
     const pane = openSettings();
-    fireEvent.click(builtinCheckbox(pane, "英超赛程"));
+    fireEvent.click(within(pane).getByLabelText(/利物浦/));
+    fireEvent.click(within(pane).getByLabelText("只显示关注球队的比赛"));
     await waitFor(() =>
-      expect(settingInSnapshot(BUILTIN_HIDDEN_KEY)).toEqual(["premier-league"]),
+      expect(snapshotSettings()["football.followedOnly"]).toBe(true),
     );
     closeSettings();
-
-    // 月格：没有对阵块与联赛视觉，回到普通摘要（SEM-003 同一口径）。
-    const gatedGrid = calendarGrid("2026年9月");
-    const cell = gatedGrid.querySelector(
-      '[data-date="2026-09-26"]',
-    ) as HTMLElement;
-    expect(cell.querySelector(".match-cell")).toBeNull();
-    // 联赛视觉让位（这一天在中秋假期里，主背景回到假期底色）。
-    expect(cell.getAttribute("data-cell-backdrop")).not.toBe("league");
     expect(
-      within(cell).getByText(
-        "23:30 Arsenal vs Manchester City - Premier League",
+      calendarGrid("2026年9月").querySelector(
+        '[data-date="2026-09-26"] .match-cell',
       ),
-    ).toBeTruthy();
-
-    // 详情栏：没有比赛详情，事件列在普通事件区。
-    const inspector = screen.getByRole("complementary", { name: "详情栏" });
-    expect(inspector.querySelector(".matchday")).toBeNull();
-    expect(
-      within(inspector).getByText(
-        "Arsenal vs Manchester City - Premier League",
-      ),
-    ).toBeTruthy();
-
-    // 识别结果与事件都在数据层：增强分区仍记着这场比赛（P-04 只管显示）。
+    ).toBeNull();
     const snapshot = writtenSnapshots().at(-1)!;
     expect(snapshot.events).toHaveLength(1);
     expect(
@@ -2358,7 +2339,6 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
       )[0].semantic,
     ).toMatchObject({ type: "sport.fixture" });
   });
-
   it("关闭「我的日历」：用户事件不进月视图，数据保留在快照里", async () => {
     await renderReadyApp();
     chooseImportFile(icsFile(IMPORT_ICS, "team.ics"));
@@ -2387,36 +2367,26 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     expect(snapshot.sources).toHaveLength(1);
   });
 
-  it("关闭「英超赛程」后比赛不再按比赛提醒（提醒计划读同一份过滤结果）", async () => {
-    // 用户设置过提前量时，比赛提醒来自用户设置而不是 Resolver 建议——
-    // 只过滤展示元数据的话这条提醒仍会弹，与界面上的承诺矛盾。
+  it("只看关注球队后无关比赛不会触发比赛提醒", async () => {
     mockBackend({
       dataStoreRead: seededSnapshot({ [MATCH_REMINDER_KEY]: 60 }),
     });
     freezeClock();
     render(<App />);
     await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
-
     await importMatchIcs();
     const pane = openSettings();
+    fireEvent.click(within(pane).getByLabelText(/利物浦/));
+    fireEvent.click(within(pane).getByLabelText("只显示关注球队的比赛"));
     await waitFor(() =>
-      expect(within(pane).getByText(/下一条提醒/)).toBeTruthy(),
-    );
-
-    fireEvent.click(builtinCheckbox(pane, "英超赛程"));
-    await waitFor(() =>
-      expect(settingInSnapshot(BUILTIN_HIDDEN_KEY)).toEqual(["premier-league"]),
+      expect(snapshotSettings()["football.followedOnly"]).toBe(true),
     );
     closeSettings();
-
-    // 比赛 2026-09-26 23:30，提前 60 分钟 —— 关闭来源后到点也不弹。
     await advanceTo(2026, 9, 26, 22, 30);
     await advanceTo(2026, 9, 26, 23, 30);
     expect(sentNotifications()).toEqual([]);
-    // 事件本身还在（关掉的是视图与提醒，不是数据）。
     expect(writtenSnapshots().at(-1)!.events).toHaveLength(1);
   });
-
   it("内置来源开关与刷新间隔从快照恢复，坏值按默认处理", async () => {
     mockBackend({
       dataStoreRead: seededSnapshot({
@@ -2429,7 +2399,7 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     await waitFor(() => expect(screen.getByText(/首次启动/)).toBeTruthy());
 
     expect(builtinCheckbox(openSettings(), "中国节假日").checked).toBe(false);
-    expect(builtinCheckbox(openSettings(), "英超赛程").checked).toBe(true);
+    expect(within(openSettings()).queryByLabelText("英超赛程")).toBeNull();
 
     const pane = openSettings();
     // 表外数字（120 分钟）不猜：回到默认 6 小时。
@@ -2513,7 +2483,9 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
       "关闭窗口时",
       "关于",
       "数据源",
+      "年度数据更新",
       "关注球队",
+      "自定义图片",
       "通知",
     ]);
 
@@ -2619,7 +2591,7 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     // 七条偏好各改一次，全部通过设置页的控件（写）。
     fireEvent.click(within(pane).getByRole("button", { name: "深色" }));
     fireEvent.click(builtinCheckbox(pane, "中国节假日"));
-    fireEvent.click(builtinCheckbox(pane, "英超赛程"));
+    fireEvent.click(within(pane).getByLabelText("只显示关注球队的比赛"));
     fireEvent.change(within(pane).getByLabelText("WebCal 刷新间隔"), {
       target: { value: "60" },
     });
@@ -2634,10 +2606,7 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
     await waitFor(() => {
       const settings = snapshotSettings();
       expect(settings["app.theme"]).toBe("dark");
-      expect(settings[BUILTIN_HIDDEN_KEY]).toEqual([
-        "cn-holiday",
-        "premier-league",
-      ]);
+      expect(settings[BUILTIN_HIDDEN_KEY]).toEqual(["cn-holiday"]);
       expect(settings[WEBCAL_INTERVAL_KEY]).toBe(60);
       expect(settings[FOLLOWED_TEAMS_KEY]).toEqual(["arsenal"]);
       expect(settings[NOTIFICATIONS_ENABLED_KEY]).toBe(false);
@@ -2660,7 +2629,13 @@ describe("设置页（SC-018 / app-spec §9 SETTINGS）", () => {
 
     const reopened = openSettings();
     expect(builtinCheckbox(reopened, "中国节假日").checked).toBe(false);
-    expect(builtinCheckbox(reopened, "英超赛程").checked).toBe(false);
+    expect(
+      (
+        within(reopened).getByLabelText(
+          "只显示关注球队的比赛",
+        ) as HTMLInputElement
+      ).checked,
+    ).toBe(true);
     expect(
       (within(reopened).getByLabelText("WebCal 刷新间隔") as HTMLSelectElement)
         .value,

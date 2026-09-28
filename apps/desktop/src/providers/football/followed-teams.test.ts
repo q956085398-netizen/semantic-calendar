@@ -66,9 +66,10 @@ describe("可关注球队（SC-016）", () => {
     });
   });
 
-  it("应用目录里的 20 支球队都可关注，且每项都能直接渲染", () => {
+  it("应用目录里的俱乐部与国家队都可关注，且每项都能直接渲染", () => {
     const teams = followableTeams(footballCatalog);
-    expect(teams).toHaveLength(20);
+    expect(teams).toHaveLength(74);
+    expect(teams.some((team) => team.id === "national-china")).toBe(true);
     for (const team of teams) {
       expect(team.code).not.toBe("");
       expect(team.crestRef).toBeTruthy();

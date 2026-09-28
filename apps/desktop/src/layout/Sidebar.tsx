@@ -22,6 +22,8 @@ interface SidebarProps {
   followableTeams: FixtureTeamDisplay[];
   followedTeamIds: readonly string[];
   onToggleFollowedTeam: (teamId: string, followed: boolean) => void;
+  followedOnly: boolean;
+  onToggleFollowedOnly: (enabled: boolean) => void;
   settingsOpen: boolean;
   onOpenSettings: () => void;
 }
@@ -37,6 +39,8 @@ export function Sidebar({
   followableTeams,
   followedTeamIds,
   onToggleFollowedTeam,
+  followedOnly,
+  onToggleFollowedOnly,
   settingsOpen,
   onOpenSettings,
 }: SidebarProps) {
@@ -115,6 +119,15 @@ export function Sidebar({
           followedIds={followedTeamIds}
           onToggleTeam={onToggleFollowedTeam}
         />
+        <label className="source-toggle followed-only-toggle">
+          <input
+            type="checkbox"
+            className="source-check"
+            checked={followedOnly}
+            onChange={(event) => onToggleFollowedOnly(event.target.checked)}
+          />
+          <span className="source-name">只看关注球队的比赛</span>
+        </label>
       </div>
       <div className="sidebar-footer">
         <button

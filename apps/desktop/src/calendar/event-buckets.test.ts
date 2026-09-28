@@ -23,6 +23,17 @@ function makeEvent(overrides: Partial<EnrichedEvent> = {}): EnrichedEvent {
 }
 
 describe("eventDateKeys", () => {
+  it("跨过午夜的足球比赛只占开赛日期", () => {
+    expect(
+      eventDateKeys(
+        makeEvent({
+          start: "2026-12-12T23:00:00",
+          end: "2026-12-13T01:00:00",
+          semantic: { type: "sport.fixture" },
+        }),
+      ),
+    ).toEqual(["2026-12-12"]);
+  });
   it("单日全天事件只落在开始日（ICS-002：不换算、不漂移）", () => {
     expect(
       eventDateKeys(makeEvent({ start: "2026-10-08", allDay: true })),

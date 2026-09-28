@@ -1,0 +1,182 @@
+[
+  {
+    "id": "national-china",
+    "name": "China",
+    "nameZh": "中国队",
+    "code": "CHN",
+    "aliases": ["china pr", "中国队", "中国男足"],
+    "colors": { "primary": "#D91F26", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-china"
+  },
+  {
+    "id": "national-england",
+    "name": "England",
+    "nameZh": "英格兰",
+    "code": "ENG",
+    "aliases": ["英格兰队"],
+    "colors": { "primary": "#1C3B75", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-england"
+  },
+  {
+    "id": "national-spain",
+    "name": "Spain",
+    "nameZh": "西班牙",
+    "code": "ESP",
+    "aliases": ["西班牙队"],
+    "colors": { "primary": "#C60B1E", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-spain"
+  },
+  {
+    "id": "national-france",
+    "name": "France",
+    "nameZh": "法国",
+    "code": "FRA",
+    "aliases": ["法国队"],
+    "colors": { "primary": "#183B7A", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-france"
+  },
+  {
+    "id": "national-germany",
+    "name": "Germany",
+    "nameZh": "德国",
+    "code": "GER",
+    "aliases": ["德国队"],
+    "colors": { "primary": "#232323", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-germany"
+  },
+  {
+    "id": "national-portugal",
+    "name": "Portugal",
+    "nameZh": "葡萄牙",
+    "code": "PRT",
+    "aliases": ["葡萄牙队"],
+    "colors": { "primary": "#A51C30", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-portugal"
+  },
+  {
+    "id": "national-italy",
+    "name": "Italy",
+    "nameZh": "意大利",
+    "code": "ITA",
+    "aliases": ["意大利队"],
+    "colors": { "primary": "#1766A6", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-italy"
+  },
+  {
+    "id": "national-netherlands",
+    "name": "Netherlands",
+    "nameZh": "荷兰",
+    "code": "NED",
+    "aliases": ["holland", "荷兰队"],
+    "colors": { "primary": "#E87420", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-netherlands"
+  },
+  {
+    "id": "national-belgium",
+    "name": "Belgium",
+    "nameZh": "比利时",
+    "code": "BEL",
+    "aliases": ["比利时队"],
+    "colors": { "primary": "#9D202A", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-belgium"
+  },
+  {
+    "id": "national-croatia",
+    "name": "Croatia",
+    "nameZh": "克罗地亚",
+    "code": "CRO",
+    "aliases": ["克罗地亚队"],
+    "colors": { "primary": "#C73B3D", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-croatia"
+  },
+  {
+    "id": "national-denmark",
+    "name": "Denmark",
+    "nameZh": "丹麦",
+    "code": "DEN",
+    "aliases": ["丹麦队"],
+    "colors": { "primary": "#B72432", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-denmark"
+  },
+  {
+    "id": "national-norway",
+    "name": "Norway",
+    "nameZh": "挪威",
+    "code": "NOR",
+    "aliases": ["挪威队"],
+    "colors": { "primary": "#B52A3A", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-norway"
+  },
+  {
+    "id": "national-switzerland",
+    "name": "Switzerland",
+    "nameZh": "瑞士",
+    "code": "SUI",
+    "aliases": ["瑞士队"],
+    "colors": { "primary": "#C92635", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-switzerland"
+  },
+  {
+    "id": "national-iceland",
+    "name": "Iceland",
+    "nameZh": "冰岛",
+    "code": "ISL",
+    "aliases": ["冰岛队"],
+    "colors": { "primary": "#214D8C", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-iceland"
+  },
+  {
+    "id": "national-brazil",
+    "name": "Brazil",
+    "nameZh": "巴西",
+    "code": "BRA",
+    "aliases": ["巴西队"],
+    "colors": { "primary": "#1E8E50", "secondary": "#FFE14B" },
+    "crestRef": "crest.team.national-brazil"
+  },
+  {
+    "id": "national-argentina",
+    "name": "Argentina",
+    "nameZh": "阿根廷",
+    "code": "ARG",
+    "aliases": ["阿根廷队"],
+    "colors": { "primary": "#5BA6D0", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-argentina"
+  },
+  {
+    "id": "national-japan",
+    "name": "Japan",
+    "nameZh": "日本",
+    "code": "JPN",
+    "aliases": ["日本队"],
+    "colors": { "primary": "#244786", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-japan"
+  },
+  {
+    "id": "national-south-korea",
+    "name": "South Korea",
+    "nameZh": "韩国",
+    "code": "KOR",
+    "aliases": ["korea republic", "韩国队"],
+    "colors": { "primary": "#D32842", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-south-korea"
+  },
+  {
+    "id": "national-australia",
+    "name": "Australia",
+    "nameZh": "澳大利亚",
+    "code": "AUS",
+    "aliases": ["澳大利亚队"],
+    "colors": { "primary": "#23734B", "secondary": "#F3CB35" },
+    "crestRef": "crest.team.national-australia"
+  },
+  {
+    "id": "national-usa",
+    "name": "United States",
+    "nameZh": "美国",
+    "code": "USA",
+    "aliases": ["usa", "united states of america", "美国队"],
+    "colors": { "primary": "#1D4179", "secondary": "#FFFFFF" },
+    "crestRef": "crest.team.national-usa"
+  }
+]

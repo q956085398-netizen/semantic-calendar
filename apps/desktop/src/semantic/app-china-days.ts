@@ -1,5 +1,6 @@
 import {
   chinaHolidays,
+  type ChinaHolidayCalendar,
   type ChinaDayKind,
   type ChinaDayRun,
 } from "../providers/china/holidays";
@@ -73,10 +74,11 @@ function accentOf(kind: ChinaDayKind): string | undefined {
 /** 一批日期格 → 节假日展示载荷，键为日期键 YYYY-MM-DD。 */
 export function chinaDayLabelsOf(
   cells: readonly ChinaDayCellInput[],
+  calendar: ChinaHolidayCalendar = chinaHolidays,
 ): Map<string, ChinaDayLabel> {
   const labels = new Map<string, ChinaDayLabel>();
   for (const cell of cells) {
-    const day = chinaHolidays.chinaHolidayOfKey(cell.dateKey);
+    const day = calendar.chinaHolidayOfKey(cell.dateKey);
     if (day === undefined) continue;
     const position = chinaDayPositionText(day);
     const accent = accentOf(day.kind);

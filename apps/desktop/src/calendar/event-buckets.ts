@@ -17,12 +17,22 @@ import { localTimeOfDayLabel } from "../format/time";
  */
 
 /** 与存储的三种时间形态都无关，只取“哪一天”所需的最小字段。 */
-type DateKeySource = Pick<EnrichedEvent, "start" | "end" | "allDay">;
+type DateKeySource = Pick<
+  EnrichedEvent,
+  "start" | "end" | "allDay" | "semantic"
+>;
 
 const MAX_SPAN_DAYS = 370;
 
 /** 事件覆盖的本地日期键（YYYY-MM-DD），按时间顺序返回。 */
 export function eventDateKeys(event: DateKeySource): string[] {
+  // A fixture belongs to kickoff day even when its recorded duration ends
+  // after midnight. Other timed events can intentionally span several days.
+  if (event.semantic?.type === "sport.fixture") {
+    return [
+      event.allDay ? event.start.slice(0, 10) : dateKeyOfDateTime(event.start),
+    ];
+  }
   if (!event.allDay) {
     const startDay = dateKeyOfDateTime(event.start);
     if (!event.end) {

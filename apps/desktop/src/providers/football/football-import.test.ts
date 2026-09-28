@@ -33,6 +33,18 @@ function importFixture(title: string) {
 
 describe("足球 ICS 导入到展示载荷", () => {
   it.each([
+    "Crystal Palace vs Nott'm Forest - English Premier League 2026/27 Round 6",
+    "Ipswich vs Nott'm Forest - English Premier League 2026/27 Round 8",
+    "Sunderland vs Nott'm Forest - English Premier League 2026/27 Round 15",
+  ])("截图中的 %s 应显示为对阵", (title) => {
+    const imported = importFixture(title);
+    expect(imported.result?.semantic.type).toBe("sport.fixture");
+    expect(imported.fixture?.teams.map((team) => team.id)).toEqual([
+      expect.any(String),
+      "nottingham-forest",
+    ]);
+  });
+  it.each([
     ["PSV vs Shakhtar", "psv", "shakhtar-donetsk"],
     ["Fenerbahçe vs Roma", "fenerbahce", "roma"],
     ["Bayern München vs Bodø/Glimt", "bayern-munich", "bodo-glimt"],
@@ -70,7 +82,7 @@ describe("足球 ICS 导入到展示载荷", () => {
     expect(fixture.teams[0].crestRef).toBe("crest.team.arsenal");
     expect(fixture.teams[1]).toMatchObject({
       nameEn: "New Rovers",
-      crestRef: "crest.team.unknown",
+      crestRef: expect.stringMatching(/^crest\.team\.custom-new-rovers-/),
     });
     const reversed = importFixture(
       "New Rovers @ Arsenal - UEFA Champions League",
@@ -79,8 +91,34 @@ describe("足球 ICS 导入到展示载荷", () => {
     const both = importFixture(
       "New Rovers vs Other FC - UEFA Champions League",
     ).fixture!;
-    expect(both.teams.every((t) => t.crestRef === "crest.team.unknown")).toBe(
-      true,
+    expect(
+      both.teams.every((t) => t.crestRef?.startsWith("crest.team.custom-")),
+    ).toBe(true);
+  });
+  it("欧国联使用与欧冠相同的对阵模板，并保留未知国家队的专属队徽位置", () => {
+    const imported = importFixture(
+      "Iceland vs Estonia - UEFA Nations League 2026/27 Round 1",
+    );
+    expect(imported.result?.semantic.subtype).toBe("nations-league");
+    expect(imported.fixture?.teams[0].id).toBe("national-iceland");
+    expect(imported.fixture?.teams[1].crestRef).toMatch(
+      /^crest\.team\.custom-estonia-/,
+    );
+    expect(imported.fixture?.competition.logoRef).toBe(
+      "logo.competition.nations-league",
+    );
+  });
+  it("未登记赛事但标题明确写出赛季时仍产生完整对阵", () => {
+    const imported = importFixture(
+      "China vs Japan - East Asia Cup 2026/27 Round 1",
+    );
+    expect(imported.result?.semantic.type).toBe("sport.fixture");
+    expect(imported.fixture?.teams.map((team) => team.id)).toEqual([
+      "national-china",
+      "national-japan",
+    ]);
+    expect(imported.fixture?.competition.logoRef).toMatch(
+      /^logo\.competition\.custom-east-asia-cup-/,
     );
   });
   it.each([
@@ -89,6 +127,7 @@ describe("足球 ICS 导入到展示载荷", () => {
     "Arsenal vs New Rovers train - UEFA Champions League",
     "PSV vs Shakhtar - Premier League / UEFA Champions League",
     "New Rovers vs Other FC",
+    "Arsenal vs Chelsea - Project Meeting Round 2",
   ])("不把无效或矛盾标题 %s 猜成赛事", (title) => {
     expect(importFixture(title).result).toBeNull();
   });

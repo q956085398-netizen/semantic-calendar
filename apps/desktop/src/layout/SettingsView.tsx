@@ -85,6 +85,17 @@ interface SettingsViewProps {
   followableTeams: FixtureTeamDisplay[];
   followedTeamIds: readonly string[];
   onToggleFollowedTeam: (teamId: string, followed: boolean) => void;
+  followedOnly: boolean;
+  onToggleFollowedOnly: (enabled: boolean) => void;
+  customAssetDirectory: string;
+  missingAssetPaths: readonly string[];
+  specialDayAssetPaths: readonly string[];
+  onRefreshUserAssets: () => void;
+  assetStatus: string;
+  holidayYears: readonly number[];
+  holidayUpdateStatus: string;
+  onImportHolidayUpdate: (file: File) => void;
+  onRefreshAllSubscriptions: () => void;
   notifications: SettingsNotificationsProps;
   closeBehavior: CloseBehavior;
   onChangeCloseBehavior: (behavior: CloseBehavior) => void;
@@ -127,6 +138,17 @@ export function SettingsView({
   followableTeams,
   followedTeamIds,
   onToggleFollowedTeam,
+  followedOnly,
+  onToggleFollowedOnly,
+  customAssetDirectory,
+  missingAssetPaths,
+  specialDayAssetPaths,
+  onRefreshUserAssets,
+  assetStatus,
+  holidayYears,
+  holidayUpdateStatus,
+  onImportHolidayUpdate,
+  onRefreshAllSubscriptions,
   notifications,
   closeBehavior,
   onChangeCloseBehavior,
@@ -159,6 +181,12 @@ export function SettingsView({
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (file) onImportIcs(file);
+    event.target.value = "";
+  }
+
+  function handleHolidayFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (file) onImportHolidayUpdate(file);
     event.target.value = "";
   }
 
@@ -556,6 +584,57 @@ export function SettingsView({
             </p>
           </section>
 
+          <section
+            className="settings-section"
+            aria-labelledby="settings-yearly-updates"
+          >
+            <h3 id="settings-yearly-updates" className="sidebar-heading">
+              年度数据更新
+            </h3>
+            <p className="store-status">
+              英超及其他赛程由上方“导入 ICS 文件”或 WebCal
+              订阅维护；再次导入同名文件会更新已有比赛。订阅可单独点“刷新”。
+            </p>
+            {sources.some((source) => source.type === WEBCAL_SOURCE_TYPE) && (
+              <button
+                type="button"
+                className="source-action"
+                onClick={onRefreshAllSubscriptions}
+              >
+                刷新全部订阅
+              </button>
+            )}
+            <p className="store-status">
+              中国节假日已登记至 {Math.max(...holidayYears)}{" "}
+              年。下一年度通知发布后，可在此导入按通知核对的 JSON
+              安排；导入后立即替换该年的内置安排。
+            </p>
+            <label className="import-button">
+              导入年度节假日 JSON…
+              <input
+                type="file"
+                accept=".json,application/json"
+                className="file-input-hidden"
+                onChange={handleHolidayFileChange}
+              />
+            </label>
+            <details className="asset-missing-list">
+              <summary>查看节假日文件格式</summary>
+              <pre className="asset-directory">{`{\n  "year": 2027,\n  "revision": 1,\n  "notice": "通知文号",\n  "publishedAt": "2026-11-01",\n  "sourceUrl": "https://通知原文地址",\n  "items": [\n    { "names": ["假期名称"],\n      "rest": [{ "from": "2027-01-01", "to": "2027-01-03" }],\n      "makeup": [] }\n  ]\n}`}</pre>
+              <p className="store-status">
+                示例日期仅演示格式，导入前请逐项核对正式通知；没有发布的年度不要推算。
+              </p>
+            </details>
+            {holidayUpdateStatus && (
+              <p className="store-status" role="status">
+                {holidayUpdateStatus}
+              </p>
+            )}
+            <p className="store-status">
+              二十四节气内置至 2100 年，农历内置至 2099 年，无需每年更新。
+            </p>
+          </section>
+
           {/* 关注球队（SC-016 / SPORT-006）：侧栏常驻条目之外的集中入口，
             同一组件、同一份状态，两处不会各自记一份关注列表。 */}
           <section
@@ -570,6 +649,72 @@ export function SettingsView({
               followedIds={followedTeamIds}
               onToggleTeam={onToggleFollowedTeam}
             />
+            <label className="source-toggle followed-only-toggle">
+              <input
+                type="checkbox"
+                className="source-check"
+                checked={followedOnly}
+                onChange={(event) => onToggleFollowedOnly(event.target.checked)}
+              />
+              <span className="source-name">只显示关注球队的比赛</span>
+            </label>
+            <p className="store-status">
+              普通日程和节假日仍正常显示；比赛仅保留主队或客队已关注的场次。
+            </p>
+          </section>
+
+          <section
+            className="settings-section"
+            aria-labelledby="settings-custom-assets"
+          >
+            <h3 id="settings-custom-assets" className="sidebar-heading">
+              自定义图片
+            </h3>
+            <p className="store-status">
+              把 PNG 图片放入下方目录的子文件夹。图片最长宽高 2048
+              像素、大小不超过 1 MB；文件名使用小写英文字母、数字和短横线。
+            </p>
+            <code className="asset-directory">
+              {customAssetDirectory || "桌面应用启动后显示素材目录"}
+            </code>
+            <p className="store-status">
+              队徽：teams/球队标识.png；赛事图标：competitions/赛事标识.png；节日背景：days/festival-节日标识.png；节气背景：days/solar-term-节气标识.png；假期背景：days/holiday-rest.png
+              或 days/holiday-YYYY-MM-DD.png。
+            </p>
+            <details className="asset-missing-list">
+              <summary>查看当前日历页特殊日期的准确文件名</summary>
+              <ul>
+                {specialDayAssetPaths.map((path) => (
+                  <li key={path}>
+                    <code>{path}</code>
+                  </li>
+                ))}
+              </ul>
+            </details>
+            {missingAssetPaths.length > 0 && (
+              <details className="asset-missing-list">
+                <summary>
+                  当前赛程缺少 {missingAssetPaths.length} 张图片，查看准确文件名
+                </summary>
+                <ul>
+                  {missingAssetPaths.slice(0, 60).map((path) => (
+                    <li key={path}>
+                      <code>{path}</code>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+            <button
+              type="button"
+              className="source-action"
+              onClick={onRefreshUserAssets}
+            >
+              重新扫描素材
+            </button>
+            <p className="store-status" role="status">
+              {assetStatus}
+            </p>
           </section>
 
           {/* 通知（SC-017 / NOTIFY-001–003）：开关 + 比赛提醒提前量 + 权限状态。

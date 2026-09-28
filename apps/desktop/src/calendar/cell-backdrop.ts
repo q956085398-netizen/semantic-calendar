@@ -48,6 +48,10 @@ export interface LeagueBackdrop {
 export interface HolidayBackdrop {
   kind: "holiday";
 }
+export interface HolidayImageBackdrop {
+  kind: "holiday-image";
+  ref: string;
+}
 
 /** 普通日期：不画背景层。 */
 export interface NoBackdrop {
@@ -55,7 +59,11 @@ export interface NoBackdrop {
 }
 
 export type CellBackdrop =
-  DaySemanticBackdrop | LeagueBackdrop | HolidayBackdrop | NoBackdrop;
+  | DaySemanticBackdrop
+  | LeagueBackdrop
+  | HolidayBackdrop
+  | HolidayImageBackdrop
+  | NoBackdrop;
 
 /**
  * 主背景判定需要的最小事件输入：只需要已收窄的对阵载荷。
@@ -71,6 +79,7 @@ export interface CellBackdropInput {
   chinaSemantic?: ChinaDaySemanticLabel;
   /** 只有实际可用的专属图片才取得主背景；语义文字不占用背景。 */
   dayBackdropAvailable?: boolean;
+  holidayBackdropRef?: string;
   /** 当日事件里带完整对阵载荷的比赛（SC-016）；没有比赛时缺省或空数组。 */
   fixtures?: readonly CellBackdropFixtureInput[];
   /** 休假 / 补班载荷（SC-011）；普通日期缺省。 */
@@ -86,12 +95,15 @@ export function cellBackdropOf(input: CellBackdropInput): CellBackdrop {
   if (primary !== undefined && input.dayBackdropAvailable === true) {
     return { kind: primary.kind, ref: primary.backgroundRef };
   }
-
   const competition = input.fixtures?.find(
     ({ fixture }) => fixture.competition.backgroundEnabled !== false,
   )?.fixture.competition;
   if (competition !== undefined) {
     return { kind: "league", competition };
+  }
+
+  if (input.holidayBackdropRef !== undefined) {
+    return { kind: "holiday-image", ref: input.holidayBackdropRef };
   }
 
   if (input.chinaDay !== undefined) {

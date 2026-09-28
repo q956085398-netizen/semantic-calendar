@@ -138,7 +138,7 @@ export function createLocalMarkAssets(
           const failed = missing.length - Object.keys(accepted).length;
           emit(
             failed
-              ? `${failed} 个图标暂未获取，使用替代标记；重启后重试`
+              ? `${failed} 个图标暂未获取，使用替代标记；下次启动会重试`
               : `本地赛事图标 ${Object.keys(data).length} 个`,
           );
           if (Object.keys(accepted).length > 0) {
@@ -158,7 +158,7 @@ export function createLocalMarkAssets(
             );
           }
         })
-        .catch(() => emit("图标下载或保存失败，已有图片仍可显示；重启后重试"));
+        .catch(() => emit("图标下载或保存失败，已有图片仍可显示；下次启动会重试"));
       return queue;
     },
   };

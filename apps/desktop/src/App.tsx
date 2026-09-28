@@ -54,6 +54,19 @@ import {
 } from "./semantic/app-china-festivals";
 import { semanticTypeDefaults } from "./semantic/metadata-resolver";
 import { useLocalMarkAssets } from "./semantic/use-local-mark-assets";
+import { customAssetPath } from "./semantic/custom-assets";
+import {
+  HOLIDAY_UPDATES_SETTING_KEY,
+  addHolidayUpdate,
+  holidayCalendarWithUpdates,
+  readHolidayUpdates,
+} from "./settings/holiday-updates";
+import type { HolidayArrangementData } from "./settings/holiday-updates";
+import {
+  FOLLOWED_ONLY_SETTING_KEY,
+  filterFixturesByFollowedTeams,
+  readFollowedOnly,
+} from "./settings/fixture-visibility";
 import { reminderLabel } from "./format/reminder";
 import {
   BUILTIN_SOURCES_SETTING_KEY,
@@ -309,6 +322,11 @@ export default function App() {
 
   // 关注球队（SC-016 / SPORT-006）：设置里的稳定球队 id 列表。
   const [followedTeamIds, setFollowedTeamIds] = useState<readonly string[]>([]);
+  const [followedOnly, setFollowedOnly] = useState(false);
+  const [holidayUpdates, setHolidayUpdates] = useState<
+    readonly HolidayArrangementData[]
+  >([]);
+  const [holidayUpdateStatus, setHolidayUpdateStatus] = useState("");
 
   // 通知（SC-017 / NOTIFY-001–003）：设置 + 权限状态 + 最近一次失败说明。
   const [notificationsEnabled, setNotificationsEnabled] = useState(
@@ -358,13 +376,18 @@ export default function App() {
   );
   /**
    * 可见事件（SC-018）：再经内置来源开关过滤——「我的日历」关掉就没有用户
-   * 事件进入展示，「英超赛程」关掉则比赛回到普通事件（semantic/app-builtin-sources）。
+   * 事件进入展示；关注球队过滤在同一条视图链路上处理。
    * 三个消费者共用这一份：月格分桶、详情栏与提醒计划，因此界面上的说法与
    * 真正会发生的事不会矛盾。
    */
   const visibleEvents = useMemo(
-    () => gateEventsForBuiltinSources(events, hiddenBuiltinSourceIds),
-    [events, hiddenBuiltinSourceIds],
+    () =>
+      filterFixturesByFollowedTeams(
+        gateEventsForBuiltinSources(events, hiddenBuiltinSourceIds),
+        followedTeamIds,
+        followedOnly,
+      ),
+    [events, hiddenBuiltinSourceIds, followedTeamIds, followedOnly],
   );
 
   /**
@@ -383,7 +406,13 @@ export default function App() {
     grid,
   );
   const selectedEvents = eventsByDate.get(selectedDateKey) ?? [];
-  const { source: markAssets, status: assetStatus } = useLocalMarkAssets(visibleEvents);
+  const {
+    source: markAssets,
+    status: assetStatus,
+    directory: customAssetDirectory,
+    missingRefs: missingAssetRefs,
+    refreshUserAssets,
+  } = useLocalMarkAssets(events);
 
   /**
    * 农历简写（SC-010 / CN-001）：随网格一起重算，范围外的日期不进 Map。
@@ -396,9 +425,13 @@ export default function App() {
    * 未登记安排的日期不进 Map。月格据此识别连休区段（相邻格共享区段 id），
    * 详情栏消费选中日期的文字层；连续背景与大字视觉由 SC-013 完成。
    */
+  const holidayCalendar = useMemo(
+    () => holidayCalendarWithUpdates(holidayUpdates),
+    [holidayUpdates],
+  );
   const chinaDayByDate = useMemo(
-    () => chinaDayLabelsOf(grid.weeks.flat()),
-    [grid],
+    () => chinaDayLabelsOf(grid.weeks.flat(), holidayCalendar),
+    [grid, holidayCalendar],
   );
 
   /**
@@ -410,6 +443,19 @@ export default function App() {
     () => chinaSemanticLabelsOf(grid.weeks.flat()),
     [grid],
   );
+  const specialDayAssetPaths = useMemo(() => {
+    const paths = new Set(["days/holiday-rest.png", "days/holiday-makeup.png"]);
+    for (const label of chinaSemanticByDate.values()) {
+      for (const entry of label.entries) {
+        const path = customAssetPath(entry.backgroundRef);
+        if (path) paths.add(path);
+      }
+    }
+    for (const date of chinaDayByDate.keys()) {
+      paths.add(`days/holiday-${date}.png`);
+    }
+    return [...paths].sort();
+  }, [chinaSemanticByDate, chinaDayByDate]);
 
   /**
    * 内置来源开关的直接效果（SC-018）：关闭的来源取空载荷，月格与详情栏不必
@@ -431,7 +477,7 @@ export default function App() {
 
   /**
    * 提醒计划（SC-017 / NOTIFY-002–004）：与月格同源的事件集合（含 SC-018
-   * 的内置来源开关结果——“英超赛程”关掉后比赛不再按比赛提醒），窗口是
+   * 的内置来源开关及关注球队过滤结果），窗口是
    * “当前日期起 30 天”。计划只在调度需要时（启动、数据变化、跨天、到点）
    * 才算一次，不随渲染重算；窗口每次都读实时时钟，因此常驻数天的会话不会
    * 一直用启动那天的窗口。已处理的提醒（fired 日志）在这里就被排除，
@@ -803,8 +849,18 @@ export default function App() {
       if (cancelled) return;
 
       // 关注球队（SC-016）：坏值在读取边界丢弃，不猜成某支球队。
-      setFollowedTeamIds(
-        readFollowedTeamIds(store.getSetting(FOLLOWED_TEAMS_SETTING_KEY)),
+      const savedFollowed = readFollowedTeamIds(
+        store.getSetting(FOLLOWED_TEAMS_SETTING_KEY),
+      );
+      setFollowedTeamIds(savedFollowed);
+      setFollowedOnly(
+        readFollowedOnly(
+          store.getSetting(FOLLOWED_ONLY_SETTING_KEY),
+          savedFollowed.length > 0,
+        ),
+      );
+      setHolidayUpdates(
+        readHolidayUpdates(store.getSetting(HOLIDAY_UPDATES_SETTING_KEY)),
       );
 
       // 内置来源显示开关（SC-018）：只记被隐藏的 id，坏值丢弃即“显示”。
@@ -1103,7 +1159,7 @@ export default function App() {
     const next = toggleBuiltinSource(hiddenBuiltinSourceIds, id, enabled);
     setHiddenBuiltinSourceIds(next);
     await persistSetting(BUILTIN_SOURCES_SETTING_KEY, next);
-    // 英超开关会改变提醒计划的输入，立即按最新事件重排（§12 无轮询）。
+    // 用户日历开关会改变提醒计划输入，立即按最新事件重排。
     reminderSchedulerRef.current?.reschedule();
   }
 
@@ -1127,6 +1183,29 @@ export default function App() {
     const next = toggleFollowedTeam(followedTeamIds, teamId, followed);
     setFollowedTeamIds(next);
     await persistSetting(FOLLOWED_TEAMS_SETTING_KEY, next);
+  }
+
+  async function handleToggleFollowedOnly(enabled: boolean) {
+    setFollowedOnly(enabled);
+    await persistSetting(FOLLOWED_ONLY_SETTING_KEY, enabled);
+  }
+
+  async function handleImportHolidayUpdate(file: File) {
+    if (!storeRef.current) {
+      setHolidayUpdateStatus("本地数据层尚未就绪，无法保存年度安排");
+      return;
+    }
+    try {
+      if (file.size > 100_000) throw new Error("文件超过 100 KB");
+      const raw: unknown = JSON.parse(await file.text());
+      const next = addHolidayUpdate(holidayUpdates, raw);
+      setHolidayUpdates(next);
+      await persistSetting(HOLIDAY_UPDATES_SETTING_KEY, next);
+      const year = next.at(-1)?.year;
+      setHolidayUpdateStatus(`已更新 ${year} 年节假日安排，月历立即生效`);
+    } catch (error) {
+      setHolidayUpdateStatus(`更新失败：${describeSafeError(error)}`);
+    }
   }
 
   /**
@@ -1253,6 +1332,8 @@ export default function App() {
           followableTeams={followableTeams}
           followedTeamIds={followedTeamIds}
           onToggleFollowedTeam={handleToggleFollowedTeam}
+          followedOnly={followedOnly}
+          onToggleFollowedOnly={handleToggleFollowedOnly}
           settingsOpen={settingsOpen}
           onOpenSettings={() => setSettingsOpen((open) => !open)}
           {...(storeProblem === undefined ? {} : { storeProblem })}
@@ -1301,6 +1382,29 @@ export default function App() {
           followableTeams={followableTeams}
           followedTeamIds={followedTeamIds}
           onToggleFollowedTeam={handleToggleFollowedTeam}
+          followedOnly={followedOnly}
+          onToggleFollowedOnly={handleToggleFollowedOnly}
+          customAssetDirectory={customAssetDirectory}
+          missingAssetPaths={missingAssetRefs
+            .map(customAssetPath)
+            .filter((path): path is string => path !== undefined)}
+          specialDayAssetPaths={specialDayAssetPaths}
+          onRefreshUserAssets={() => {
+            void refreshUserAssets();
+          }}
+          assetStatus={assetStatus}
+          holidayYears={holidayCalendar.versions.map((version) => version.year)}
+          holidayUpdateStatus={holidayUpdateStatus}
+          onImportHolidayUpdate={(file) => {
+            void handleImportHolidayUpdate(file);
+          }}
+          onRefreshAllSubscriptions={() => {
+            for (const source of sources.filter(
+              (item) => item.type === "webcal",
+            )) {
+              void handleRefreshSubscription(source.id);
+            }
+          }}
           notifications={notificationProps}
           closeBehavior={closeBehavior}
           onChangeCloseBehavior={handleChangeCloseBehavior}

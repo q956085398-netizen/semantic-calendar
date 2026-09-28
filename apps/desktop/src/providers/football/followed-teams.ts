@@ -20,14 +20,24 @@ import { teamDisplay } from "./football-metadata-resolver";
 /** 持久化键名；SC-018 的设置页与启动读取共用同一常量。 */
 export const FOLLOWED_TEAMS_SETTING_KEY = "football.followedTeams";
 
-/** 可关注球队：最新赛季名单解析为展示载荷（UI 直接渲染，不做球队名匹配）。 */
+/** 所有已登记球队都可关注；赛季更新不能让既有关注静默消失。 */
 export function followableTeams(
   catalog: FootballCatalog,
 ): FixtureTeamDisplay[] {
   const season = catalog.competitionById("premier-league")
     ? catalog.latestSeason("premier-league")
     : catalog.latestSeason();
-  const teams = season === undefined ? [] : catalog.rosterOf(season.id);
+  const preferred = season === undefined ? [] : catalog.rosterOf(season.id);
+  const ids = new Set(preferred.map((team) => team.id));
+  const teams = [
+    ...preferred,
+    ...catalog.teams.filter(
+      (team) => team.id.startsWith("national-") && !ids.has(team.id),
+    ),
+    ...catalog.teams.filter(
+      (team) => !team.id.startsWith("national-") && !ids.has(team.id),
+    ),
+  ];
   return teams.map(teamDisplay);
 }
 

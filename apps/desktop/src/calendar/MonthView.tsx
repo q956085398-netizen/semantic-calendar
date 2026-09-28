@@ -256,14 +256,34 @@ export function MonthView({
                 semantic?.entries[0]?.backgroundRef,
                 assets,
               );
+              const holidayRef = chinaDay
+                ? [
+                    `bg.holiday.${cell.dateKey}`,
+                    `bg.holiday.${chinaDay.kind}`,
+                  ].find((ref) => {
+                    const url = dayBackdropUrl(ref, assets);
+                    return url !== undefined && !failedBackdropUrls.has(url);
+                  })
+                : undefined;
+              const semanticBackdropAvailable =
+                backdropUrl !== undefined &&
+                !failedBackdropUrls.has(backdropUrl);
+              const holidayBackdropAvailable = holidayRef !== undefined;
               const backdrop = cellBackdropOf({
                 chinaSemantic: semantic,
-                dayBackdropAvailable:
-                  backdropUrl !== undefined &&
-                  !failedBackdropUrls.has(backdropUrl),
+                dayBackdropAvailable: semanticBackdropAvailable,
+                holidayBackdropRef: holidayBackdropAvailable
+                  ? holidayRef
+                  : undefined,
                 fixtures,
                 chinaDay,
               });
+              const effectiveBackdropUrl =
+                backdrop.kind === "festival" ||
+                backdrop.kind === "solar-term" ||
+                backdrop.kind === "holiday-image"
+                  ? dayBackdropUrl(backdrop.ref, assets)
+                  : undefined;
               // 假期底色的语义色（§20）只在假期成为主背景时注入；
               // 让位的日子格子上不留一个没人消费的变量。
               const cellAccent =
@@ -303,13 +323,13 @@ export function MonthView({
                   onKeyDown={handleKeyDown}
                 >
                   <CellBackdropLayer
-                    key={backdropUrl}
+                    key={effectiveBackdropUrl}
                     backdrop={backdrop}
                     assets={assets}
                     onUnavailable={() => {
-                      if (backdropUrl !== undefined) {
+                      if (effectiveBackdropUrl !== undefined) {
                         setFailedBackdropUrls(
-                          (urls) => new Set([...urls, backdropUrl]),
+                          (urls) => new Set([...urls, effectiveBackdropUrl]),
                         );
                       }
                     }}
@@ -383,6 +403,7 @@ function CellBackdropLayer({
   switch (backdrop.kind) {
     case "festival":
     case "solar-term":
+    case "holiday-image":
       // 节日 / 节气专属视觉：整格图片，由格子的 overflow: hidden 裁切（§9.1）。
       return (
         <DayBackdrop

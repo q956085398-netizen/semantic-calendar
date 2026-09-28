@@ -32,6 +32,19 @@ function startsOf(result: EnrichedEvent[]): string[] {
 const WINDOW = { from: "2026-10-01", to: "2026-10-31" };
 
 describe("expandEventOccurrences — 非重复事件规范化", () => {
+  it("跨过午夜的比赛不进入只有结束日期的窗口", () => {
+    const fixture = makeEvent({
+      start: "2026-12-12T23:00:00",
+      end: "2026-12-13T01:00:00",
+      semantic: { type: "sport.fixture" },
+    });
+    expect(
+      expandEventOccurrences([fixture], {
+        from: "2026-12-13",
+        to: "2026-12-13",
+      }),
+    ).toEqual([]);
+  });
   it("浮动 / UTC / 全天事件原样通过，不改动时间字段", () => {
     const events = [
       makeEvent({ uid: "f", start: "2026-10-05T19:30:00" }),

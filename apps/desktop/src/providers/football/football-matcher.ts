@@ -4,6 +4,7 @@ import type { EventMatcher, MatchOutput } from "../../semantic/matcher-engine";
 import type { CompetitionMetadata } from "./competitions";
 import type { FootballCatalog } from "./football-catalog";
 import { unknownTeamId } from "./unknown-team";
+import { unknownCompetitionId } from "./unknown-competition";
 
 /** 足球对阵识别：球队身份与赛事身份分开解析。只接受明确的对阵和
  * 白名单赛程附加信息；未注明赛事使用中性足球载荷，不以国内名单猜杯赛。
@@ -105,10 +106,17 @@ export function createFootballMatcher(catalog: FootballCatalog): EventMatcher {
       const mentions = scanMentions(needles, text);
       const teams = mentions.filter((mention) => mention.kind === "team");
       if (teams.length !== TEAM_COUNT) {
-        return explicitFixtureWithUnknownTeams(
-          catalog,
-          normalizeEventTitle(event.normalizedTitle),
-          mentions,
+        return (
+          explicitFixtureWithUnknownTeams(
+            catalog,
+            normalizeEventTitle(event.normalizedTitle),
+            mentions,
+          ) ??
+          genericExplicitFixture(
+            catalog,
+            normalizeEventTitle(event.normalizedTitle),
+            mentions,
+          )
         );
       }
       const [left, right] = teams;
@@ -123,7 +131,11 @@ export function createFootballMatcher(catalog: FootballCatalog): EventMatcher {
       }
 
       if (!isFixtureOnlyTitle(text, mentions, left, right)) {
-        return null;
+        return genericExplicitFixture(
+          catalog,
+          normalizeEventTitle(event.normalizedTitle),
+          mentions,
+        );
       }
 
       const competition = resolveCompetition(catalog, mentions);
@@ -147,6 +159,77 @@ export function createFootballMatcher(catalog: FootballCatalog): EventMatcher {
         reason: `${orderReason(between, separator)}；${competitionReason(competition)}`,
       };
     },
+  };
+}
+
+/** Explicit imported fixture syntax can carry an unregistered competition.
+ * A season or round is required so unrelated "A vs B - note" events stay ordinary.
+ */
+function genericExplicitFixture(
+  catalog: FootballCatalog,
+  title: string,
+  mentions: readonly Mention[],
+): MatchOutput | null {
+  if (
+    new Set(mentions.filter((m) => m.kind === "competition").map((m) => m.id))
+      .size > 1
+  )
+    return null;
+  const match = /^(.+?)\s+(vs\.?|v\.?|versus|@)\s+(.+?)\s+[-–—]\s+(.+)$/iu.exec(
+    title,
+  );
+  if (!match) return null;
+  const [, left, between, right, suffix] = match;
+  const season = /\b(20\d{2})[/-](20\d{2}|\d{2})\b/u.exec(suffix);
+  if (season) {
+    const year = Number(season[1]);
+    const next = Number(season[2]);
+    if (next !== year + 1 && next !== (year + 1) % 100) return null;
+  }
+  const competitionName = suffix
+    .replace(
+      /\s+(?:season\s+)?20\d{2}[/-](?:20\d{2}|\d{2})(?:\s+(?:round|matchday|md)\s+[1-9]\d?)?$/iu,
+      "",
+    )
+    .replace(/\s+(?:round|matchday|md)\s+[1-9]\d?$/iu, "")
+    .trim();
+  if (
+    competitionName === suffix.trim() ||
+    !/^[\p{L}\p{N}][\p{L}\p{N}\s.'’&-]{2,79}$/u.test(competitionName)
+  )
+    return null;
+  const validName = (name: string) =>
+    name.length <= 80 &&
+    /^[\p{L}\p{N}][\p{L}\p{N}\s.'’&/-]+$/u.test(name) &&
+    !/\b(?:tickets?|train|meeting|show|stadium|training|sale|review)\b/iu.test(
+      name,
+    );
+  if (!validName(left) || !validName(right) || left === right) return null;
+  const separator = classifySeparator(between.toLowerCase());
+  if (!separator) return null;
+  const ids = [left, right].map(
+    (name) => catalog.teamByAlias(name)?.id ?? unknownTeamId(name),
+  );
+  if (ids[0] === ids[1]) return null;
+  if (separator.homeSide === "right") ids.reverse();
+  const knownCompetition = catalog.competitions.find((item) =>
+    [item.name, item.nameEn, item.label, ...item.aliases].some(
+      (alias) => titleKey(alias) === titleKey(competitionName),
+    ),
+  );
+  if (
+    !knownCompetition &&
+    !/(?:league|cup|championship|tournament|football|soccer|uefa|联赛|杯|锦标赛|足球)/iu.test(
+      competitionName,
+    )
+  )
+    return null;
+  return {
+    type: "sport.fixture",
+    subtype: knownCompetition?.id ?? unknownCompetitionId(competitionName),
+    entities: ids.map((id) => ({ type: "team", id })),
+    confidence: 0.7,
+    reason: `${orderReason(between, separator)}；标题明确标注赛事与赛季或轮次`,
   };
 }
 

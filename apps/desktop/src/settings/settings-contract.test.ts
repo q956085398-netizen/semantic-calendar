@@ -451,6 +451,8 @@ const NON_PREFERENCE_KEYS = ["notifications.firedReminders"];
 const PREFERENCE_KEYS = [
   "app.closeBehavior",
   "app.theme",
+  "cn.holidayUpdates",
+  "football.followedOnly",
   "football.followedTeams",
   "notifications.enabled",
   "notifications.matchReminderMinutes",
@@ -464,7 +466,7 @@ describe("偏好注册表（SC-018 验收「所有 v0.1 偏好可持久化」）
     expect(settingKeyShapeProblems(SETTING_KEYS)).toEqual([]);
   });
 
-  it("清单被钉住：偏好 7 条 + 去重日志 1 条", () => {
+  it("清单被钉住：偏好 9 条 + 去重日志 1 条", () => {
     expect(
       SETTING_KEYS.map((key) => key.value)
         .filter((value) => !NON_PREFERENCE_KEYS.includes(value))

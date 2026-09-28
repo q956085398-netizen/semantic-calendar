@@ -1,4 +1,5 @@
-import additionalTeams from './international-teams.json';
+import additionalTeams from "./international-teams.json";
+import nationalTeams from "./national-teams.json";
 import type { MarkColors } from "../../semantic/metadata-resolver";
 
 /**
@@ -204,7 +205,7 @@ export const TEAMS: readonly TeamMetadata[] = [
     name: "Nottingham Forest",
     nameZh: "诺丁汉森林",
     code: "NFO",
-    aliases: ["nottingham forest", "forest", "诺丁汉森林"],
+    aliases: ["nottingham forest", "nott'm forest", "forest", "诺丁汉森林"],
     colors: { primary: "#DD0000", secondary: "#FFFFFF" },
     crestRef: "crest.team.nottingham-forest",
   },
@@ -264,4 +265,5 @@ export const TEAMS: readonly TeamMetadata[] = [
     crestRef: "crest.team.wolverhampton-wanderers",
   },
   ...additionalTeams,
+  ...nationalTeams,
 ];

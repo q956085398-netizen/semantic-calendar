@@ -14,7 +14,7 @@ export default defineConfig({
   plugins: [react()],
   clearScreen: false,
   define: { __APP_VERSION__: JSON.stringify(version) },
-  server: { port: 1420, strictPort: true },
+  server: { port: 5173, strictPort: true },
   test: {
     environment: "jsdom",
     // 基线（SC-020）：只收 *.bench.ts，运行环境按文件头注释取 node

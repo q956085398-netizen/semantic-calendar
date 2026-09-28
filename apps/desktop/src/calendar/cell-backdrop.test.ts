@@ -144,6 +144,7 @@ describe("日期格主背景优先级（SC-013 / ui-design §16.1）", () => {
     const backdrop = cellBackdropOf({
       fixtures: [FIXTURE],
       chinaDay: REST_DAY,
+      holidayBackdropRef: "bg.holiday.rest",
     });
 
     expect(backdrop).toEqual({

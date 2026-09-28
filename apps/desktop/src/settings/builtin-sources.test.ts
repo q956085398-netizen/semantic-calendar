@@ -34,13 +34,13 @@ describe("读取隐藏来源边界", () => {
         "cn-holiday",
         "premier-league",
       ]),
-    ).toEqual(["cn-holiday", "premier-league"]);
+    ).toEqual(["cn-holiday"]);
   });
 
   it("顺序规范化到目录顺序，与写入顺序无关", () => {
     expect(
       readHiddenBuiltinSourceIds(["premier-league", "cn-holiday", "mine"]),
-    ).toEqual(["mine", "cn-holiday", "premier-league"]);
+    ).toEqual(["mine", "cn-holiday"]);
   });
 
   it("清空列表 → 全部可见（空数组是「都显示」而不是「都隐藏」）", () => {
@@ -79,7 +79,7 @@ describe("开关读写", () => {
     }
     expect(hidden).toEqual(ALL_IDS);
     // 目录里没有第五个来源：设置键与目录必须同时增加（这里守住这个契约）。
-    expect(BUILTIN_SOURCES).toHaveLength(4);
+    expect(BUILTIN_SOURCES).toHaveLength(3);
   });
 
   it("持久化键与文档口径一致（改名会让旧快照读不出开关）", () => {
@@ -93,7 +93,6 @@ describe("目录条目", () => {
       "我的日历",
       "中国节假日",
       "二十四节气",
-      "英超赛程",
     ]);
   });
 

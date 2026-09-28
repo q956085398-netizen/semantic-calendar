@@ -1,12 +1,12 @@
 /**
  * 内置数据源显示开关（SC-018 / ui-design §4 第 2 项、§4.3、app-spec §9 SETTINGS）。
  *
- * 四个内置来源对应侧栏数据源列表里的固定四行（§4.3），它们是产品自带的
+ * 三个内置来源对应侧栏数据源列表里的固定三行，它们是产品自带的
  * 内容层，不是用户导入的数据：
  * - mine：用户自己的日历事件（本地导入与订阅）；
  * - cn-holiday：法定节假日、连休与补班（SC-011）；
  * - solar-terms：传统节日与二十四节气（SC-012）；
- * - premier-league：英超比赛语义（SC-014–016）。
+ * 英超及其他赛程作为用户导入或订阅的来源管理。
  *
  * 快照里存**被隐藏的来源 id**，不是“已启用的 id”：这样默认全开，将来新增
  * 内置来源时对已有快照也是可见的，不需要迁移。读取边界只接受认识的 id
@@ -16,8 +16,7 @@
  * 用户数据），展示侧的消费点是 `semantic/app-builtin-sources.ts`。
  */
 
-export type BuiltinSourceId =
-  "mine" | "cn-holiday" | "solar-terms" | "premier-league";
+export type BuiltinSourceId = "mine" | "cn-holiday" | "solar-terms";
 
 export interface BuiltinSourceDefinition {
   id: BuiltinSourceId;
@@ -43,11 +42,6 @@ export const BUILTIN_SOURCES: readonly BuiltinSourceDefinition[] = [
     id: "solar-terms",
     name: "二十四节气",
     description: "显示传统节日与节气；关闭后隐藏相关名称与详情",
-  },
-  {
-    id: "premier-league",
-    name: "英超赛程",
-    description: "显示比赛对阵与详情；关闭后按普通日程显示",
   },
 ];
 

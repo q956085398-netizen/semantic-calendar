@@ -6,6 +6,7 @@ use tauri::Manager;
 mod football_assets;
 mod notify;
 mod shell;
+mod user_assets;
 mod webcal;
 
 /// 本地数据快照所在的子目录（位于系统 app data dir 之下）。
@@ -140,6 +141,7 @@ pub fn run() {
             data_store_rename,
             webcal_fetch,
             football_assets_download,
+            user_assets::user_assets_scan,
             notify::notification_status,
             notify::notification_request_permission,
             notify::notification_send,

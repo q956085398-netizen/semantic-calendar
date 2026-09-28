@@ -48,10 +48,11 @@ const MINI_SEASON: readonly SeasonRoster[] = [
 
 describe("英超元数据目录：查询（SC-014 / SPORT-001）", () => {
   it("默认目录包含 20 支球队与已登记赛季名单", () => {
-    expect(footballCatalog.teams).toHaveLength(54);
+    expect(footballCatalog.teams).toHaveLength(74);
     expect(footballCatalog.competitions.map((c) => c.id)).toEqual([
       "premier-league",
       "champions-league",
+      "nations-league",
       "football",
     ]);
     const season = footballCatalog.latestSeason("premier-league");

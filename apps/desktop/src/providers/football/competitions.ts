@@ -72,6 +72,16 @@ export const COMPETITIONS: readonly CompetitionMetadata[] = [
     logoRef: "logo.competition.champions-league",
   },
   {
+    id: "nations-league",
+    label: "欧国联",
+    name: "欧洲国家联赛",
+    nameEn: "UEFA Nations League",
+    aliases: ["nations league", "uefa nations league", "欧足联国家联赛"],
+    accent: "var(--semantic-sport)",
+    colors: { primary: "#153985", secondary: "#FFFFFF" },
+    logoRef: "logo.competition.nations-league",
+  },
+  {
     id: "football",
     label: "足球",
     name: "足球比赛",
